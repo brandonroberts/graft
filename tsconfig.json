@@ -1,0 +1,11 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/spec" },
+    { "path": "packages/core" },
+    { "path": "packages/adapters/vite-transform" },
+    { "path": "packages/vite" },
+    { "path": "packages/cli" },
+    { "path": "packages/mcp" }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "name": "@graft/core",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@graft/spec": "workspace:*",
+    "diff": "^8.0.2",
+    "jiti": "^2.6.0",
+    "pacote": "^21.0.0",
+    "semver": "^7.7.2"
+  },
+  "devDependencies": {
+    "@types/pacote": "^11.1.8"
+  }
+}

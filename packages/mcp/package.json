@@ -1,0 +1,27 @@
+{
+  "name": "@graft/mcp",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@graft/core": "workspace:*",
+    "@graft/spec": "workspace:*",
+    "@graft/adapter-vite-transform": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.20.0",
+    "zod": "^4.1.0"
+  },
+  "bin": {
+    "graft-mcp": "./dist/bin.js"
+  }
+}
