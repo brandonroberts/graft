@@ -17,9 +17,12 @@
   "dependencies": {
     "@graft/core": "workspace:*",
     "@graft/spec": "workspace:*",
-    "citty": "^0.1.6"
+    "citty": "^0.2.2"
   },
   "bin": {
     "graft": "./dist/bin.js"
+  },
+  "engines": {
+    "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
   }
 }

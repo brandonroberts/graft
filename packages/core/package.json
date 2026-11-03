@@ -16,12 +16,15 @@
   ],
   "dependencies": {
     "@graft/spec": "workspace:*",
-    "diff": "^8.0.2",
-    "jiti": "^2.6.0",
-    "pacote": "^21.0.0",
-    "semver": "^7.7.2"
+    "diff": "^9.0.0",
+    "jiti": "^2.7.0",
+    "pacote": "^22.0.1",
+    "semver": "^7.8.6"
   },
   "devDependencies": {
     "@types/pacote": "^11.1.8"
+  },
+  "engines": {
+    "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
   }
 }

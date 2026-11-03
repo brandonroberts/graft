@@ -146,7 +146,7 @@ Every adapter must follow these rules:
 
 ## Development
 
-Requires Node 20+ and pnpm 10.
+Requires Node 22.22+, 24.15+, or 26+ and pnpm 10.
 
 ```sh
 pnpm install

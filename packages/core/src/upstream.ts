@@ -94,7 +94,7 @@ export class NpmUpstreamSource implements UpstreamSource {
     await mkdir(path.dirname(dest), { recursive: true });
     const tmp = `${dest}.tmp-${process.pid}`;
     try {
-      const pacote = await import('pacote');
+      const { default: pacote } = await import('pacote');
       await pacote.extract(spec, tmp, { cache: path.join(this.options.cacheDir, 'pacote') });
       await rm(dest, { recursive: true, force: true });
       await rename(tmp, dest);
@@ -107,7 +107,7 @@ export class NpmUpstreamSource implements UpstreamSource {
 
   async versions(pkg: string): Promise<PackageVersions> {
     try {
-      const pacote = await import('pacote');
+      const { default: pacote } = await import('pacote');
       const packument = await pacote.packument(pkg, { cache: path.join(this.options.cacheDir, 'pacote') });
       return { versions: Object.keys(packument.versions), distTags: { ...packument['dist-tags'] } };
     } catch (err) {
