@@ -3,14 +3,20 @@
   "version": "0.1.0",
   "type": "module",
   "license": "MIT",
+  "engines": {
+    "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
-    }
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
   },
-  "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "bin": {
+    "graft-mcp": "./dist/bin.js"
+  },
   "files": [
     "dist"
   ],
@@ -19,11 +25,5 @@
     "@graft/spec": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.32.2",
     "zod": "^4.6.7"
-  },
-  "bin": {
-    "graft-mcp": "./dist/bin.js"
-  },
-  "engines": {
-    "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
   }
 }

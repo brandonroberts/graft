@@ -3,15 +3,18 @@
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "lib": ["ES2023"],
-    "types": ["node"],
+    "lib": [
+      "ES2023"
+    ],
+    "types": [
+      "node"
+    ],
     "strict": true,
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
     "composite": true,
     "skipLibCheck": true,
-    "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
