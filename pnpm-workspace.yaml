@@ -2,3 +2,6 @@ packages:
   - packages/*
   - packages/adapters/*
   - examples/*
+patchedDependencies:
+  pacote: .grafts/pacote-esm-named-exports/variants/v18.patch
+ignorePatchFailures: false

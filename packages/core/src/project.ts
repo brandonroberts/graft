@@ -15,6 +15,11 @@ export const CONFIG_FILE = 'config.json';
 export interface ProjectConfig {
   /** Per-package upstream spec templates, e.g. `{ "lib": "file:../mirror/lib-{version}" }`. */
   upstream?: Record<string, string>;
+  /**
+   * Per-package directory, relative to the project root, whose node_modules resolution
+   * determines the installed version (e.g. `{ "pacote": "packages/core" }` in a monorepo).
+   */
+  resolveFrom?: Record<string, string>;
 }
 
 export interface ProjectOptions {
@@ -49,6 +54,9 @@ export class Project {
         cacheDir: this.cacheDir,
         specs: config.upstream,
         specBase: this.graftsDir,
+        resolveFrom: Object.fromEntries(
+          Object.entries(config.resolveFrom ?? {}).map(([pkg, dir]) => [pkg, path.resolve(this.root, dir)]),
+        ),
       });
     // No module cache: agents edit variants and re-check within one long-lived process.
     this.jiti = createJiti(path.join(this.root, 'noop.js'), { moduleCache: false, fsCache: false });

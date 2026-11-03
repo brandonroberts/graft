@@ -9,3 +9,4 @@ export * from './install.js';
 export * from './sync.js';
 export * from './scaffold.js';
 export * from './outdated.js';
+export * from './replay.js';

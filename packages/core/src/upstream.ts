@@ -16,7 +16,7 @@ export interface PackageVersions {
 
 /** Where upstream package contents come from. Swappable for tests and private mirrors. */
 export interface UpstreamSource {
-  /** Directory containing the contents of `pkg@version` (package.json at its root). */
+  /** Directory containing the pristine published contents of `pkg@version` (package.json at its root). */
   resolve(pkg: string, version: string): Promise<string>;
   /** The version installed in the project, if any. */
   installed(pkg: string): Promise<InstalledPackage | undefined>;
@@ -38,6 +38,11 @@ export interface NpmUpstreamOptions {
    */
   specs?: Record<string, string>;
   specBase?: string;
+  /**
+   * Per-package directory (absolute) to resolve the installed copy from, for monorepos
+   * where the dependency is declared by a workspace package rather than the root.
+   */
+  resolveFrom?: Record<string, string>;
 }
 
 /** Finds `node_modules/<pkg>/package.json` walking up from `from`. */
@@ -55,7 +60,7 @@ export async function findInstalledPackage(pkg: string, from: string): Promise<I
   }
 }
 
-/** Default source: installed copy when versions match, otherwise the npm registry via pacote. */
+/** Default source: pristine package contents from the npm registry (via pacote), cached per version. */
 export class NpmUpstreamSource implements UpstreamSource {
   constructor(private readonly options: NpmUpstreamOptions) {}
 
@@ -76,13 +81,12 @@ export class NpmUpstreamSource implements UpstreamSource {
   }
 
   async installed(pkg: string): Promise<InstalledPackage | undefined> {
-    return findInstalledPackage(pkg, this.options.root);
+    return findInstalledPackage(pkg, this.options.resolveFrom?.[pkg] ?? this.options.root);
   }
 
   async resolve(pkg: string, version: string): Promise<string> {
-    const installed = await this.installed(pkg);
-    if (installed?.version === version) return installed.dir;
-
+    // Always the pristine published contents, never the installed copy: mechanisms such as
+    // patches modify the installed copy, and anchors must be checked against upstream as published.
     const spec = this.spec(pkg, version);
     if (spec.startsWith('file:')) {
       const p = spec.slice(5);

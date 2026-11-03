@@ -23,6 +23,7 @@
   "dependencies": {
     "@graft/core": "workspace:*",
     "@graft/spec": "workspace:*",
-    "citty": "^0.2.2"
+    "citty": "^0.2.2",
+    "@graft/adapter-patch": "workspace:*"
   }
 }

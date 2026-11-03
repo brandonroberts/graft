@@ -20,7 +20,7 @@ export function detectPackageManager(root: string): PackageManager {
   }
 }
 
-/** Install `spec` (e.g. `lib@1.2.3`) into the project, keeping it in the same dependency field. */
+/** Install `spec` (e.g. `lib@1.2.3`), keeping it in the manifest(s) and dependency field that already declare it. */
 export async function installPackage(root: string, pkg: string, spec: string): Promise<string> {
   const manifest = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8')) as {
     devDependencies?: Record<string, string>;
@@ -29,7 +29,9 @@ export async function installPackage(root: string, pkg: string, spec: string): P
   const pm = detectPackageManager(root);
   const quoted = `'${spec.replaceAll("'", "'\\''")}'`;
   const command = {
-    pnpm: `pnpm add ${dev ? '-D ' : ''}${quoted}`,
+    // `update -r` bumps the package wherever it is already declared (workspace-aware)
+    // instead of adding it to the root manifest.
+    pnpm: `pnpm update -r ${quoted}`,
     yarn: `yarn add ${dev ? '-D ' : ''}${quoted}`,
     bun: `bun add ${dev ? '-d ' : ''}${quoted}`,
     npm: `npm install ${dev ? '--save-dev ' : ''}${quoted}`,

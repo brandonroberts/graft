@@ -113,50 +113,80 @@ export async function sync(project: Project, options: SyncOptions = {}): Promise
   }
 
   const targets: SyncTarget[] = [];
-  const targetErrors = new Map<string, string>();
   for (const pkg of packages) {
+    const pkgGrafts = selected.filter((g) => g.frontmatter.rootstock.package === pkg);
     const installedBefore = await project.installedVersion(pkg);
     const version = options.version ?? installedBefore;
+    const base = (g: Graft): SyncGraftResult => ({
+      id: g.id,
+      package: pkg,
+      from: g.frontmatter.rootstock.verified,
+      to: version,
+      outcome: 'green',
+      reasons: [],
+    });
     if (!version) {
-      targetErrors.set(pkg, `${pkg} is not installed and no --version was given`);
+      for (const g of pkgGrafts) results.push({ ...base(g), outcome: 'error', reasons: [`${pkg} is not installed and no --version was given`] });
       continue;
     }
     const target: SyncTarget = { package: pkg, version, installedBefore };
     targets.push(target);
-    if (installedBefore !== version) {
-      if (!options.install) {
-        targetErrors.set(
-          pkg,
-          `${pkg}@${version} is not installed (installed: ${installedBefore ?? 'none'}); the oracle must run against the target version — rerun with --install`,
-        );
-        continue;
-      }
-      try {
-        log(`installing ${pkg}@${version}`);
-        target.installCommand = await installPackage(project.root, pkg, project.upstream.installSpec(pkg, version));
-        const now = await project.installedVersion(pkg);
-        if (now !== version) targetErrors.set(pkg, `installed ${pkg} but found version ${now ?? 'none'}, expected ${version}`);
-      } catch (err) {
-        targetErrors.set(pkg, (err as Error).message);
-      }
-    }
-  }
 
-  for (const graft of selected) {
-    const pkg = graft.frontmatter.rootstock.package;
-    const target = targets.find((t) => t.package === pkg);
-    const base: SyncGraftResult = { id: graft.id, package: pkg, from: graft.frontmatter.rootstock.verified, to: target?.version, outcome: 'green', reasons: [] };
-    const targetError = targetErrors.get(pkg);
-    if (targetError || !target) {
-      results.push({ ...base, outcome: 'error', reasons: [targetError ?? 'no target version'] });
-      continue;
+    // Phase 1: static checks (variant, anchors, apply) against the fetched target version.
+    // These run before anything is installed, so a broken graft never breaks the install.
+    const staged: { graft: Graft; result: SyncGraftResult }[] = [];
+    for (const graft of pkgGrafts) {
+      log(`checking ${graft.id} against ${pkg}@${version}`);
+      let result: SyncGraftResult;
+      try {
+        result = await staticCheck(project, graft, version);
+      } catch (err) {
+        result = { ...base(graft), outcome: 'error', reasons: [(err as Error).message] };
+      }
+      staged.push({ graft, result });
     }
-    log(`syncing ${graft.id} against ${pkg}@${target.version}`);
-    try {
-      results.push(await syncGraft(project, graft, target.version, options));
-    } catch (err) {
-      results.push({ ...base, outcome: 'error', reasons: [(err as Error).message] });
+    const ready = staged.filter((s) => s.result.outcome === 'green');
+
+    // Phase 2: install the target version if needed.
+    let installError: string | undefined;
+    if (installedBefore !== version && ready.length) {
+      if (ready.length !== staged.length) {
+        for (const s of ready) {
+          s.result.outcome = 'skipped';
+          s.result.reasons.push(`oracle not run: ${pkg}@${version} was not installed because other grafts on ${pkg} need attention first`);
+        }
+      } else if (!options.install) {
+        installError = `${pkg}@${version} is not installed (installed: ${installedBefore ?? 'none'}); the oracle must run against the target version — rerun with --install`;
+      } else {
+        try {
+          for (const s of ready) await project.adapterFor(s.graft).beforeInstall?.(project.context(s.graft), version);
+          log(`installing ${pkg}@${version}`);
+          target.installCommand = await installPackage(project.root, pkg, project.upstream.installSpec(pkg, version));
+          const now = await project.installedVersion(pkg);
+          if (now !== version) installError = `installed ${pkg} but found version ${now ?? 'none'}, expected ${version}`;
+        } catch (err) {
+          installError = (err as Error).message;
+        }
+      }
     }
+    if (installError) {
+      for (const s of ready) {
+        s.result.outcome = 'error';
+        s.result.reasons.push(installError);
+      }
+    }
+
+    // Phase 3: the oracle, the only proof that a graft still holds.
+    for (const s of ready.filter((s) => s.result.outcome === 'green')) {
+      log(`running oracle for ${s.graft.id}`);
+      try {
+        await finish(project, s.graft, s.result, options);
+      } catch (err) {
+        s.result.outcome = 'error';
+        s.result.reasons.push((err as Error).message);
+      }
+    }
+    results.push(...staged.map((s) => s.result));
   }
 
   const order = new Map([...grafts, ...invalid].map((g, i) => [g.id, i]));
@@ -172,7 +202,7 @@ export async function sync(project: Project, options: SyncOptions = {}): Promise
   return report;
 }
 
-async function syncGraft(project: Project, graft: Graft, version: string, options: SyncOptions): Promise<SyncGraftResult> {
+async function staticCheck(project: Project, graft: Graft, version: string): Promise<SyncGraftResult> {
   const adapter = project.adapterFor(graft);
   const ctx = project.context(graft);
   const fm = graft.frontmatter;
@@ -186,9 +216,7 @@ async function syncGraft(project: Project, graft: Graft, version: string, option
   };
 
   result.variant = project.selectVariant(graft, version);
-  if (!result.variant) {
-    result.reasons.push(`no variant covers ${fm.rootstock.package}@${version}`);
-  }
+  if (!result.variant) result.reasons.push(`no variant covers ${fm.rootstock.package}@${version}`);
 
   if (result.variant) {
     result.anchors = await adapter.checkAnchors(ctx, version);
@@ -204,29 +232,36 @@ async function syncGraft(project: Project, graft: Graft, version: string, option
     }
   }
 
-  if (result.reasons.length === 0) {
-    result.oracle = await runOracle(project, graft, { version, onOutput: options.onOutput });
+  if (result.reasons.length) await markNeedsAgent(project, graft, result);
+  return result;
+}
+
+async function markNeedsAgent(project: Project, graft: Graft, result: SyncGraftResult): Promise<void> {
+  result.outcome = 'needs-agent';
+  const fm = graft.frontmatter;
+  if (!result.to || fm.rootstock.verified === result.to) return;
+  try {
+    const diff = await project.adapterFor(graft).scopeDiff(project.context(graft), fm.rootstock.verified, result.to);
+    const dir = path.join(project.reportDir, graft.id);
+    await mkdir(dir, { recursive: true });
+    result.diffPath = path.join(dir, 'diff.patch');
+    await writeFile(result.diffPath, diff.patch || '# no differences in target files\n');
+    await writeFile(path.join(dir, 'diff.json'), JSON.stringify(diff, null, 2));
+  } catch (err) {
+    result.reasons.push(`scoped diff unavailable: ${(err as Error).message}`);
+  }
+}
+
+async function finish(project: Project, graft: Graft, result: SyncGraftResult, options: SyncOptions): Promise<void> {
+  const fm = graft.frontmatter;
+  const version = result.to!;
+  result.oracle = await runOracle(project, graft, { version, onOutput: options.onOutput });
+  if (!result.oracle.passed) {
     const failed = result.oracle.modes.filter((m) => !m.passed).map((m) => m.mode);
-    if (!result.oracle.passed) result.reasons.push(`oracle failed in mode(s): ${failed.join(', ') || '(no modes)'}`);
+    result.reasons.push(`oracle failed in mode(s): ${failed.join(', ') || '(no modes)'}`);
+    await markNeedsAgent(project, graft, result);
+    return;
   }
-
-  if (result.reasons.length) {
-    result.outcome = 'needs-agent';
-    if (fm.rootstock.verified !== version) {
-      try {
-        const diff = await adapter.scopeDiff(ctx, fm.rootstock.verified, version);
-        const dir = path.join(project.reportDir, graft.id);
-        await mkdir(dir, { recursive: true });
-        result.diffPath = path.join(dir, 'diff.patch');
-        await writeFile(result.diffPath, diff.patch || '# no differences in target files\n');
-        await writeFile(path.join(dir, 'diff.json'), JSON.stringify(diff, null, 2));
-      } catch (err) {
-        result.reasons.push(`scoped diff unavailable: ${(err as Error).message}`);
-      }
-    }
-    return result;
-  }
-
   if (!options.dryRun && (fm.rootstock.verified !== version || fm.status !== 'applied')) {
     await updateGraft(project, graft.id, {
       verified: version,
@@ -238,7 +273,6 @@ async function syncGraft(project: Project, graft: Graft, version: string, option
     });
     result.updated = true;
   }
-  return result;
 }
 
 async function writeSyncReport(project: Project, report: SyncReport): Promise<{ json: string; markdown: string }> {

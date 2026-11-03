@@ -136,6 +136,11 @@ export interface MechanismAdapter {
   checkAnchors(ctx: GraftContext, version: string): Promise<AnchorReport>;
   /** Diff only the upstream regions this graft targets, between two versions. */
   scopeDiff(ctx: GraftContext, from: string, to: string): Promise<ScopedDiff>;
+  /**
+   * Prepare the package manager to apply the variant for `version` on the next install
+   * (e.g. point pnpm patchedDependencies at it). Called by `sync --install` before installing.
+   */
+  beforeInstall?(ctx: GraftContext, version: string): Promise<void>;
   /** Validate a new variant module before it is registered. Throw to reject. */
   validateVariant?(ctx: GraftContext, variant: ResolvedVariant): Promise<void>;
   /** Scaffold a variant module stub. Returns file contents. */

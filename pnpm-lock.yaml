@@ -4,10 +4,18 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  pacote:
+    hash: b1ff5f54a5cf9c431d7470f0ca9b2acb756448c385c529c8db7fe6deb3a830ee
+    path: .grafts/pacote-esm-named-exports/variants/v18.patch
+
 importers:
 
   .:
     devDependencies:
+      '@graft/cli':
+        specifier: workspace:*
+        version: link:packages/cli
       '@types/node':
         specifier: ^22.20.5
         version: 22.20.5
@@ -21,8 +29,26 @@ importers:
         specifier: ^5.1.0
         version: 5.1.0(@types/node@22.20.5)(vite@8.3.5(@types/node@22.20.5)(jiti@2.7.0)(yaml@2.9.1))
 
+  packages/adapters/patch:
+    dependencies:
+      '@graft/core':
+        specifier: workspace:*
+        version: link:../../core
+      '@graft/spec':
+        specifier: workspace:*
+        version: link:../../spec
+      diff:
+        specifier: ^9.0.0
+        version: 9.0.0
+      yaml:
+        specifier: ^2.9.1
+        version: 2.9.1
+
   packages/cli:
     dependencies:
+      '@graft/adapter-patch':
+        specifier: workspace:*
+        version: link:../adapters/patch
       '@graft/core':
         specifier: workspace:*
         version: link:../core
@@ -46,7 +72,7 @@ importers:
         version: 2.7.0
       pacote:
         specifier: ^22.0.1
-        version: 22.0.1
+        version: 22.0.1(patch_hash=b1ff5f54a5cf9c431d7470f0ca9b2acb756448c385c529c8db7fe6deb3a830ee)
       semver:
         specifier: ^7.8.6
         version: 7.8.6
@@ -2223,7 +2249,7 @@ snapshots:
 
   p-map@7.1.1: {}
 
-  pacote@22.0.1:
+  pacote@22.0.1(patch_hash=b1ff5f54a5cf9c431d7470f0ca9b2acb756448c385c529c8db7fe6deb3a830ee):
     dependencies:
       '@gar/promise-retry': 1.0.3
       '@npmcli/git': 8.0.0

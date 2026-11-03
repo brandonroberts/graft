@@ -1,0 +1,30 @@
+diff --git a/lib/index.js b/lib/index.js
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -9,15 +9,22 @@
+ tarball.stream = (spec, handler, opts) => get(spec, opts).tarballStream(handler)
+ tarball.file = (spec, dest, opts) => get(spec, opts).tarballFile(dest)
+ 
++const resolve = (spec, opts) => get(spec, opts).resolve()
++const extract = (spec, dest, opts) => get(spec, opts).extract(dest)
++const manifest = (spec, opts) => get(spec, opts).manifest()
++const packument = (spec, opts) => get(spec, opts).packument()
++
++// Shorthand-only object so Node's CJS lexer exposes these as named ESM exports
++// (graft: pacote-esm-named-exports).
+ module.exports = {
+   GitFetcher,
+   RegistryFetcher,
+   FileFetcher,
+   DirFetcher,
+   RemoteFetcher,
+-  resolve: (spec, opts) => get(spec, opts).resolve(),
+-  extract: (spec, dest, opts) => get(spec, opts).extract(dest),
+-  manifest: (spec, opts) => get(spec, opts).manifest(),
+-  packument: (spec, opts) => get(spec, opts).packument(),
++  resolve,
++  extract,
++  manifest,
++  packument,
+   tarball,
+ }
