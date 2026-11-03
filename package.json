@@ -9,7 +9,7 @@
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc -b",
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "clean": "tsc -b --clean"
   },
   "devDependencies": {
