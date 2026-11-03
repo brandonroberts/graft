@@ -63,7 +63,7 @@ export async function addGraft(project: Project, input: AddGraftInput): Promise<
   const major = semver.major(version);
   const variantFile = `./variants/v${major}.ts`;
   const oracleFile = `${GRAFTS_DIR}/${input.id}/oracle.mjs`;
-  const modes = input.modes?.length ? input.modes : ['dev', 'build'];
+  const modes = input.modes?.length ? input.modes : ['default'];
 
   await initProject(project.root);
   await mkdir(path.join(dir, 'variants'), { recursive: true });

@@ -17,7 +17,6 @@
   "dependencies": {
     "@graft/core": "workspace:*",
     "@graft/spec": "workspace:*",
-    "@graft/adapter-vite-transform": "workspace:*",
     "citty": "^0.1.6"
   },
   "bin": {

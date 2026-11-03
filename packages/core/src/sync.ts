@@ -67,7 +67,7 @@ export interface SyncOptions {
 
 /**
  * The cheap path: deterministic re-verification of every graft against an upstream version.
- * Grafts whose anchors, transform, or oracle fail are marked `needs-agent` with full context.
+ * Grafts whose anchors, apply step, or oracle fail are marked `needs-agent` with full context.
  */
 export async function sync(project: Project, options: SyncOptions = {}): Promise<SyncReport> {
   const log = options.onProgress ?? (() => {});

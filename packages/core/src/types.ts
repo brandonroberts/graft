@@ -60,7 +60,7 @@ export interface AnchorReport {
 export interface AppliedFile {
   file: string;
   changed: boolean;
-  /** Where the transformed output was written, if an output directory was requested. */
+  /** Where the modified output was written, if an output directory was requested. */
   outputPath?: string;
   error?: string;
 }
@@ -77,7 +77,7 @@ export interface ApplyResult {
 export interface ApplyOptions {
   /** Upstream version to apply against. Defaults to the installed version. */
   version?: string;
-  /** Write transformed files here (mirrors package layout) for inspection. */
+  /** Write modified files here (mirrors package layout) for inspection. */
   outDir?: string;
 }
 

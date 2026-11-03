@@ -53,7 +53,7 @@ export const OracleSchema = z.object({
 export const GraftFrontmatterSchema = z.object({
   id: z.string().regex(GRAFT_ID_PATTERN, 'must be lowercase kebab-case'),
   rootstock: RootstockSchema,
-  /** Name of the mechanism adapter that applies this graft (e.g. vite-transform). */
+  /** Name of the mechanism adapter that applies this graft (e.g. patch). */
   mechanism: z.string().min(1),
   /** Upstream files the mechanism operates on, relative to the package root. */
   targets: z.array(z.string().min(1)).optional(),

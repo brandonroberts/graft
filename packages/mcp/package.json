@@ -17,7 +17,6 @@
   "dependencies": {
     "@graft/core": "workspace:*",
     "@graft/spec": "workspace:*",
-    "@graft/adapter-vite-transform": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.20.0",
     "zod": "^4.1.0"
   },
