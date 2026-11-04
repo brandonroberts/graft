@@ -1,6 +1,6 @@
 # Graft sync GitHub Action
 
-Polls npm dist-tags for each graft's rootstock package. When there's a newer version, it runs
+First runs **`graft check`** on the installed tree, then polls npm dist-tags for each graft's rootstock package. When there's a newer version, it runs
 Graft's deterministic first pass and then does one of the following:
 
 | `graft sync` result | Action |
@@ -11,6 +11,26 @@ Graft's deterministic first pass and then does one of the following:
 | ❌ tooling error | Fails the job for that package and still processes the others |
 
 Each package@version gets its own branch (`graft/sync-<package>-<version>`). A branch or issue that already exists is skipped, so the action is safe to run on a schedule.
+
+## `graft check`
+
+Before touching any branch, the action checks the project as the workflow installed it. For every active graft:
+- **the package-manager configuration** must apply the selected variant;
+- **anchors** must match;
+- **each patched file in `node_modules`** must equal pristine upstream + that variant.
+
+This catches grafts that were silently dropped: an `--ignore-scripts` install, a stale vendored tarball, a hand-edited lock, a patch reverted by a "repair" pass.
+
+- `check: fail` (default) annotates each problem and fails the job, after the sync work is done.
+- `check: warn` annotates only. `check: off` skips it.
+- `sync: false` runs only the check. Use that in ordinary CI right after installing:
+
+```yaml
+      - run: npm ci --ignore-scripts
+      - uses: brandonroberts/graft/packages/action@main
+        with:
+          sync: false        # just verify the installed grafts
+```
 
 ## Usage
 
@@ -84,9 +104,12 @@ The agent must not commit, push or open PRs. The action does that after re-verif
 | `commit-author` | `github-actions[bot]` | |
 | `skill-path` | bundled `SKILL.md` | |
 | `dry-run` | `false` | Run sync without pushing or opening anything |
+| `check` | `fail` | `fail`, `warn` or `off`: run `graft check` on the installed tree first |
+| `sync` | `true` | `false` runs only the check |
 
 ## Outputs
 
+- `check`: the JSON check result (`ok`, per-graft reports, failures), or `null` when the check is off.
 - `results`: a JSON array with one entry per package: `outcome` (`pr`, `draft-pr`, `issue`, `skipped-existing`, `up-to-date`, `no-changes`, `needs-agent`, or `error`), versions, the link, and reasons.
 - `pull-requests`: a JSON array of the PR URLs that were opened.
 

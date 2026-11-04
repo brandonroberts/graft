@@ -170,7 +170,7 @@ This repo uses both on itself: [`.mcp.json`](.mcp.json) registers the server, an
 
 ## GitHub Action
 
-[`packages/action`](packages/action) runs the loop, from a scheduled or manually triggered workflow:
+[`packages/action`](packages/action) runs the loop, from a scheduled or manually triggered workflow. It first runs `graft check` on the installed tree, and fails the job by default if any graft isn't actually applied. With `sync: false` it does only that, which suits ordinary CI right after install. Then:
 1. Poll each rootstock package's npm dist-tags.
 2. Run `graft sync --install` on a branch per package@version.
 3. If green, open a PR.
@@ -228,7 +228,7 @@ Variants are git-style `.patch` files with package-relative paths, the format `p
 
 Each row of the table was verified against the real package manager on a real project (`ms`): install, `graft apply`, `sync`, an upgrade to a new `ms` version with `--install`, and a tampered install. The built-in applier was also verified on npm, yarn 1.22, bun, and pnpm (forced via the config override), including a second install to check idempotency. Under pnpm, every file in the content-addressed store still matched its hash afterwards. The vendored override applier was verified on upm (its default) and, forced, on npm, yarn 1.22, pnpm and bun. Each run covered a fresh install, a real upgrade, and a fresh install after the upgrade; npm also covered `--ignore-scripts`, and upm `install --verify`. The silent failures in the table are each package manager's real behavior today: pnpm 10.28, bun 1.4.4, patch-package 8.0.1, upm 1.5.1.
 
-**Installs that skip scripts.** `--ignore-scripts` skips `postinstall`, and with it the built-in and patch-package appliers. The native and vendored appliers don't depend on scripts. Run `graft check` in CI after installing: it compares installed files with pristine upstream + the selected variant, so it fails the build however the patch was skipped.
+**Installs that skip scripts.** `--ignore-scripts` skips `postinstall`, and with it the built-in and patch-package appliers. The native and vendored appliers don't depend on scripts. Run `graft check` in CI after installing. The GitHub Action does this by default; use `sync: false` for check-only. It compares installed files with pristine upstream + the selected variant, so it fails the build however the patch was skipped.
 
 In a monorepo where the upstream package is declared by a workspace package rather than the root, tell Graft where to resolve it from in `.grafts/config.json`:
 

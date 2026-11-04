@@ -8,7 +8,7 @@ import { parseInputs, renderPrBody, runAction, sh } from '../src/sync-action.mjs
 
 const FAKE_GRAFT = path.join(import.meta.dirname, 'fake-graft.mjs');
 
-type Scenario = { outdated: unknown[]; sync: Record<string, string>; issues?: { title: string; url: string }[] };
+type Scenario = { outdated: unknown[]; sync: Record<string, string>; issues?: { title: string; url: string }[]; check?: 'ok' | 'fail' | 'error' };
 
 function setup(scenario: Scenario) {
   const root = mkdtempSync(path.join(os.tmpdir(), 'graft-action-'));
@@ -143,5 +143,58 @@ describe('graft GitHub Action', () => {
     expect(body).toContain('dist-tag `next`');
     expect(body).toContain('AssertionError: boom');
     expect(body).toContain('[!WARNING]');
+  });
+});
+
+describe('graft check in the Action', () => {
+  it('runs graft check first and reports a passing check', async () => {
+    const t = setup({ outdated: [entry('lib', '1.1.0')], sync: { lib: 'green' }, check: 'ok' });
+    const { failed, check } = await t.run();
+    expect(failed).toBe(false);
+    expect(check.ok).toBe(true);
+    const calls = t.calls().split('\n');
+    expect(calls.findIndex((l) => l.includes('graft check --json'))).toBeLessThan(calls.findIndex((l) => l.includes('graft outdated')));
+    expect(t.summary()).toContain('| lib-graft | lib@1.0.0 | ./variants/v1.patch | ✅ applied |');
+    expect(JSON.parse(t.outputs.check!).ok).toBe(true);
+  });
+
+  it('fails the job (after still doing the sync work) when grafts are not applied', async () => {
+    const t = setup({ outdated: [entry('lib', '1.1.0')], sync: { lib: 'green' }, check: 'fail' });
+    const { failed, results, check } = await t.run();
+    expect(failed).toBe(true);
+    expect(results.find((r: any) => r.package === 'lib').outcome).toBe('pr'); // sync still ran
+    expect(check.failures[0]).toMatch(/lib-graft \(lib@1\.0\.0\): installed lib@1\.0\.0 index\.js is not patched/);
+    expect(t.summary()).toContain('❌ 1 problem(s)');
+    expect(t.summary()).toContain('The job fails because the installed tree does not match the grafts.');
+  });
+
+  it('treats a tooling error as a failed check, and warn mode does not fail the job', async () => {
+    const errored = setup({ outdated: [], sync: {}, check: 'error' });
+    const e = await errored.run();
+    expect(e.failed).toBe(true);
+    expect(e.check.failures[0]).toMatch(/check --json` failed: graft: lib is not installed/);
+
+    const warned = setup({ outdated: [], sync: {}, check: 'fail' });
+    expect((await warned.run({ check: 'warn' })).failed).toBe(false);
+    expect(warned.summary()).toContain('Reported as a warning');
+  });
+
+  it('check-only mode (sync: false) never polls upstream or touches git', async () => {
+    const t = setup({ outdated: [entry('lib', '1.1.0')], sync: { lib: 'green' }, check: 'fail' });
+    const { failed, results } = await t.run({ sync: 'false' });
+    expect(failed).toBe(true);
+    expect(results).toEqual([]);
+    expect(t.calls()).not.toContain('graft outdated');
+    expect(t.calls()).not.toContain('graft sync');
+    expect(t.remoteBranches()).not.toContain('graft/sync');
+    expect(t.outputs.results).toBe('[]');
+  });
+
+  it('check: off skips it entirely', async () => {
+    const t = setup({ outdated: [], sync: {}, check: 'fail' });
+    const { failed, check } = await t.run({ check: 'off' });
+    expect(failed).toBe(false);
+    expect(check).toBeUndefined();
+    expect(t.calls()).not.toContain('graft check');
   });
 });

@@ -18,7 +18,7 @@ const writeSummary = async (md) => {
 };
 
 try {
-  const { results, failed } = await runAction(options, {
+  const { results, check, failed } = await runAction(options, {
     cwd: process.cwd(),
     sh,
     log: (m) => console.log(m),
@@ -30,7 +30,11 @@ try {
   });
   for (const r of results) console.log(`${r.package}: ${r.outcome}${r.pullRequest ? ` ${r.pullRequest}` : ''}`);
   if (failed) {
-    console.log('::error::graft sync hit a tooling error for at least one package (see the job summary)');
+    const reasons = [
+      check && !check.ok && options.check === 'fail' ? 'graft check found grafts that are not applied in the installed tree' : '',
+      results.some((r) => r.outcome === 'error') ? 'graft sync hit a tooling error for at least one package' : '',
+    ].filter(Boolean);
+    console.log(`::error::${reasons.join('; ')} (see the job summary)`);
     process.exitCode = 1;
   }
 } catch (err) {

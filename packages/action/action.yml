@@ -1,5 +1,5 @@
 name: Graft sync
-description: Keep local modifications to upstream npm packages in sync. Polls dist-tags, re-verifies grafts, opens PRs, and hands failures to your agent.
+description: Keep local modifications to upstream npm packages in sync. Checks the installed grafts, polls dist-tags, re-verifies grafts, opens PRs, and hands failures to your agent.
 author: Graft
 branding:
   icon: git-merge
@@ -58,8 +58,23 @@ inputs:
   dry-run:
     description: Run sync but do not push or open PRs.
     default: 'false'
+  check:
+    description: >
+      Run `graft check` on the installed tree first (before any branch is touched): every active
+      graft's package-manager configuration, anchors, and installed files (= pristine upstream +
+      the selected variant). "fail" fails the job when a graft is not applied (after the sync
+      work), "warn" only annotates, "off" skips it.
+    default: fail
+  sync:
+    description: >
+      Look for newer upstream versions and open PRs/issues. Set to false to only run the check,
+      e.g. in ordinary CI right after installing dependencies.
+    default: 'true'
 
 outputs:
+  check:
+    description: JSON result of graft check (ok, per-graft reports and failures), or null when check is off.
+    value: ${{ steps.graft.outputs.check }}
   results:
     description: JSON array with one entry per rootstock package (outcome, versions, PR URL, reasons).
     value: ${{ steps.graft.outputs.results }}

@@ -15,7 +15,11 @@ export function parseInputs(raw = {}) {
   const bool = (k, d = false) => (raw[k] === undefined || raw[k] === '' ? d : /^(true|1|yes)$/i.test(String(raw[k])));
   const onNeedsAgent = str('on-needs-agent', 'report');
   if (!['report', 'skip'].includes(onNeedsAgent)) throw new Error(`on-needs-agent must be report or skip (got ${onNeedsAgent})`);
+  const check = str('check', 'fail');
+  if (!['fail', 'warn', 'off'].includes(check)) throw new Error(`check must be fail, warn or off (got ${check})`);
   return {
+    check,
+    sync: bool('sync', true),
     graftCommand: str('graft-command', 'npx --no-install graft'),
     mcpCommand: str('mcp-command', 'npx --no-install graft-mcp'),
     agentCommand: str('agent-command'),
@@ -129,6 +133,24 @@ export async function runAction(options, deps) {
     return m ? [m[1], m[2]] : [options.author, 'graft@users.noreply.github.com'];
   })();
 
+  // 1. Check the project as the workflow installed it, before any branch is touched: are the
+  //    grafts actually applied (config, anchors, installed files = pristine + variant)?
+  const check = options.check === 'off' ? undefined : await runCheck(options, run);
+  const checkFailed = !!check && !check.ok;
+  if (check) {
+    const level = options.check === 'fail' ? 'error' : 'warning';
+    for (const f of check.failures) log(`::${level} title=graft check::${f.replaceAll('\n', ' ')}`);
+    if (check.ok) log(`graft: check passed (${check.reports.length} graft(s) applied as selected)`);
+  }
+  if (!options.sync) {
+    await deps.writeOutput('check', JSON.stringify(check ?? null));
+    await deps.writeOutput('results', '[]');
+    await deps.writeOutput('pull-requests', '[]');
+    await deps.writeSummary(check ? renderCheck(check, options.check) : '');
+    return { results: [], check, failed: options.check === 'fail' && checkFailed };
+  }
+
+  // 2. Sync: look for newer upstream versions and propose them.
   const base = options.baseBranch || (await git('rev-parse', '--abbrev-ref', 'HEAD'));
   const reinstall = options.installCommand || detectInstallCommand(cwd);
   const skill = options.skillPath || path.resolve(deps.actionPath ?? '.', '../skill/SKILL.md');
@@ -305,10 +327,55 @@ export async function runAction(options, deps) {
     await run(`git checkout -f ${quote(base)}`);
     await run('git clean -fd');
   }
+  await deps.writeOutput('check', JSON.stringify(check ?? null));
   await deps.writeOutput('results', JSON.stringify(results));
   await deps.writeOutput('pull-requests', JSON.stringify(results.filter((r) => r.pullRequest).map((r) => r.pullRequest)));
-  await deps.writeSummary(renderSummary(results));
-  return { results, failed: results.some((r) => r.outcome === 'error') };
+  await deps.writeSummary((check ? renderCheck(check, options.check) : '') + renderSummary(results));
+  return { results, check, failed: results.some((r) => r.outcome === 'error') || (options.check === 'fail' && checkFailed) };
+}
+
+/**
+ * Run `graft check --json` against the installed tree. Never throws: a tooling error (exit 2,
+ * or output that is not a JSON report) is itself a failed check.
+ */
+export async function runCheck(options, run) {
+  const command = `${options.graftCommand} check --json`;
+  const r = await run(command);
+  let reports;
+  try {
+    reports = JSON.parse(r.stdout);
+    if (!Array.isArray(reports)) throw new Error('not an array');
+  } catch {
+    const detail = (r.stderr || r.stdout).trim().split('\n').slice(-5).join(' ') || `exit ${r.code}`;
+    return { ok: false, exitCode: r.code, reports: [], failures: [`\`${command}\` failed: ${detail}`] };
+  }
+  const failures = [];
+  const rows = reports.map((rep) => {
+    const problems = [
+      ...(rep.errors ?? []),
+      ...(rep.anchors ?? []).filter((a) => !a.matched).map((a) => `anchor ${a.name} missed in ${a.file}${a.error ? ` (${a.error})` : ''}`),
+    ];
+    for (const p of problems) failures.push(`${rep.graft} (${rep.package}@${rep.version}): ${p}`);
+    return { graft: rep.graft, package: rep.package, version: rep.version, variant: rep.variant?.module ?? null, ok: !!rep.ok && problems.length === 0, problems };
+  });
+  return { ok: r.code === 0 && rows.every((x) => x.ok), exitCode: r.code, reports: rows, failures };
+}
+
+export function renderCheck(check, mode) {
+  const lines = ['## Graft check', ''];
+  if (!check.reports.length && check.failures.length) {
+    lines.push(`❌ ${check.failures[0]}`, '');
+    return `${lines.join('\n')}\n`;
+  }
+  if (!check.reports.length) return `${[...lines, 'No active grafts.', ''].join('\n')}\n`;
+  lines.push('| Graft | Installed | Variant | Result |', '|---|---|---|---|');
+  for (const r of check.reports) lines.push(`| ${r.graft} | ${r.package}@${r.version} | ${r.variant ?? '—'} | ${r.ok ? '✅ applied' : `❌ ${r.problems.length} problem(s)`} |`);
+  const bad = check.reports.filter((r) => !r.ok);
+  for (const r of bad) lines.push('', `**${r.graft}**`, ...r.problems.map((p) => `- ${p.split('\n')[0]}`));
+  if (bad.length) {
+    lines.push('', mode === 'fail' ? 'The job fails because the installed tree does not match the grafts.' : '_Reported as a warning (`check: warn`)._');
+  }
+  return `${lines.join('\n')}\n\n`;
 }
 
 const ICON = { pr: '✅', 'draft-pr': '🛠️', issue: '🛠️', 'would-open-issue': '🛠️ (dry run)', 'needs-agent': '🛠️', 'skipped-existing': '⏭️', 'up-to-date': '✔️', 'no-changes': '➖', 'would-open-pr': '✅ (dry run)', 'would-open-draft-pr': '🛠️ (dry run)', error: '❌' };

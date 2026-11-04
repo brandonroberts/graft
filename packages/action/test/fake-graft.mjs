@@ -4,6 +4,24 @@ const scenario = JSON.parse(readFileSync(process.env.FAKE_SCENARIO, 'utf8'));
 const args = process.argv.slice(2);
 appendFileSync(process.env.FAKE_LOG, `graft ${args.join(' ')}\n`);
 const arg = (name) => args[args.indexOf(name) + 1];
+if (args[0] === 'check') {
+  const mode = scenario.check ?? 'ok';
+  if (mode === 'error') {
+    console.error('graft: lib is not installed; pass an explicit version');
+    process.exit(2);
+  }
+  const report = (ok) => ({
+    graft: 'lib-graft',
+    package: 'lib',
+    version: '1.0.0',
+    variant: { range: '>=1.0.0', module: './variants/v1.patch' },
+    anchors: [{ name: 'index.js#1', file: 'index.js', matched: true }],
+    errors: ok ? [] : ['installed lib@1.0.0 index.js is not patched with ./variants/v1.patch; run `graft apply` (or reinstall)'],
+    ok,
+  });
+  console.log(JSON.stringify(scenario.check === undefined ? [] : [report(mode === 'ok')]));
+  process.exit(mode === 'ok' ? 0 : 1);
+}
 if (args[0] === 'outdated') {
   console.log(JSON.stringify(scenario.outdated));
   process.exit(0);
