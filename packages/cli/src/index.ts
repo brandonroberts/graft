@@ -2,6 +2,7 @@ import path from 'node:path';
 import { defineCommand, type CommandDef } from 'citty';
 import {
   addGraft,
+  applyToProject,
   checkAnchors,
   GraftError,
   initProject,
@@ -151,6 +152,26 @@ const check = defineCommand({
   }),
 });
 
+const apply = defineCommand({
+  meta: { name: 'apply', description: 'Point the package manager at each graft\'s selected variant, reinstall, and re-check' },
+  args: {
+    ...common,
+    id: { type: 'positional', required: false, description: 'Graft id (default: all active grafts)' },
+    install: { type: 'boolean', default: true, description: 'Reinstall afterwards (--no-install to only write config)' },
+  },
+  run: guarded(async (args) => {
+    const project = await open(args.root);
+    const result = await applyToProject(project, { ids: args.id ? [args.id] : undefined, install: args.install });
+    print(args.json, result, () => {
+      for (const c of result.configured) console.log(`configured ${c.id}: ${c.package}@${c.version} → ${c.variant}`);
+      if (result.installCommand) console.log(`ran ${result.installCommand}`);
+      result.anchors.forEach(printAnchors);
+      for (const e of result.errors) console.log(`✗ ${e.id}: ${e.error}`);
+    });
+    return result.errors.length ? EXIT.tooling : result.anchors.every((a) => a.ok) ? EXIT.ok : EXIT.attention;
+  }),
+});
+
 const diff = defineCommand({
   meta: { name: 'diff', description: 'Print the scoped upstream diff for a graft' },
   args: {
@@ -223,7 +244,7 @@ const verify = defineCommand({
 
 const outdatedCmd = defineCommand({
   meta: { name: 'outdated', description: 'Find newer upstream versions (dist-tags) to sync against' },
-  args: { ...common, tags: { type: 'string', description: 'Comma-separated dist-tags (default: latest,next,rc,beta,canary)' } },
+  args: { ...common, tags: { type: 'string', description: 'Comma-separated dist-tags (default: latest,next,rc,beta)' } },
   run: guarded(async (args) => {
     const project = await open(args.root);
     const entries = await outdated(project, { tags: args.tags?.split(',') });
@@ -259,5 +280,5 @@ const replayCmd = defineCommand({
 
 export const main: CommandDef = defineCommand({
   meta: { name: 'graft', version: '0.1.0', description: 'Keep local modifications to upstream packages in sync' },
-  subCommands: { init, add, status, check, diff, sync: syncCmd, verify, outdated: outdatedCmd, replay: replayCmd },
+  subCommands: { init, add, apply, status, check, diff, sync: syncCmd, verify, outdated: outdatedCmd, replay: replayCmd },
 }) as CommandDef;

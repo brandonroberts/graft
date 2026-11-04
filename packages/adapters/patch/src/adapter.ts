@@ -79,6 +79,7 @@ function hunkAnchors(patch: FilePatch, content: string | undefined): AnchorResul
 export function createPatchAdapter(): MechanismAdapter {
   return {
     name: MECHANISM,
+    variantExtension: '.patch',
 
     async checkAnchors(ctx: GraftContext, version: string): Promise<AnchorReport> {
       const { project, graft } = ctx;

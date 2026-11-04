@@ -19,7 +19,7 @@ inputs:
     description: How to start the graft MCP server; written into the MCP config handed to the agent.
     default: npx --no-install graft-mcp
   tags:
-    description: Comma-separated npm dist-tags to consider (default latest,next,rc,beta,canary; prereleases preferred).
+    description: Comma-separated npm dist-tags to consider (default latest,next,rc,beta; prereleases preferred).
     default: ''
   packages:
     description: Comma-separated rootstock packages to consider (default all).

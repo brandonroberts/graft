@@ -73,7 +73,7 @@ The agent must not commit, push or open PRs. The action does that after re-verif
 | `working-directory` | `.` | Directory containing `.grafts/` |
 | `graft-command` | `npx --no-install graft` | How to run the CLI |
 | `mcp-command` | `npx --no-install graft-mcp` | Written into the agent's MCP config |
-| `tags` | `latest,next,rc,beta,canary` | Dist-tags to consider. The highest newer version wins, so prereleases are preferred |
+| `tags` | `latest,next,rc,beta` | Dist-tags to consider. The highest newer version wins, so prereleases are preferred |
 | `packages` | all | Restrict to these rootstock packages |
 | `agent-command` | — | See above |
 | `on-needs-agent` | `report` | `report`: a draft PR if there are changes, otherwise an issue. `skip`: job summary only |

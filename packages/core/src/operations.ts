@@ -5,6 +5,7 @@ import semver from 'semver';
 import { GRAFT_STATUSES, GraftDocumentEditor, type GraftStatus } from '@graftsync/spec';
 import { GraftError } from './errors.js';
 import type { Project } from './project.js';
+import { reinstall } from './install.js';
 import type { AnchorReport, ApplyOptions, ApplyResult, Graft, ScopedDiff, VariantInput } from './types.js';
 
 /** Resolve a version argument, defaulting to the installed version of the graft's rootstock. */
@@ -234,4 +235,44 @@ export async function projectStatus(project: Project): Promise<{
       errors: g.diagnostics.filter((d) => d.severity === 'error').map((d) => d.message),
     })),
   };
+}
+
+export interface ApplyToProjectResult {
+  /** Grafts whose package-manager configuration was pointed at their selected variant. */
+  configured: { id: string; package: string; version: string; variant: string }[];
+  /** Reinstall command that was run, if any. */
+  installCommand?: string;
+  /** Anchor reports at the installed versions, after configuring and reinstalling. */
+  anchors: AnchorReport[];
+  errors: { id: string; error: string }[];
+}
+
+/**
+ * Make the project actually use its grafts: point the package manager at the variant selected
+ * for each installed version (e.g. pnpm patchedDependencies), reinstall, and re-check anchors.
+ */
+export async function applyToProject(project: Project, options: { ids?: string[]; install?: boolean } = {}): Promise<ApplyToProjectResult> {
+  const { grafts } = await project.loadAll();
+  const result: ApplyToProjectResult = { configured: [], anchors: [], errors: [] };
+  const selected = grafts.filter(
+    (g) => (g.frontmatter.status === 'applied' || g.frontmatter.status === 'conflicted') && (!options.ids?.length || options.ids.includes(g.id)),
+  );
+  for (const graft of selected) {
+    const pkg = graft.frontmatter.rootstock.package;
+    try {
+      const version = await resolveVersion(project, graft);
+      const variant = project.selectVariant(graft, version);
+      if (!variant) throw new GraftError(`no variant covers ${pkg}@${version}`, 'variant/none');
+      await project.adapterFor(graft).beforeInstall?.(project.context(graft), version);
+      result.configured.push({ id: graft.id, package: pkg, version, variant: variant.module });
+    } catch (err) {
+      result.errors.push({ id: graft.id, error: (err as Error).message });
+    }
+  }
+  if (options.install !== false && result.configured.length) result.installCommand = await reinstall(project.root);
+  for (const c of result.configured) {
+    const graft = await project.get(c.id);
+    result.anchors.push(await project.adapterFor(graft).checkAnchors(project.context(graft), c.version));
+  }
+  return result;
 }

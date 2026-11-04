@@ -14,11 +14,12 @@ export interface OutdatedEntry {
 }
 
 export interface OutdatedOptions {
-  /** Dist-tags to consider. Defaults to latest, next, rc, beta, canary. Prereleases are preferred. */
+  /** Dist-tags to consider. Defaults to latest, next, rc, beta (not canary). Prereleases are preferred. */
   tags?: string[];
 }
 
-const DEFAULT_TAGS = ['latest', 'next', 'rc', 'beta', 'canary'];
+// canary is excluded by default: canaries are typically published per commit, which would churn PRs.
+const DEFAULT_TAGS = ['latest', 'next', 'rc', 'beta'];
 
 /** For each rootstock package, find a newer upstream version to sync against. */
 export async function outdated(project: Project, options: OutdatedOptions = {}): Promise<OutdatedEntry[]> {

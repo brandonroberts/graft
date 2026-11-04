@@ -143,6 +143,8 @@ export interface MechanismAdapter {
   beforeInstall?(ctx: GraftContext, version: string): Promise<void>;
   /** Validate a new variant module before it is registered. Throw to reject. */
   validateVariant?(ctx: GraftContext, variant: ResolvedVariant): Promise<void>;
+  /** File extension of variant modules, used when scaffolding (e.g. `.patch`). Default `.ts`. */
+  variantExtension?: string;
   /** Scaffold a variant module stub. Returns file contents. */
   variantTemplate?(graft: { id: string; targets?: string[]; package: string }): string;
 }

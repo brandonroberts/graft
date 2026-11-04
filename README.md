@@ -14,6 +14,24 @@ Graft does not ship its own agent or call an LLM, and there is no hosted service
 
 > **Status: early development.** The spec, core, `patch` mechanism and `graft` CLI work. Graft keeps its own CommonJS dependencies converted to native ESM through its own sync loop ([dogfood](#dogfood-validation)). The MCP server, skill and GitHub Action are built. See [Roadmap](#roadmap).
 
+## Quick start
+
+The flow below has been tested end to end on a real project (`ms`, adding a `fortnight` unit). The packages aren't on npm yet; until they are, install `@graftsync/cli` from packed tarballs.
+
+```sh
+pnpm add -D @graftsync/cli @graftsync/mcp
+pnpm exec graft init
+pnpm exec graft add ms-fortnight --package ms --target index.js   # graft.md + variant stub + oracle stub
+pnpm patch ms@2.1.2                                               # edit the printed directory
+pnpm patch-commit <dir> --patches-dir .grafts/tmp                 # then move the .patch onto variants/v2.patch
+pnpm exec graft apply                                             # wire pnpm to the variant, reinstall, check anchors
+# write Why / Invariants / Where to look / Anchors, and an oracle that fails without the graft
+pnpm exec graft verify ms-fortnight
+pnpm exec graft sync                                              # green
+pnpm exec graft replay ms-fortnight                               # which published versions the variant fits
+pnpm exec graft sync --version 2.1.3 --install                    # a real upgrade: install, verify, bump
+```
+
 ## Concepts
 
 | Term | Meaning |
@@ -106,6 +124,7 @@ Reports go to `.grafts/.report/sync.json` and `sync.md`. Exit codes: `0` all gre
 ```sh
 graft init [--package <pkg>]          # create .grafts/ (and a starter graft)
 graft add <id> --package <pkg>        # scaffold graft.md, a variant stub, an oracle stub
+graft apply [<id>]                    # wire the package manager to selected variants, reinstall
 graft status                          # grafts, versions, status, anchor health
 graft check [<id>] [--version X]      # anchor report against installed or X
 graft diff <id> [<from>] [<to>]       # scoped upstream diff
@@ -128,6 +147,7 @@ Every command takes `--json` and `--root`.
 | `check_anchors` | Anchor report for a graft at a version (pristine upstream contents) |
 | `scope_diff` | Upstream diff between two versions, narrowed to the graft's anchors |
 | `apply_cached` | Apply existing variants to a version; modified files are written for inspection |
+| `apply_to_project` | Point the package manager at each graft's selected variant, reinstall, and re-check anchors |
 | `run_oracle` | Run the oracle in every mode; pass/fail and output per mode |
 | `record_variant` | Register a new variant for a range. Never edits existing variants; can require anchors to match first |
 | `update_status` | Set status and verified, and append History |

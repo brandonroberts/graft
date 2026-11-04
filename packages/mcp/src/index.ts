@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { patchAdapter } from '@graftsync/adapter-patch';
 import {
   applyGraft,
+  applyToProject,
   checkAnchors,
   GraftError,
   Project,
@@ -180,6 +181,23 @@ export function createGraftServer(options: GraftServerOptions = {}): McpServer {
     tool(async (project, { id, version }: { id: string; version?: string }) => {
       const result = await applyGraft(project, id, { version, outDir: path.join(project.reportDir, id, 'applied') });
       return ok(result, result.ok ? `applied ${result.variant?.module} to ${result.version}` : `apply failed for ${result.version}`);
+    }),
+  );
+
+  server.registerTool(
+    'apply_to_project',
+    {
+      title: 'Apply grafts to the project',
+      description:
+        "Make the project use its grafts: point the package manager at each graft's variant for the installed version (e.g. pnpm patchedDependencies), reinstall, and re-check anchors. Run after record_variant when the new variant covers the installed version, before run_oracle.",
+      inputSchema: {
+        ids: z.array(z.string()).optional().describe('Graft ids (default: all active grafts)'),
+        install: z.boolean().optional().describe('Reinstall afterwards (default true)'),
+      },
+    },
+    tool(async (project, args: { ids?: string[]; install?: boolean }) => {
+      const result = await applyToProject(project, args);
+      return ok(result, `configured ${result.configured.length} graft(s)${result.installCommand ? `, ran ${result.installCommand}` : ''}${result.errors.length ? `, ${result.errors.length} error(s)` : ''}`);
     }),
   );
 

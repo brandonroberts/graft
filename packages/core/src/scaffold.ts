@@ -61,7 +61,7 @@ export async function addGraft(project: Project, input: AddGraftInput): Promise<
     throw new GraftError(`${input.package} is not installed; pass --version`, 'upstream/not-installed');
   }
   const major = semver.major(version);
-  const variantFile = `./variants/v${major}.ts`;
+  const variantFile = `./variants/v${major}${project.adapter(input.mechanism)?.variantExtension ?? '.ts'}`;
   const oracleFile = `${GRAFTS_DIR}/${input.id}/oracle.mjs`;
   const modes = input.modes?.length ? input.modes : ['default'];
 

@@ -45,6 +45,7 @@ operations.
 | Anchor report | `check_anchors` | `graft check <id> --version X` |
 | What moved upstream | `scope_diff` | `graft diff <id> [from] [to]` |
 | Try existing variants | `apply_cached` | — |
+| Wire the package manager to the selected variants + reinstall | `apply_to_project` | `graft apply` |
 | Prove it | `run_oracle` | `graft verify <id>` |
 | Register a new variant | `record_variant` | — |
 | Status + History | `update_status` | — |
@@ -77,6 +78,29 @@ Reports from `sync` land in `.grafts/.report/` (`sync.md`, `sync.json`, and per 
    green it sets `verified` and status `applied`. (Or install yourself, `run_oracle`, then
    `update_status` with `status: applied` and `verified: <target>`.)
 8. **Finish:** open a PR (see below).
+
+## Adding a new graft
+
+When asked to capture a modification as a graft (new, or migrating an existing patch):
+
+1. **Scaffold:** `graft init` (once), then `graft add <id> --package <pkg> --target <file>`.
+   This creates `graft.md`, an empty variant stub (which fails loudly until written), and an
+   oracle stub that exits 1.
+2. **Write the intent first,** with the person who owns the modification if you can: *Why*,
+   the *Invariants* (observable behaviors, one per bullet), *Where to look* (by behavior), and
+   *Anchors* (what the variant matches on and why).
+3. **Write the variant.** For `patch`: run `pnpm patch <pkg>@<installed>`, make the change in the
+   printed directory, then run `pnpm patch-commit <dir> --patches-dir <tmp>`. Move the generated
+   file onto the scaffolded `variants/v<major>.patch`. `pnpm patch-commit` may also write a
+   version-pinned entry to `package.json`; the next step replaces it.
+4. **Apply it:** `apply_to_project` / `graft apply`. This points the package manager at the
+   variant, reinstalls, and re-checks anchors.
+5. **Write the oracle** so it fails before the modification and passes after. Check that it
+   fails without the graft. An oracle that can't fail proves nothing. Test the Invariants,
+   plus at least one pre-existing behavior the graft must not break.
+6. **Prove it:** `run_oracle` / `graft verify <id>`, then `graft sync` (green).
+7. **Find the variant's real range:** `graft replay <id>` checks every published version.
+   Record what you learn in *History*.
 
 ## Rules
 

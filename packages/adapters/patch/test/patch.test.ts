@@ -2,8 +2,8 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { DirectoryUpstreamSource, Project, recordVariant, sync } from '@graftsync/core';
-import { patchAdapter, pnpmConfigProblems } from '../src/index.js';
+import { addGraft, DirectoryUpstreamSource, Project, recordVariant, sync } from '@graftsync/core';
+import { configurePnpmPatch, patchAdapter, pnpmConfigProblems } from '../src/index.js';
 
 const V1 = `const a = 1\nconst b = 2\nmodule.exports = { a, b }\n`;
 const V2 = `// moved down one line\n${V1}`; // same anchors, shifted
@@ -115,5 +115,30 @@ describe('sync with the patch adapter', () => {
     const result = await recordVariant(project, 'add-c', { range: '>=2.0.0', module: './variants/v2.patch' }, { verifyVersion: '2.0.0' });
     expect(result.narrowed).toEqual([{ module: './variants/v1.patch', from: '>=1.0.0', to: '>=1.0.0 <2.0.0' }]);
     expect(project.selectVariant(result.graft, '2.0.0')?.module).toBe('./variants/v2.patch');
+  });
+});
+
+describe('onboarding a new graft (found by testing against a real project)', () => {
+  it('scaffolds a .patch variant for the patch mechanism, which fails loudly until written', async () => {
+    const { project, root } = await fixture('1.0.0');
+    const files = await addGraft(project, { id: 'new-one', package: 'lib', mechanism: 'patch' });
+    expect(files.some((f) => f.endsWith(path.join('variants', 'v1.patch')))).toBe(true);
+    const report = await patchAdapter.checkAnchors(project.context(await project.get('new-one')), '1.0.0');
+    expect(report.errors.join('\n')).toMatch(/contains no hunks/);
+    expect(await readFile(path.join(root, '.grafts/new-one/graft.md'), 'utf8')).toContain('- default');
+  });
+
+  it('flags and removes pnpm.patchedDependencies entries that pnpm patch-commit writes to package.json', async () => {
+    const { root } = await fixture('1.0.0');
+    const variant = path.join(root, '.grafts/add-c/variants/v1.patch');
+    await writeFile(
+      path.join(root, 'package.json'),
+      JSON.stringify({ name: 'app', pnpm: { overrides: { x: '1' }, patchedDependencies: { 'lib@1.0.0': 'patches/lib@1.0.0.patch', other: 'o.patch' } } }, null, 2),
+    );
+    expect((await pnpmConfigProblems(root, 'lib', variant)).join('\n')).toMatch(/package\.json pnpm\.patchedDependencies\["lib@1\.0\.0"\]/);
+    await configurePnpmPatch(root, 'lib', variant);
+    const manifest = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
+    expect(manifest.pnpm).toEqual({ overrides: { x: '1' }, patchedDependencies: { other: 'o.patch' } });
+    expect(await pnpmConfigProblems(root, 'lib', variant)).toEqual([]);
   });
 });
