@@ -109,6 +109,14 @@ export function parseGraft(text: string, options: ParseOptions = {}): ParseResul
   }
 
   diagnostics.push(...checkVariantRanges(fm));
+  if (fm.mechanism === 'fork' && !fm.fork) {
+    diagnostics.push({
+      severity: 'error',
+      code: 'frontmatter/fork-missing',
+      path: 'fork',
+      message: 'mechanism "fork" needs a `fork:` block ({ repo, upstream, tag })',
+    });
+  }
 
   return done({ frontmatter: fm, body: split.body, sections });
 }

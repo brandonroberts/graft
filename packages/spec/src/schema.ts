@@ -50,6 +50,25 @@ export const OracleSchema = z.object({
   timeout: z.number().int().positive().optional(),
 });
 
+export const ForkSchema = z.object({
+  /** Git URL of the fork that carries the modification as commits. */
+  repo: z.string().min(1),
+  /** Git URL of the upstream source repository the fork tracks. */
+  upstream: z.string().min(1),
+  /** Upstream release tag for a version; `{version}` is substituted. */
+  tag: z
+    .string()
+    .min(1)
+    .default('v{version}')
+    .refine((t) => t.includes('{version}'), { message: 'must contain {version}' }),
+  /** Package directory inside the repositories (for monorepos). Default: the repo root. */
+  dir: z.string().min(1).optional(),
+  /** Command run in the package directory of the rebased source before packing (e.g. `npm ci && npm run build`). */
+  build: z.string().min(1).optional(),
+  /** Optional timeout for the build, in seconds. */
+  timeout: z.number().int().positive().optional(),
+});
+
 export const GeneratorSchema = z.object({
   /**
    * Shell command that writes a new variant module for an upstream version, run from the
@@ -78,12 +97,15 @@ export const GraftFrontmatterSchema = z.object({
   oracle: OracleSchema,
   /** Optional command that regenerates a variant for a new upstream version. */
   generator: GeneratorSchema.optional(),
+  /** For `mechanism: fork`: where the modification lives as commits, and how to build it. */
+  fork: ForkSchema.optional(),
   status: z.enum(GRAFT_STATUSES).default('applied'),
 });
 
 export type Rootstock = z.infer<typeof RootstockSchema>;
 export type VariantRef = z.infer<typeof VariantRefSchema>;
 export type Oracle = z.infer<typeof OracleSchema>;
+export type ForkConfig = z.infer<typeof ForkSchema>;
 export type Generator = z.infer<typeof GeneratorSchema>;
 export type GraftFrontmatter = z.infer<typeof GraftFrontmatterSchema>;
 /** Frontmatter as authored, before defaults are applied. */

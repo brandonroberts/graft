@@ -49,6 +49,28 @@ importers:
 
   packages/action: {}
 
+  packages/adapters/fork:
+    dependencies:
+      '@graftsync/adapter-patch':
+        specifier: workspace:*
+        version: link:../patch
+      '@graftsync/core':
+        specifier: workspace:*
+        version: link:../../core
+      '@graftsync/spec':
+        specifier: workspace:*
+        version: link:../../spec
+      diff:
+        specifier: ^9.0.0
+        version: 9.0.0
+      semver:
+        specifier: ^7.8.6
+        version: 7.8.6(patch_hash=0947e43b5ed23af7999e3f96c9aff3b942a900e128439305229a9b031d0890b4)
+    devDependencies:
+      '@types/semver':
+        specifier: ^7.8.0
+        version: 7.8.0
+
   packages/adapters/patch:
     dependencies:
       '@graftsync/core':
@@ -69,6 +91,9 @@ importers:
 
   packages/cli:
     dependencies:
+      '@graftsync/adapter-fork':
+        specifier: workspace:*
+        version: link:../adapters/fork
       '@graftsync/adapter-patch':
         specifier: workspace:*
         version: link:../adapters/patch

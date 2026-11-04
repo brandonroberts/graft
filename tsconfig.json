@@ -11,6 +11,9 @@
       "path": "packages/adapters/patch"
     },
     {
+      "path": "packages/adapters/fork"
+    },
+    {
       "path": "packages/cli"
     }
   ]

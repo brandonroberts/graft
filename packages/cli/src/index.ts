@@ -25,10 +25,11 @@ import {
   type MechanismAdapter,
 } from '@graftsync/core';
 import { patchAdapter } from '@graftsync/adapter-patch';
+import { forkAdapter } from '@graftsync/adapter-fork';
 import { GRAFT_STATUSES, REQUIRED_SECTIONS, type GraftStatus } from '@graftsync/spec';
 
 /** Mechanisms the CLI knows about. */
-export const defaultAdapters: MechanismAdapter[] = [patchAdapter];
+export const defaultAdapters: MechanismAdapter[] = [patchAdapter, forkAdapter];
 
 const EXIT = { ok: 0, attention: 1, tooling: 2 } as const;
 

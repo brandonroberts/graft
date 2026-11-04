@@ -176,6 +176,7 @@ export async function addGraft(project: Project, input: AddGraftInput): Promise<
         ...(input.targets?.length ? { targets: input.targets } : {}),
         variants: [{ range: `>=${major}.0.0-0`, module: variantFile }],
         oracle: { command: `node ${oracleFile}`, modes },
+        ...(adapter.scaffoldFrontmatter?.({ id: input.id, package: input.package, version }) ?? {}),
         status: 'applied',
       }),
     ],

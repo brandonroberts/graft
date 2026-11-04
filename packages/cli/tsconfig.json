@@ -16,6 +16,9 @@
     },
     {
       "path": "../adapters/patch"
+    },
+    {
+      "path": "../adapters/fork"
     }
   ]
 }

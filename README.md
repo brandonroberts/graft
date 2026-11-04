@@ -247,6 +247,39 @@ In a monorepo where the upstream package is declared by a workspace package rath
 { "resolveFrom": { "pacote": "packages/core", "yaml": "packages/spec" } }
 ```
 
+### `fork` (modification kept as commits on a fork)
+
+For teams that maintain their change as commits on a fork of the upstream source repository, rebased for each upstream release.
+
+```yaml
+mechanism: fork
+fork:
+  repo: https://github.com/acme/ms.git        # the fork
+  upstream: https://github.com/vercel/ms.git  # the upstream source
+  tag: "{version}"                            # upstream release tag (default "v{version}")
+  build: npm ci && npm run build              # optional, before packing; dir: for monorepos
+variants:
+  - range: ">=2.1.2"
+    module: ./variants/v2.json                # { "ref": "graft/fortnight", "base": "2.1.2" }
+```
+
+- **The change** is the fork's diff from `tag(base)` to `ref`. Every hunk is an anchor, located in the upstream *source* at the target version's tag (fuzz 0), and checked for "likely upstreamed".
+- **Installing a version:**
+  1. Graft rebases that diff onto the target tag in a fresh checkout.
+  2. It runs `build`, if set.
+  3. It runs `npm pack`, checking that the result packs as `<package>@<version>`.
+  4. It commits the tarball as `.grafts/.vendor/<pkg>-<version>.tgz` and installs it through overrides and the root dependency, the same way as the `vendor` applier.
+
+  This works with every package manager and is recorded in the lockfile. Graft never pushes to the fork.
+- **An upstream release the fork's commits still apply to** goes through `sync` with no agent: rebase, pack, install, oracle, green.
+- **A conflict** becomes `needs-agent`, with the scoped upstream `git diff`. The agent rebases the fork branch onto the new tag *in the fork*, then registers a new variant: `graft variant add <id> --range '>=X' --module ./variants/vX.json --verify-version X`.
+- **At the installed version,** `graft check` rebuilds the tarball and compares it, and also compares installed files with it.
+
+Verified end to end against the real `vercel/ms` repository with a local fork (a `fortnight` unit), on npm and pnpm:
+- `apply` and a fresh install;
+- `sync --version 2.1.3 --install`, which rebased the fork from `2.1.2` onto `2.1.3` automatically;
+- a tampered install, which `graft check` caught.
+
 ## Dogfood validation
 
 Graft validates itself on its own CommonJS dependencies. Three grafts convert **pacote**, **semver** and **yaml** to native ESM in this repo, so no CommonJS loads from those packages. Each is a whole-package `patch` variant. Graft's own build, tests and CLI run on the converted packages.
@@ -292,7 +325,8 @@ What the dogfood run found:
 | [`@graftsync/cli`](packages/cli) | ✅ implemented | `graft` command for humans and CI. |
 | [`@graftsync/skill`](packages/skill) | ✅ implemented | [`SKILL.md`](packages/skill/SKILL.md) teaching agents the sync loop. |
 | [`packages/action`](packages/action) | ✅ implemented | GitHub Action: poll npm dist-tags, run sync, open PRs, and hand failures to your agent. |
-| [`@graftsync/adapter-patch`](packages/adapters/patch) | ✅ implemented | First mechanism: pnpm `patchedDependencies`. |
+| [`@graftsync/adapter-patch`](packages/adapters/patch) | ✅ implemented | The `patch` mechanism and its appliers (pnpm, npm, bun, yarn, built-in, patch-package, vendor). |
+| [`@graftsync/adapter-fork`](packages/adapters/fork) | ✅ implemented | The `fork` mechanism: commits on a fork, rebased, built and packed per upstream version. |
 
 `@graftsync/core` contains:
 
@@ -315,9 +349,14 @@ interface MechanismAdapter {
   apply(ctx: GraftContext, options?: ApplyOptions): Promise<ApplyResult>;
   checkAnchors(ctx: GraftContext, version: string): Promise<AnchorReport>;
   scopeDiff(ctx: GraftContext, from: string, to: string): Promise<ScopedDiff>;
-  beforeInstall?(ctx: GraftContext, version: string): Promise<void>;
+  beforeInstall?(ctx: GraftContext, version: string): Promise<void | { install?: 'reinstall' }>;
+  afterInstall?(ctx: GraftContext, version: string): Promise<void>;
+  applyInstalled?(ctx: GraftContext): Promise<InstalledApplyReport>;
   validateVariant?(ctx: GraftContext, variant: ResolvedVariant): Promise<void>;
+  exclusivePerPackage?: boolean;
+  variantExtension?: string;
   variantTemplate?(graft: { id: string; targets?: string[]; package: string }): string;
+  scaffoldFrontmatter?(graft: { id: string; package: string; version: string }): Record<string, unknown>;
 }
 ```
 
@@ -326,7 +365,7 @@ Every adapter must follow these rules:
 1. **Fail loudly on no-match.** An anchor that's missing or matches ambiguously is an error. A graft must never silently apply nothing.
 2. **Anchor by behavior.** Prefer stable exported symbols over the shape of the code, and never match on formatting.
 3. **Add variants, don't rewrite them.** Older version ranges keep their variants and tests.
-4. **Diff what the mechanism sees.** Diff published artifacts, not upstream source.
+4. **Diff what the mechanism sees.** Work on the pristine upstream artifact the mechanism modifies, never the installed copy: the published package for `patch`, the upstream source at the release tag for `fork`.
 
 ## Development
 
@@ -357,7 +396,7 @@ The packages start at 0.1.0, which is not on npm yet, so the first manual run wi
 - **M1 — First mechanism adapter, with a design partner.** Capture one real modification as a graft, with an oracle driven by its invariants. *(The `patch` adapter is done and dogfooded on pacote, semver and yaml; an external design partner is still to come.)*
 - **M2 — Deterministic first pass in CI:** `graft check/diff/sync/verify`, reports, and a GitHub Action that opens PRs when everything passes. *(Done.)*
 - **M3 — Agent path:** agent-facing CLI commands, skill file, and the action's hand-off to an agent. Evaluated by replaying historical prereleases. *(The CLI commands, skill and Action hand-off are done; the historical-prerelease eval is pending. The brief's MCP server was built and then removed: agents use the CLI.)*
-- **M4 — Second, unrelated mechanism,** to prove the abstraction generalizes. Spec v1 is frozen only after this.
+- **M4 — Second, unrelated mechanism,** to prove the abstraction generalizes. Spec v1 is frozen only after this. *(The `fork` mechanism is done: git commits on a fork, rebased, built and packed per upstream version, using the same adapter interface. Freezing spec v1 is still open.)*
 
 [`docs/handoff.md`](docs/handoff.md) is the current project handoff: architecture, the decisions that changed the original design brief (and why), milestone status and open work. The original brief is in git history.
 

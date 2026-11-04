@@ -41,7 +41,8 @@
     "@graftsync/spec": "workspace:*",
     "citty": "^0.2.2",
     "@graftsync/adapter-patch": "workspace:*",
-    "@graftsync/skill": "workspace:*"
+    "@graftsync/skill": "workspace:*",
+    "@graftsync/adapter-fork": "workspace:*"
   },
   "publishConfig": {
     "access": "public",

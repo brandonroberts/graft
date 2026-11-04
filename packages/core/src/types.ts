@@ -207,4 +207,6 @@ export interface MechanismAdapter {
   variantExtension?: string;
   /** Scaffold a variant module stub. Returns file contents. */
   variantTemplate?(graft: { id: string; targets?: string[]; package: string }): string;
+  /** Extra frontmatter for a scaffolded graft (e.g. the fork mechanism's `fork:` block). */
+  scaffoldFrontmatter?(graft: { id: string; package: string; version: string }): Record<string, unknown>;
 }

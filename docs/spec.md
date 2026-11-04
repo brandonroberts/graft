@@ -65,6 +65,15 @@ YAML, is an error.
 | `oracle.command` | non-empty string | yes | — | Shell command; exit 0 means pass. |
 | `oracle.modes` | array of non-empty strings, at least one | no | `["default"]` | Modes to run the oracle in (e.g. `dev`, `build`). |
 | `oracle.timeout` | positive integer (seconds) | no | 600 (applied by the runner) | Per-mode timeout. |
+| `generator` | object | no | — | A command that writes a new variant mechanically; `sync` runs it when no existing variant fits (§6). |
+| `generator.command` | non-empty string containing `{out}` (or using `$GRAFT_VARIANT_OUT`) | yes, with `generator` | — | `{version}` and `{out}` are substituted. |
+| `fork` | object | yes for `mechanism: fork` | — | Where a fork graft's modification lives (§9.2). |
+| `fork.repo` | non-empty string | yes | — | Git URL of the fork. |
+| `fork.upstream` | non-empty string | yes | — | Git URL of the upstream source repository. |
+| `fork.tag` | string containing `{version}` | no | `v{version}` | Upstream release tag for a version. |
+| `fork.dir` | non-empty string | no | repo root | Package directory inside the repositories (monorepos). |
+| `fork.build` | non-empty string | no | — | Command run in the rebased package directory before packing. |
+| `fork.timeout` | positive integer (seconds) | no | 1800 | Build timeout. |
 | `status` | `applied` \| `conflicted` \| `upstreamed` \| `obsolete` | no | `applied` | Lifecycle state (§4). |
 
 Unknown frontmatter keys are ignored. Tools that edit `graft.md` (bookkeeping such as
@@ -257,8 +266,10 @@ under the name used in `mechanism`.
 | `afterInstall?(ctx, version)` | no | Run right after `sync` installs `version`, for mechanisms that apply themselves. |
 | `applyInstalled?(ctx)` | no | Apply selected variants to installed package copies (from `postinstall`). MUST be idempotent, work offline, and never modify files shared with a package-manager store (write new inodes). |
 | `validateVariant?(ctx, variant)` | no | Validate a new variant before it is registered; throw to reject. |
+| `exclusivePerPackage?` | no | When true, at most one active graft with this mechanism may target a package; more is a validation error. |
 | `variantExtension?` | no | File extension for scaffolded variant modules (default `.ts`). |
 | `variantTemplate?(graft)` | no | Contents of a scaffolded variant stub. |
+| `scaffoldFrontmatter?(graft)` | no | Extra frontmatter for a scaffolded graft (e.g. the `fork:` block). |
 
 Every adapter MUST follow these rules:
 
@@ -269,5 +280,34 @@ Every adapter MUST follow these rules:
    formatting.
 3. **Add variants, never rewrite them.** Older version ranges keep their variants. Adapters
    MUST NOT modify existing variant modules.
-4. **Diff what the mechanism sees.** Anchors, apply and diffs MUST operate on the published
-   package contents (what the package manager installs), not upstream source repositories.
+4. **Diff what the mechanism sees.** Anchors, apply and diffs MUST operate on the pristine
+   upstream artifact the mechanism modifies, never on the installed copy (which the mechanism
+   itself changes): the published package for `patch`, the upstream source at the release
+   tag for `fork`.
+
+### 9.1 The `patch` mechanism
+
+A variant is a git-style patch with package-relative paths, applied to the published package.
+Every hunk is an anchor (fuzz 0; position may shift), and a created file MUST NOT already exist
+upstream. An *applier* makes the package manager apply it (pnpm, npm ≥ 12, bun and yarn 2+
+natively; a built-in `postinstall` applier; patch-package; or a vendored tarball). Details: the
+README's *Mechanisms* section.
+
+### 9.2 The `fork` mechanism
+
+The modification lives as commits on a fork of the upstream source repository (`fork.repo`),
+on top of an upstream release tag.
+
+- A variant is a JSON file `{ "ref": "<fork branch, fork tag or commit>", "base": "<upstream
+  version>" }`. The graft's change is the diff from `tag(base)` to `ref`, limited to `fork.dir`.
+  A ref with no changes is an error.
+- Anchors are that diff's hunks, located in the upstream source at `tag(version)` (fuzz 0). The
+  change is "likely upstreamed" when its reverse applies to the target tag.
+- To install a version, the tooling rebases the change onto `tag(version)`, runs `fork.build`
+  if set, packs the package with `npm pack --ignore-scripts`, and MUST verify that it packs as
+  `rootstock.package@version`. It commits the result as `.grafts/.vendor/<pkg>-<version>.tgz`
+  and points overrides and the root dependency at it. The tooling MUST NOT push to the fork.
+- At the installed version, checks MUST verify the committed tarball equals a fresh build and
+  that the installed files equal the tarball's (except `package.json`).
+- When the change doesn't rebase onto a new tag, the graft needs an agent: rebase the fork
+  branch onto the new tag in the fork, then register a new variant pointing at it.

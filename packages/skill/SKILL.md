@@ -168,6 +168,28 @@ When asked to capture a modification as a graft (new, or migrating an existing p
   did; the rejected output is under `.grafts/.report/<id>/regenerated/`. Fix the generator
   or review that output rather than hand-patching the old variant.
 
+### `fork` (commits on a fork of the upstream repo)
+
+- The graft's `fork:` block names the fork (`repo`), the upstream source repo (`upstream`), the
+  release tag pattern (`tag`, e.g. `v{version}`), and optionally `dir` and `build`.
+- A variant is a JSON file: `{ "ref": "<fork branch, tag or commit>", "base": "<upstream
+  version>" }`. The change is the fork's diff from `tag(base)` to `ref`. Every hunk is an
+  anchor, located in the upstream source at the target version's tag (fuzz 0).
+- Graft installs a version by rebasing that diff onto the target tag, running `build`, and
+  `npm pack`. The tarball goes in `.grafts/.vendor/`, installed through overrides. Don't edit
+  the tarball or the overrides by hand; `graft apply` / `graft sync --install` write them.
+- When `sync` says the change no longer rebases onto a new tag:
+  1. Work in the fork repository, not in `node_modules`. Create a new branch from the new
+     upstream tag, e.g. `git switch -c graft/<id>-<target> <tag>`. Re-apply the change by
+     behavior, using *Where to look*, and commit.
+  2. Push that branch to the fork, if you're allowed to. Otherwise tell the user it needs
+     pushing; Graft reads the fork from `fork.repo`.
+  3. Write a new variant file, e.g. `variants/v<target>.json`, as
+     `{ "ref": "graft/<id>-<target>", "base": "<target>" }`. Register it with
+     `graft variant add <id> --range '>=<target>' --module ./variants/v<target>.json
+     --verify-version <target>`.
+  4. Prove it with `graft sync --version <target> --install`.
+
 ## When to stop: `conflicted`
 
 Stop and mark the graft `conflicted` (`graft mark <id> --status conflicted --history "…"`) when:

@@ -60,7 +60,7 @@ const posix = (p: string) => p.split(path.sep).join('/');
 const keyIsFor = (key: string, pkg: string) => key === pkg || (key.startsWith(`${pkg}@`) && key.length > pkg.length + 1);
 
 /** Nearest directory at or above `from` with a package.json (the install root). */
-function manifestRoot(from: string): string {
+export function manifestRoot(from: string): string {
   let dir = path.resolve(from);
   let found: string | undefined;
   for (;;) {

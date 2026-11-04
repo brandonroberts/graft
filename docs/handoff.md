@@ -15,7 +15,7 @@ Coding agents can do the fixing, but nothing triggers them, nothing tells them *
 - **Graft:** one local modification to an upstream package, described by `.grafts/<id>/graft.md`.
 - **Rootstock:** the upstream package and the last version the graft was verified against (`rootstock.verified`).
 - **Intent:** the `graft.md` body: Why, Invariants, Where to look, Anchors, History. It's written for an agent to act on.
-- **Mechanism:** how the modification is applied. Today only `patch` exists.
+- **Mechanism:** how the modification is applied. Two exist: `patch` (a diff against the published package) and `fork` (commits on a fork of the upstream source repo).
 - **Applier:** for the `patch` mechanism, how a package manager is made to apply the patch (§6).
 - **Anchors:** what a variant matches on in upstream code. For patches, every hunk is an anchor.
 - **Variant:** one implementation of the mechanism for a version range. Variants are added, never edited.
@@ -45,6 +45,7 @@ packages/
   core/             @graftsync/core           project loading, adapter interface, upstream sources, oracle runner,
                                               scoped diffs, sync, replay, outdated, record/update, init/add, applyInstalled
   adapters/patch/   @graftsync/adapter-patch  the patch mechanism and its appliers
+  adapters/fork/    @graftsync/adapter-fork   the fork mechanism: rebase a fork's commits per upstream tag, build, pack
   cli/              @graftsync/cli            the `graft` command, for people, CI and agents
   skill/            @graftsync/skill          SKILL.md teaching agents the sync loop through the CLI
   action/           (private)                 composite GitHub Action, plain ESM .mjs, no build step
@@ -146,6 +147,24 @@ Variants are git-style patches with package-relative paths. Each hunk must fit e
 - **Likely upstreamed:** when the reverse patch applies to the pristine target, the graft is flagged "likely upstreamed".
 - **Removed files:** the scoped diff lists candidate files a removed target's code moved to.
 
+### The `fork` mechanism
+
+The modification lives as commits on a fork (`fork: { repo, upstream, tag, dir?, build? }`). A variant is a JSON file `{ ref, base }`; the change is the fork's diff `tag(base)..ref`.
+
+- **Anchors:** its hunks, located in the upstream *source* at `tag(version)`. "Likely upstreamed" uses the reverse diff.
+- **Installing a version:**
+  1. Rebase the diff onto the target tag in a fresh checkout.
+  2. Run `build`, if set.
+  3. `npm pack --ignore-scripts`, checking that it packs as `<package>@<version>`.
+  4. Commit the tarball as `.grafts/.vendor/<pkg>-<version>.tgz` and install it through the same override logic as the `vendor` applier (shared code).
+- **Graft never pushes to the fork.**
+- **Agent path:** on a conflict, the agent re-applies the change on a new fork branch cut from the new tag, then registers a new variant.
+
+Verified against the real `vercel/ms` repo, with a local fork, on npm and pnpm:
+- `sync --version 2.1.3 --install` rebased the fork from 2.1.2 automatically and went green;
+- fresh installs keep the build;
+- a tampered install is caught.
+
 ## 7. CLI
 
 | Command | Behavior |
@@ -217,6 +236,7 @@ Graft keeps three of its own CommonJS dependencies converted to native ESM, as r
 | Sync: anchors, then apply, then oracle against the *installed* target | Static checks against the *pristine* target before installing | A graft that no longer fits must never break the install, and the installed copy is already patched |
 | Humans mark `upstreamed` | Still, but Graft flags likely absorption | Cheap, deterministic signal (the reverse patch applies) |
 | Agent-only handling of every non-green sync | Optional `generator` regenerates mechanical variants first | Generated variants (e.g. the ESM conversions) break on most releases and need no judgment |
+| "Second mechanism" left for M4 | `fork` mechanism built | Forks are a common way teams carry modifications, and they test the abstraction: anchors on upstream *source* tags instead of the published package |
 | Scheduled Action + publish on push | Both manual-trigger only | Maintainer preference: no unattended PRs, issues or publishes yet |
 | Node 20+ | Node ≥ 22.22 / 24.15 / 26, ESM only, TypeScript 7 | Dependency requirements (pacote 22, vitest 5); Node 20 is end-of-life |
 
@@ -228,7 +248,7 @@ Graft keeps three of its own CommonJS dependencies converted to native ESM, as r
 | M1: first mechanism with a design partner | `patch` done and dogfooded on pacote/semver/yaml and tested on real `ms` projects across pnpm, npm 10/12, yarn 1/4 (PnP and node-modules), bun and upm. **Design partner pending (#5)** |
 | M2: deterministic pass in CI | Done: CLI, reports, `graft check` in CI, the Action. **First real Action run pending (#3)** |
 | M3: agent path | CLI commands, skill and Action hand-off done. **Real-agent evaluation pending (#4)** |
-| M4: second, unrelated mechanism | **Not started (#6).** The spec stays a draft until then |
+| M4: second, unrelated mechanism | The `fork` mechanism is done (#15), through the same adapter interface; it needed only small optional hooks (`scaffoldFrontmatter`, a `fork:` frontmatter block). **Freezing spec v1 is still open (#6)** |
 
 ## 13. Success metrics (unchanged)
 
@@ -250,7 +270,7 @@ Graft keeps three of its own CommonJS dependencies converted to native ESM, as r
 - **#3:** first real run of the sync Action. It needs "Allow GitHub Actions to create and approve pull requests".
 - **#4:** real-agent evaluation (needs agent and API credentials). This is the most important unanswered question.
 - **#5:** a design partner.
-- **#6:** a second mechanism (e.g. a maintained fork) before freezing spec v1.
+- **#6:** freeze spec v1, now that a second mechanism (`fork`, #15) exists. Review whether the adapter interface held up for both.
 - **Known gaps:**
   - regeneration when the target is already installed under pnpm falls back to an agent;
   - the built-in and patch-package appliers are untested on yarn 2+ with node-modules;

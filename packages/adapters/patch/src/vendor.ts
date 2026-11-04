@@ -163,7 +163,27 @@ export interface VendorContext {
   installRoot: string;
 }
 
+/** Builds the expected tarball into a temp dir (the caller removes `tmp`). */
+export type TarballBuilder = () => Promise<{ file: string; tmp: string }>;
+
 export async function vendorProblems(ctx: VendorContext, pkg: string, version: string, variantPath: string): Promise<string[]> {
+  const build = ctx.upstream ? async () => buildVendorTarball(await ctx.upstream!.resolve(pkg, version), variantPath) : undefined;
+  return vendoredTarballProblems(ctx, pkg, version, build, `pristine ${pkg}@${version} + ${posix(path.relative(ctx.installRoot, variantPath))}`);
+}
+
+/**
+ * Problems with installing `pkg@version` from a vendored tarball through overrides: the
+ * tarball is missing or stale (when `build` is given, its contents must equal a fresh build,
+ * described by `expected`), overrides / root dependency / npm lock entries point elsewhere, or
+ * a competing patch is configured. Shared by the vendor applier and the fork mechanism.
+ */
+export async function vendoredTarballProblems(
+  ctx: VendorContext,
+  pkg: string,
+  version: string,
+  build: TarballBuilder | undefined,
+  expected: string,
+): Promise<string[]> {
   const { installRoot } = ctx;
   const problems: string[] = [];
   const vendorDir = path.join(ctx.graftRoot, VENDOR_DIR);
@@ -173,13 +193,13 @@ export async function vendorProblems(ctx: VendorContext, pkg: string, version: s
 
   if (!existsSync(tarball)) {
     problems.push(`${posix(path.relative(installRoot, tarball))} is missing; run \`graft apply\``);
-  } else if (ctx.upstream) {
-    const built = await buildVendorTarball(await ctx.upstream.resolve(pkg, version), variantPath).catch((err: Error) => err);
+  } else if (build) {
+    const built = await build().catch((err: Error) => err);
     if (built instanceof Error) problems.push(built.message);
     else {
       try {
         if (!sameContents(await tarballContents(built.file), await tarballContents(tarball))) {
-          problems.push(`${posix(path.relative(installRoot, tarball))} is stale (it is not pristine ${pkg}@${version} + ${posix(path.relative(installRoot, variantPath))}); run \`graft apply\``);
+          problems.push(`${posix(path.relative(installRoot, tarball))} is stale (it is not ${expected}); run \`graft apply\``);
         }
       } finally {
         await rm(built.tmp, { recursive: true, force: true });
@@ -200,7 +220,10 @@ export async function vendorProblems(ctx: VendorContext, pkg: string, version: s
   }
   for (const field of DEP_FIELDS) {
     const declared = json[field]?.[pkg];
-    if (declared !== undefined && declared !== spec) problems.push(`package.json ${field}["${pkg}"] must be "${spec}" (is "${declared}"); npm refuses an override that differs from a direct dependency`);
+    if (declared !== undefined && declared !== spec) {
+      const why = detectPackageManager(installRoot) === 'npm' ? '; npm refuses an override that differs from a direct dependency' : '';
+      problems.push(`package.json ${field}["${pkg}"] must be "${spec}" (is "${declared}")${why}`);
+    }
   }
   if (existsSync(vendorDir)) {
     for (const f of (await readdir(vendorDir)).filter((f) => f.startsWith(vendorPrefix(pkg)) && /^\d/.test(f.slice(vendorPrefix(pkg).length)) && f !== path.basename(tarball))) {
@@ -215,11 +238,22 @@ export async function vendorProblems(ctx: VendorContext, pkg: string, version: s
 
 export async function vendorConfigure(ctx: VendorContext, pkg: string, version: string, variantPath: string): Promise<{ files: string[] }> {
   if (!ctx.upstream) throw new Error('the vendor applier needs the upstream source to build the patched package');
+  const upstream = ctx.upstream;
+  return installVendoredTarball(ctx, pkg, version, async () => buildVendorTarball(await upstream.resolve(pkg, version), variantPath));
+}
+
+/**
+ * Commit a freshly built tarball as `.grafts/.vendor/<pkg>-<version>.tgz` (keeping the old bytes
+ * when contents are unchanged, so lockfile integrity is stable), remove other versions' tarballs,
+ * and point overrides, the root dependency and npm's lockfile at it. Shared by the vendor applier
+ * and the fork mechanism.
+ */
+export async function installVendoredTarball(ctx: VendorContext, pkg: string, version: string, build: TarballBuilder): Promise<{ files: string[] }> {
   const { installRoot } = ctx;
   const vendorDir = path.join(ctx.graftRoot, VENDOR_DIR);
   await mkdir(vendorDir, { recursive: true });
   const tarball = path.join(vendorDir, vendorFileName(pkg, version));
-  const built = await buildVendorTarball(await ctx.upstream.resolve(pkg, version), variantPath);
+  const built = await build();
   try {
     // Keep the existing bytes when contents are unchanged, so the lockfile's integrity is stable.
     if (!existsSync(tarball) || !sameContents(await tarballContents(built.file), await tarballContents(tarball))) {

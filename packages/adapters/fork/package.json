@@ -1,0 +1,49 @@
+{
+  "name": "@graftsync/adapter-fork",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "description": "Graft fork mechanism: modifications kept as commits on a fork of the upstream repo, rebased and packed per upstream version.",
+  "keywords": [
+    "graft",
+    "fork",
+    "git",
+    "npm",
+    "dependencies"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/brandonroberts/graft.git",
+    "directory": "packages/adapters/fork"
+  },
+  "homepage": "https://github.com/brandonroberts/graft#readme",
+  "bugs": "https://github.com/brandonroberts/graft/issues",
+  "engines": {
+    "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "dependencies": {
+    "@graftsync/core": "workspace:*",
+    "@graftsync/spec": "workspace:*",
+    "@graftsync/adapter-patch": "workspace:*",
+    "diff": "^9.0.0",
+    "semver": "^7.8.6"
+  },
+  "devDependencies": {
+    "@types/semver": "^7.8.0"
+  }
+}
