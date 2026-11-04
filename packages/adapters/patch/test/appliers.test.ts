@@ -20,8 +20,8 @@ describe('applier selection', () => {
   it('follows packageManager, then lockfiles, then the config override', async () => {
     expect(selectApplier((await project({ packageManager: 'bun@1.4.4' })).root).name).toBe('bun');
     expect(selectApplier((await project({}, 'bun.lock')).root).name).toBe('bun');
-    expect(selectApplier((await project({}, 'package-lock.json')).root).name).toBe('patch-package');
-    expect(selectApplier((await project({}, 'yarn.lock')).root).name).toBe('patch-package');
+    expect(selectApplier((await project({}, 'package-lock.json')).root).name).toBe('graft');
+    expect(selectApplier((await project({}, 'yarn.lock')).root).name).toBe('graft');
     expect(selectApplier((await project({}, 'pnpm-lock.yaml')).root).name).toBe('pnpm');
     expect(selectApplier((await project({}, 'bun.lock')).root, 'patch-package').name).toBe('patch-package');
   });

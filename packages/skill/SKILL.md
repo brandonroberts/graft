@@ -140,8 +140,9 @@ When asked to capture a modification as a graft (new, or migrating an existing p
   `variants/`. For npm, diff a pristine copy (under `.grafts/.cache/upstream/`) against your
   modified copy, using package-relative paths.
 - Don't hand-edit the package manager's patch configuration. `graft apply` / `apply_to_project`
-  wires the selected variant (pnpm `patchedDependencies`, bun's version-pinned key, or a
-  generated `.grafts/.patch-package/<pkg>+<version>.patch` plus a strict `postinstall`), and
+  wires the selected variant: pnpm `patchedDependencies`, bun's version-pinned key, or (npm,
+  yarn and others) Graft's built-in applier, `graft apply --installed` in `postinstall`. The
+  built-in applier is offline, idempotent, and never edits store-shared files in place.
   `graft sync --install` rewires it for the new version before installing. At the installed
   version, `check_anchors` reports any configuration that would apply something else or fail
   silently, and any patched file in `node_modules` that doesn't match pristine upstream + the

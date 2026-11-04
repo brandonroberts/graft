@@ -164,6 +164,7 @@ export async function sync(project: Project, options: SyncOptions = {}): Promise
           target.installCommand = await installPackage(project.root, pkg, project.upstream.installSpec(pkg, version));
           const now = await project.installedVersion(pkg);
           if (now !== version) installError = `installed ${pkg} but found version ${now ?? 'none'}, expected ${version}`;
+          else for (const s of ready) await project.adapterFor(s.graft).afterInstall?.(project.context(s.graft), version);
         } catch (err) {
           installError = (err as Error).message;
         }

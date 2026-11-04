@@ -127,6 +127,31 @@ export interface VariantInput {
   narrow?: boolean;
 }
 
+/** One installed copy of the rootstock package, as handled by `applyInstalled`. */
+export interface InstalledCopyResult {
+  /** Real path of the installed package directory. */
+  dir: string;
+  version: string;
+  /** True for the copy the project itself resolves (the one the oracle exercises). */
+  primary: boolean;
+  action: 'patched' | 'already-patched' | 'skipped' | 'failed';
+  /** Files written (or that were already patched). */
+  files: string[];
+  variant?: string;
+  /** Why it was skipped or failed. */
+  reason?: string;
+}
+
+export interface InstalledApplyReport {
+  graft: string;
+  package: string;
+  copies: InstalledCopyResult[];
+  /** Failures that must fail the install (primary copy uncovered, a patch that does not fit…). */
+  errors: string[];
+  /** Non-fatal notes (e.g. a nested copy of another version that no variant covers). */
+  warnings: string[];
+}
+
 /** A mechanism (build transform, patch file, vendored copy, fork) that applies grafts. */
 export interface MechanismAdapter {
   name: string;
@@ -141,6 +166,18 @@ export interface MechanismAdapter {
    * (e.g. point pnpm patchedDependencies at it). Called by `sync --install` before installing.
    */
   beforeInstall?(ctx: GraftContext, version: string): Promise<void>;
+  /**
+   * Called by `sync --install` right after installing `version`. Mechanisms that apply
+   * themselves (rather than through the package manager) do so here, because package
+   * managers do not reliably run the project's lifecycle scripts on a targeted install.
+   */
+  afterInstall?(ctx: GraftContext, version: string): Promise<void>;
+  /**
+   * Apply the selected variants directly to the installed package copies (run from the
+   * project's postinstall). Must be idempotent, work offline, and never modify files shared
+   * with a package-manager store (write new inodes).
+   */
+  applyInstalled?(ctx: GraftContext): Promise<InstalledApplyReport>;
   /** Validate a new variant module before it is registered. Throw to reject. */
   validateVariant?(ctx: GraftContext, variant: ResolvedVariant): Promise<void>;
   /** File extension of variant modules, used when scaffolding (e.g. `.patch`). Default `.ts`. */

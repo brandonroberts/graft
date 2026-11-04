@@ -2,6 +2,7 @@ import path from 'node:path';
 import { defineCommand, type CommandDef } from 'citty';
 import {
   addGraft,
+  applyInstalled,
   applyToProject,
   checkAnchors,
   GraftError,
@@ -158,9 +159,28 @@ const apply = defineCommand({
     ...common,
     id: { type: 'positional', required: false, description: 'Graft id (default: all active grafts)' },
     install: { type: 'boolean', default: true, description: 'Reinstall afterwards (--no-install to only write config)' },
+    installed: {
+      type: 'boolean',
+      description: "Apply variants directly to installed packages (Graft's built-in applier; run from postinstall). Offline and idempotent; exits 1 if any graft does not fit.",
+    },
   },
   run: guarded(async (args) => {
     const project = await open(args.root);
+    if (args.installed) {
+      const { reports, ok } = await applyInstalled(project, { ids: args.id ? [args.id] : undefined });
+      print(args.json, { reports, ok }, () => {
+        for (const r of reports) {
+          for (const c of r.copies) {
+            const where = c.primary ? '' : ` (nested: ${path.relative(project.root, c.dir)})`;
+            if (c.action === 'patched' || c.action === 'already-patched') console.log(`graft: ${c.action === 'patched' ? 'patched' : 'already patched'} ${r.package}@${c.version} with ${r.graft}${where}`);
+          }
+          for (const w of r.warnings) console.log(`graft: warning: ${w}`);
+          for (const e of r.errors) console.error(`graft: error: ${e}`);
+        }
+        if (!ok) console.error('graft: one or more grafts could not be applied; failing the install so the package is never left silently unmodified');
+      });
+      return ok ? EXIT.ok : EXIT.attention;
+    }
     const result = await applyToProject(project, { ids: args.id ? [args.id] : undefined, install: args.install });
     print(args.json, result, () => {
       for (const c of result.configured) console.log(`configured ${c.id}: ${c.package}@${c.version} → ${c.variant}`);

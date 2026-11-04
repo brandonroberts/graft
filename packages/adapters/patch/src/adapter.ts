@@ -17,6 +17,7 @@ import {
 } from '@graftsync/core';
 import { applyFilePatch, describeHunk, locateHunk, parsePatchFile, patchTarget, type FilePatch } from './patchfile.js';
 import { selectApplier } from './appliers.js';
+import { applyToInstalledCopy, findInstalledCopies } from './installed.js';
 import type { Project } from '@graftsync/core';
 
 /** The applier for this project (config `mechanisms.patch.applier`, else from the lockfile). */
@@ -195,6 +196,48 @@ export function createPatchAdapter(): MechanismAdapter {
         files.push(scopeFileDiff({ file, oldText, newText, regions, window: 10 }));
       }
       return { graft: graft.id, package: pkg, from, to, files, patch: renderPatch(files, { from: `${pkg}@${from}`, to: `${pkg}@${to}` }) };
+    },
+
+    async applyInstalled(ctx: GraftContext) {
+      const { project, graft } = ctx;
+      const pkg = graft.frontmatter.rootstock.package;
+      const report = { graft: graft.id, package: pkg, copies: [] as import('@graftsync/core').InstalledCopyResult[], errors: [] as string[], warnings: [] as string[] };
+      const primary = await project.upstream.installed(pkg);
+      if (!primary) {
+        report.warnings.push(`${pkg} is not installed; nothing to apply`);
+        return report;
+      }
+      const copies = await findInstalledCopies(project.root, pkg);
+      if (!copies.some((c) => c.dir === primary.dir)) copies.unshift({ dir: primary.dir, version: primary.version });
+      for (const copy of copies) {
+        const isPrimary = copy.dir === primary.dir;
+        const variant = project.selectVariant(graft, copy.version);
+        const base = { dir: copy.dir, version: copy.version, primary: isPrimary, files: [] as string[] };
+        if (!variant) {
+          const reason = `no variant of graft "${graft.id}" covers ${pkg}@${copy.version}`;
+          report.copies.push({ ...base, action: isPrimary ? 'failed' : 'skipped', reason });
+          (isPrimary ? report.errors : report.warnings).push(isPrimary ? reason : `${reason} (nested copy at ${copy.dir} left unmodified)`);
+          continue;
+        }
+        let patches: FilePatch[];
+        try {
+          patches = await loadPatch(graft, variant);
+        } catch (err) {
+          report.copies.push({ ...base, action: 'failed', variant: variant.module, reason: (err as Error).message });
+          report.errors.push((err as Error).message);
+          continue;
+        }
+        const r = await applyToInstalledCopy(copy, patches);
+        report.copies.push({ ...base, ...r, variant: variant.module });
+        if (r.action === 'failed') report.errors.push(`graft "${graft.id}": ${pkg}@${copy.version} at ${copy.dir}: ${r.reason}`);
+      }
+      return report;
+    },
+
+    async afterInstall(ctx: GraftContext): Promise<void> {
+      if (applierFor(ctx.project).name !== 'graft') return; // the package manager applied it
+      const report = await this.applyInstalled!(ctx);
+      if (report.errors.length) throw new GraftError(report.errors.join('; '), 'apply/installed');
     },
 
     async beforeInstall(ctx: GraftContext, version: string): Promise<void> {

@@ -7,16 +7,18 @@
 //   pnpm           patchedDependencies (name-only key) + ignorePatchFailures: false
 //   bun            package.json patchedDependencies["<pkg>@<installed>"]; bun silently ignores
 //                  name-only keys and keys for other versions, so the key tracks the version
-//   patch-package  (npm, yarn classic) a generated <pkg>+<version>.patch in a graft-owned dir,
-//                  applied by `patch-package --error-on-fail --error-on-warn` in postinstall;
-//                  without those flags patch-package exits 0 on a failed patch (outside CI)
+//   graft          (default for npm, yarn classic, anything with node_modules + postinstall)
+//                  Graft applies the variants itself: `graft apply --installed` in postinstall
+//   patch-package  (opt-in) a generated <pkg>+<version>.patch in a graft-owned dir, applied by
+//                  `patch-package --error-on-fail --error-on-warn` in postinstall; without those
+//                  flags patch-package exits 0 on a failed patch (outside CI)
 import { existsSync } from 'node:fs';
 import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { detectPackageManager } from '@graftsync/core';
 import { configurePnpmPatch, findPnpmWorkspaceRoot, pnpmConfigProblems } from './pnpm.js';
 
-export type ApplierName = 'pnpm' | 'bun' | 'patch-package';
+export type ApplierName = 'pnpm' | 'bun' | 'graft' | 'patch-package';
 
 export interface PatchApplier {
   name: ApplierName;
@@ -28,9 +30,9 @@ export interface PatchApplier {
 
 /** Pick the applier: explicit config wins, then the project's package manager. */
 export function selectApplier(root: string, configured?: string): PatchApplier {
-  const name = (configured ?? { pnpm: 'pnpm', bun: 'bun', npm: 'patch-package', yarn: 'patch-package' }[detectPackageManager(root)]) as ApplierName;
+  const name = (configured ?? { pnpm: 'pnpm', bun: 'bun', npm: 'graft', yarn: 'graft' }[detectPackageManager(root)]) as ApplierName;
   const applier = APPLIERS[name];
-  if (!applier) throw new Error(`unknown patch applier "${configured}" (expected pnpm | bun | patch-package)`);
+  if (!applier) throw new Error(`unknown patch applier "${configured}" (expected pnpm | bun | graft | patch-package)`);
   return applier;
 }
 
@@ -176,6 +178,55 @@ export const patchPackageApplier: PatchApplier = {
   },
 };
 
-const APPLIERS: Record<ApplierName, PatchApplier> = { pnpm: pnpmApplier, bun: bunApplier, 'patch-package': patchPackageApplier };
+export const GRAFT_POSTINSTALL = 'graft apply --installed';
+
+/** Is our postinstall step present? */
+const hasGraftPostinstall = (postinstall: string) => postinstall.split(/&&|;/).some((s) => s.trim() === GRAFT_POSTINSTALL || /\bgraft apply --installed\b/.test(s));
+
+export const graftApplier: PatchApplier = {
+  name: 'graft',
+  async problems(root, pkg) {
+    const installRoot = manifestRoot(root);
+    const { json } = await readManifest(installRoot);
+    const problems: string[] = [];
+    const postinstall: string = json.scripts?.postinstall ?? '';
+    if (!hasGraftPostinstall(postinstall)) problems.push(`package.json scripts.postinstall must run \`${GRAFT_POSTINSTALL}\` (Graft's built-in applier)`);
+    if (!json.devDependencies?.['@graftsync/cli'] && !json.dependencies?.['@graftsync/cli']) problems.push('@graftsync/cli must be a (dev)dependency so postinstall can run `graft`');
+    // Competing appliers for the same package would double-apply or fail.
+    const prefix = patchPackageFileName(pkg, '').replace(/\.patch$/, '');
+    for (const dir of [PATCH_PACKAGE_DIR, 'patches']) {
+      const full = path.join(installRoot, dir);
+      if (!existsSync(full)) continue;
+      for (const f of (await readdir(full)).filter((f) => f.startsWith(prefix) && /^\d/.test(f.slice(prefix.length)))) {
+        problems.push(`${dir}/${f} also patches ${pkg} (patch-package); graft applies ${pkg} itself — remove it`);
+      }
+    }
+    if (Object.keys((json.patchedDependencies ?? {}) as Record<string, string>).some((k) => keyIsFor(k, pkg))) {
+      problems.push(`package.json patchedDependencies also patches ${pkg}; graft applies ${pkg} itself — remove the entry`);
+    }
+    return problems;
+  },
+  async configure(root, pkg) {
+    const installRoot = manifestRoot(root);
+    // Remove graft-owned patch-package artifacts for this package (switching appliers).
+    const dir = path.join(installRoot, PATCH_PACKAGE_DIR);
+    const prefix = patchPackageFileName(pkg, '').replace(/\.patch$/, '');
+    if (existsSync(dir)) for (const f of await readdir(dir)) if (f.startsWith(prefix) && /^\d/.test(f.slice(prefix.length))) await rm(path.join(dir, f));
+    const m = await readManifest(installRoot);
+    const scripts = ((m.json.scripts ??= {}) as Record<string, string>);
+    const parts = (scripts.postinstall ?? '')
+      .split('&&')
+      .map((x) => x.trim())
+      .filter(Boolean)
+      // Drop the patch-package step Graft itself added (switching from the patch-package applier).
+      .filter((x) => !(/\bpatch-package\b/.test(x) && x.includes(PATCH_PACKAGE_DIR)));
+    if (!parts.some(hasGraftPostinstall)) parts.push(GRAFT_POSTINSTALL);
+    scripts.postinstall = parts.join(' && ');
+    await writeManifest(m);
+    return { files: [m.file] };
+  },
+};
+
+const APPLIERS: Record<ApplierName, PatchApplier> = { pnpm: pnpmApplier, bun: bunApplier, graft: graftApplier, 'patch-package': patchPackageApplier };
 
 export { findPnpmWorkspaceRoot };

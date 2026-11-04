@@ -6,7 +6,7 @@ import { GRAFT_STATUSES, GraftDocumentEditor, type GraftStatus } from '@graftsyn
 import { GraftError } from './errors.js';
 import type { Project } from './project.js';
 import { reinstall } from './install.js';
-import type { AnchorReport, ApplyOptions, ApplyResult, Graft, ScopedDiff, VariantInput } from './types.js';
+import type { InstalledApplyReport, AnchorReport, ApplyOptions, ApplyResult, Graft, ScopedDiff, VariantInput } from './types.js';
 
 /** Resolve a version argument, defaulting to the installed version of the graft's rootstock. */
 export async function resolveVersion(project: Project, graft: Graft, version?: string): Promise<string> {
@@ -275,4 +275,31 @@ export async function applyToProject(project: Project, options: { ids?: string[]
     result.anchors.push(await project.adapterFor(graft).checkAnchors(project.context(graft), c.version));
   }
   return result;
+}
+
+/**
+ * Apply every active graft directly to the installed packages (Graft's built-in applier, run
+ * from postinstall). Offline and idempotent; returns per-graft reports.
+ */
+export async function applyInstalled(project: Project, options: { ids?: string[] } = {}): Promise<{ reports: InstalledApplyReport[]; ok: boolean }> {
+  const { grafts, invalid } = await project.loadAll();
+  const reports: InstalledApplyReport[] = invalid.map((g) => ({
+    graft: g.id,
+    package: '?',
+    copies: [],
+    errors: g.diagnostics.filter((d) => d.severity === 'error').map((d) => d.message),
+    warnings: [],
+  }));
+  for (const graft of grafts) {
+    if (graft.frontmatter.status !== 'applied' && graft.frontmatter.status !== 'conflicted') continue;
+    if (options.ids?.length && !options.ids.includes(graft.id)) continue;
+    const adapter = project.adapterFor(graft);
+    if (!adapter.applyInstalled) continue;
+    try {
+      reports.push(await adapter.applyInstalled(project.context(graft)));
+    } catch (err) {
+      reports.push({ graft: graft.id, package: graft.frontmatter.rootstock.package, copies: [], errors: [(err as Error).message], warnings: [] });
+    }
+  }
+  return { reports, ok: reports.every((r) => r.errors.length === 0) };
 }
