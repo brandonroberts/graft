@@ -1,10 +1,12 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import semver from 'semver';
 import { ACTIVE_STATUSES } from '@graftsync/spec';
 import { GraftError } from './errors.js';
 import { installPackage, reinstall } from './install.js';
-import { runOracle, type OracleResult } from './oracle.js';
-import { summarizeMisses, updateGraft } from './operations.js';
+import { runCommand, runOracle, type OracleResult } from './oracle.js';
+import { recordVariant, summarizeMisses, updateGraft } from './operations.js';
 import type { Project } from './project.js';
 import type { AnchorReport, ApplyResult, Graft, ResolvedVariant } from './types.js';
 
@@ -28,6 +30,12 @@ export interface SyncGraftResult {
   diffPath?: string;
   /** True when graft.md was updated (verified bumped / status set to applied). */
   updated?: boolean;
+  /**
+   * Set when the graft's `generator` wrote a new variant for the target version. `module` is
+   * relative to the graft directory. `rolledBack` is true when the regenerated variant was
+   * removed again because it did not hold (static checks, install, or oracle).
+   */
+  regenerated?: { module: string; command: string; rolledBack?: boolean };
 }
 
 export interface SyncTarget {
@@ -134,16 +142,24 @@ export async function sync(project: Project, options: SyncOptions = {}): Promise
 
     // Phase 1: static checks (variant, anchors, apply) against the fetched target version.
     // These run before anything is installed, so a broken graft never breaks the install.
-    const staged: { graft: Graft; result: SyncGraftResult }[] = [];
+    // A graft with a `generator` that fails them gets a regenerated variant first.
+    const staged: { graft: Graft; result: SyncGraftResult; rollback?: Rollback }[] = [];
     for (const graft of pkgGrafts) {
       log(`checking ${graft.id} against ${pkg}@${version}`);
-      let result: SyncGraftResult;
+      let entry: (typeof staged)[number];
       try {
-        result = await staticCheck(project, graft, version);
+        const generator = !!graft.frontmatter.generator;
+        const result = await staticCheck(project, graft, version, !generator);
+        entry = { graft, result };
+        if (generator && result.outcome === 'needs-agent') {
+          const regen = await tryRegenerate(project, graft, version, result, options);
+          if (regen.ok) entry = regen;
+          else await markNeedsAgent(project, graft, result);
+        }
       } catch (err) {
-        result = { ...base(graft), outcome: 'error', reasons: [(err as Error).message] };
+        entry = { graft, result: { ...base(graft), outcome: 'error', reasons: [(err as Error).message] } };
       }
-      staged.push({ graft, result });
+      staged.push(entry);
     }
     const ready = staged.filter((s) => s.result.outcome === 'green');
 
@@ -191,6 +207,12 @@ export async function sync(project: Project, options: SyncOptions = {}): Promise
         s.result.reasons.push((err as Error).message);
       }
     }
+
+    // A regenerated variant that the oracle did not prove is never left registered.
+    for (const s of staged.filter((s) => s.rollback && s.result.outcome !== 'green')) {
+      s.result.reasons.push(await s.rollback!(target.installCommand !== undefined));
+      if (s.result.regenerated) s.result.regenerated.rolledBack = true;
+    }
     results.push(...staged.map((s) => s.result));
   }
 
@@ -207,7 +229,7 @@ export async function sync(project: Project, options: SyncOptions = {}): Promise
   return report;
 }
 
-async function staticCheck(project: Project, graft: Graft, version: string): Promise<SyncGraftResult> {
+async function staticCheck(project: Project, graft: Graft, version: string, mark = true): Promise<SyncGraftResult> {
   const adapter = project.adapterFor(graft);
   const ctx = project.context(graft);
   const fm = graft.frontmatter;
@@ -237,8 +259,129 @@ async function staticCheck(project: Project, graft: Graft, version: string): Pro
     }
   }
 
-  if (result.reasons.length) await markNeedsAgent(project, graft, result);
+  if (result.reasons.length) {
+    result.outcome = 'needs-agent';
+    if (mark) await markNeedsAgent(project, graft, result);
+  }
   return result;
+}
+
+/** Undo a registered regenerated variant. Returns a sentence for the sync report. */
+type Rollback = (installed: boolean) => Promise<string>;
+
+const shellArg = (s: string) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replaceAll("'", `'\\''`)}'`);
+
+/**
+ * Run the graft's `generator` to write a variant for `version`, register it (unless dry-run),
+ * and re-run the static checks with it. On any failure everything is undone and `failed`
+ * gets a reason explaining what the generator did; the caller then hands off to an agent.
+ */
+async function tryRegenerate(
+  project: Project,
+  graft: Graft,
+  version: string,
+  failed: SyncGraftResult,
+  options: SyncOptions,
+): Promise<{ ok: true; graft: Graft; result: SyncGraftResult; rollback?: Rollback } | { ok: false }> {
+  const generator = graft.frontmatter.generator!;
+  const pkg = graft.frontmatter.rootstock.package;
+  const log = options.onProgress ?? (() => {});
+  const name = `v${version}${project.adapterFor(graft).variantExtension ?? '.ts'}`;
+  const keptDir = path.join(project.reportDir, graft.id, 'regenerated');
+  let out = path.join(options.dryRun ? keptDir : path.join(graft.dir, 'variants'), name);
+  for (let n = 2; !options.dryRun && existsSync(out); n++) out = path.join(graft.dir, 'variants', name.replace(/(\.[^.]+)?$/, `-${n}$1`));
+  const rel = path.relative(graft.dir, out).split(path.sep).join('/');
+  const module = rel.startsWith('../') ? rel : `./${rel}`;
+  const command = generator.command
+    .replaceAll('{version}', version)
+    .replaceAll('{out}', shellArg(path.relative(project.root, out).split(path.sep).join('/')));
+  const fail = async (why: string, keep = false) => {
+    let kept = '';
+    if (keep && existsSync(out) && !options.dryRun) {
+      await mkdir(keptDir, { recursive: true });
+      await copyFile(out, path.join(keptDir, path.basename(out)));
+      kept = ` (kept for review at ${path.relative(project.root, path.join(keptDir, path.basename(out)))})`;
+    }
+    if (!options.dryRun) await rm(out, { force: true });
+    failed.reasons.push(`generator \`${command}\` ${why}${kept}`);
+    return { ok: false as const };
+  };
+
+  log(`regenerating ${graft.id} for ${pkg}@${version}`);
+  await mkdir(path.dirname(out), { recursive: true });
+  if (options.dryRun) await rm(out, { force: true }); // a stale dry-run output must not count
+  const run = await runCommand(command, {
+    cwd: project.root,
+    env: {
+      GRAFT_ID: graft.id,
+      GRAFT_DIR: graft.dir,
+      GRAFT_PACKAGE: pkg,
+      GRAFT_UPSTREAM_VERSION: version,
+      GRAFT_VARIANT_OUT: out,
+    },
+    timeoutMs: (generator.timeout ?? 600) * 1000,
+    onOutput: options.onOutput,
+  });
+  if (!run.passed) {
+    const tail = run.output.trim().split('\n').slice(-3).join(' / ');
+    return fail(`failed (${run.timedOut ? 'timed out' : `exit ${run.exitCode}`})${tail ? `: ${tail}` : ''}`);
+  }
+  if (!existsSync(out)) return fail(`exited 0 but did not write ${module}`);
+
+  const prerelease = semver.prerelease(version);
+  const range = prerelease ? `>=${semver.major(version)}.${semver.minor(version)}.${semver.patch(version)}-0` : `>=${version}`;
+  const original = await readFile(graft.file, 'utf8');
+  const restore = () => writeFile(graft.file, original);
+  let candidate: Graft;
+  let rollback: Rollback | undefined;
+  if (options.dryRun) {
+    candidate = { ...graft, frontmatter: { ...graft.frontmatter, variants: [{ range, module }] } };
+  } else {
+    try {
+      candidate = (
+        await recordVariant(project, graft.id, { range, module }, {
+          verifyVersion: version,
+          note: `Regenerated by \`${command}\` for ${pkg}@${version}.`,
+        })
+      ).graft;
+    } catch (err) {
+      await restore();
+      return fail(`wrote ${module}, but it could not be registered: ${(err as Error).message}`, true);
+    }
+    rollback = async (installed) => {
+      await restore();
+      const kept = path.join(keptDir, path.basename(out));
+      await mkdir(keptDir, { recursive: true });
+      await copyFile(out, kept);
+      await rm(out, { force: true });
+      let note = `regenerated variant ${module} rolled back: graft.md restored, variant moved to ${path.relative(project.root, kept)} for review`;
+      if (installed) {
+        // The package manager was pointed at the removed file; point it back at the previous variant.
+        try {
+          const restored = await project.get(graft.id);
+          await project.adapterFor(restored).beforeInstall?.(project.context(restored), version);
+          note += '; package-manager configuration re-pointed at the previous variant (the installed tree still has the regenerated one)';
+        } catch (err) {
+          note += `; could not re-point the package manager at a previous variant: ${(err as Error).message}`;
+        }
+      }
+      return note;
+    };
+  }
+
+  let result: SyncGraftResult;
+  try {
+    result = await staticCheck(project, candidate, version, false);
+  } catch (err) {
+    result = { ...failed, outcome: 'error', reasons: [(err as Error).message] };
+  }
+  if (result.outcome !== 'green') {
+    if (!options.dryRun) await restore();
+    return fail(`wrote ${module}, but it still fails static checks: ${result.reasons.join('; ')}`, true);
+  }
+  result.regenerated = { module, command };
+  log(`regenerated ${graft.id}: ${module}`);
+  return { ok: true, graft: candidate, result, rollback };
 }
 
 async function markNeedsAgent(project: Project, graft: Graft, result: SyncGraftResult): Promise<void> {
@@ -273,7 +416,9 @@ async function finish(project: Project, graft: Graft, result: SyncGraftResult, o
       status: 'applied',
       history:
         fm.rootstock.verified !== version
-          ? `Verified against ${fm.rootstock.package}@${version} by \`graft sync\` (cheap path, variant ${result.variant!.module} unchanged).`
+          ? result.regenerated
+            ? `Verified against ${fm.rootstock.package}@${version} by \`graft sync\` with regenerated variant ${result.regenerated.module}.`
+            : `Verified against ${fm.rootstock.package}@${version} by \`graft sync\` (cheap path, variant ${result.variant!.module} unchanged).`
           : `Re-verified against ${fm.rootstock.package}@${version}; status set to applied.`,
     });
     result.updated = true;
@@ -300,8 +445,17 @@ export function renderSyncMarkdown(report: SyncReport, root: string = report.roo
     lines.push('');
   }
   lines.push('| Graft | Package | Verified → Target | Outcome |', '|---|---|---|---|');
-  for (const g of report.grafts) lines.push(`| ${g.id} | ${g.package} | ${g.from} → ${g.to ?? '?'} | ${ICON[g.outcome]} ${g.outcome} |`);
+  for (const g of report.grafts) {
+    const regen = g.regenerated ? (g.regenerated.rolledBack ? ' (regeneration rolled back)' : ' (variant regenerated)') : '';
+    lines.push(`| ${g.id} | ${g.package} | ${g.from} → ${g.to ?? '?'} | ${ICON[g.outcome]} ${g.outcome}${regen} |`);
+  }
   lines.push('');
+  const regenerated = report.grafts.filter((g) => g.regenerated && !g.regenerated.rolledBack);
+  if (regenerated.length) {
+    lines.push('Regenerated variants (review them before merging):', '');
+    for (const g of regenerated) lines.push(`- ${g.id}: \`${g.regenerated!.module}\` by \`${g.regenerated!.command}\``);
+    lines.push('');
+  }
   for (const g of report.grafts.filter((g) => g.outcome === 'needs-agent' || g.outcome === 'error')) {
     lines.push(`## ${g.id} — ${g.outcome}`, '');
     for (const r of g.reasons) lines.push(`- ${r}`);

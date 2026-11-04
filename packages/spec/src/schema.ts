@@ -50,6 +50,23 @@ export const OracleSchema = z.object({
   timeout: z.number().int().positive().optional(),
 });
 
+export const GeneratorSchema = z.object({
+  /**
+   * Shell command that writes a new variant module for an upstream version, run from the
+   * project root. `{version}` is replaced with the target upstream version and `{out}` with
+   * the path to write the variant to (also exported as GRAFT_UPSTREAM_VERSION and
+   * GRAFT_VARIANT_OUT). `graft sync` runs it when no existing variant fits a new version.
+   */
+  command: z
+    .string()
+    .min(1)
+    .refine((c) => c.includes('{out}') || c.includes('GRAFT_VARIANT_OUT'), {
+      message: 'must write the variant to {out} (or $GRAFT_VARIANT_OUT)',
+    }),
+  /** Optional timeout, in seconds. */
+  timeout: z.number().int().positive().optional(),
+});
+
 export const GraftFrontmatterSchema = z.object({
   id: z.string().regex(GRAFT_ID_PATTERN, 'must be lowercase kebab-case'),
   rootstock: RootstockSchema,
@@ -59,12 +76,15 @@ export const GraftFrontmatterSchema = z.object({
   targets: z.array(z.string().min(1)).optional(),
   variants: z.array(VariantRefSchema).min(1),
   oracle: OracleSchema,
+  /** Optional command that regenerates a variant for a new upstream version. */
+  generator: GeneratorSchema.optional(),
   status: z.enum(GRAFT_STATUSES).default('applied'),
 });
 
 export type Rootstock = z.infer<typeof RootstockSchema>;
 export type VariantRef = z.infer<typeof VariantRefSchema>;
 export type Oracle = z.infer<typeof OracleSchema>;
+export type Generator = z.infer<typeof GeneratorSchema>;
 export type GraftFrontmatter = z.infer<typeof GraftFrontmatterSchema>;
 /** Frontmatter as authored, before defaults are applied. */
 export type GraftFrontmatterInput = z.input<typeof GraftFrontmatterSchema>;

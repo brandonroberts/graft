@@ -30,6 +30,15 @@ describe('parseGraft', () => {
     expect(codes).toContain('frontmatter/id-mismatch');
   });
 
+  it('accepts a generator that writes to {out}, and rejects one that does not', () => {
+    const ok = parseGraft(doc(`${FM}\ngenerator: { command: "node gen.mjs {version} {out}" }`), { directoryName: 'x' });
+    expect(ok.ok).toBe(true);
+    expect(ok.graft?.frontmatter.generator?.command).toBe('node gen.mjs {version} {out}');
+    const bad = parseGraft(doc(`${FM}\ngenerator: { command: "node gen.mjs {version}" }`), { directoryName: 'x' });
+    expect(bad.ok).toBe(false);
+    expect(bad.diagnostics.map((d) => d.message).join('\n')).toMatch(/\{out\}/);
+  });
+
   it('selects variants including prereleases', () => {
     const variants = [{ range: '>=1.0.0 <2.0.0-0' }, { range: '>=2.0.0-0' }];
     expect(selectVariant(variants, '2.0.0-rc.1')).toBe(variants[1]);
