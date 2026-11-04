@@ -4,7 +4,7 @@ import path from 'node:path';
 import { GraftError } from './errors.js';
 import { runCommand } from './oracle.js';
 
-export type PackageManager = 'pnpm' | 'yarn' | 'npm' | 'bun';
+export type PackageManager = 'pnpm' | 'yarn' | 'npm' | 'bun' | 'upm';
 
 /**
  * Detect the package manager, walking up from `root`: package.json `packageManager`
@@ -16,13 +16,14 @@ export function detectPackageManager(root: string): PackageManager {
     const manifest = path.join(dir, 'package.json');
     if (existsSync(manifest)) {
       try {
-        const declared = /^(pnpm|yarn|npm|bun)@/.exec(String(JSON.parse(readFileSync(manifest, 'utf8')).packageManager ?? ''));
+        const declared = /^(pnpm|yarn|npm|bun|upm)@/.exec(String(JSON.parse(readFileSync(manifest, 'utf8')).packageManager ?? ''));
         if (declared) return declared[1] as PackageManager;
       } catch {
         // unreadable manifest: fall through to lockfile detection
       }
     }
     if (existsSync(path.join(dir, 'pnpm-lock.yaml')) || existsSync(path.join(dir, 'pnpm-workspace.yaml'))) return 'pnpm';
+    if (existsSync(path.join(dir, 'upm.lock'))) return 'upm';
     if (existsSync(path.join(dir, 'yarn.lock'))) return 'yarn';
     if (existsSync(path.join(dir, 'bun.lockb')) || existsSync(path.join(dir, 'bun.lock'))) return 'bun';
     if (existsSync(path.join(dir, 'package-lock.json'))) return 'npm';
@@ -46,6 +47,7 @@ export async function installPackage(root: string, pkg: string, spec: string): P
     pnpm: `pnpm update -r ${quoted}`,
     yarn: `yarn add ${dev ? '-D ' : ''}${quoted}`,
     bun: `bun add ${dev ? '-d ' : ''}${quoted}`,
+    upm: `upm add ${dev ? '--dev ' : ''}${quoted}`,
     npm: `npm install ${dev ? '--save-dev ' : ''}${quoted}`,
   }[pm];
   const result = await runCommand(command, { cwd: root, timeoutMs: 10 * 60_000 });
@@ -58,7 +60,7 @@ export async function installPackage(root: string, pkg: string, spec: string): P
 
 /** Reinstall the project's dependencies (so package-manager patch config takes effect). */
 export async function reinstall(root: string): Promise<string> {
-  const command = { pnpm: 'pnpm install', yarn: 'yarn install', bun: 'bun install', npm: 'npm install' }[detectPackageManager(root)];
+  const command = { pnpm: 'pnpm install', yarn: 'yarn install', bun: 'bun install', upm: 'upm install', npm: 'npm install' }[detectPackageManager(root)];
   const result = await runCommand(command, { cwd: root, timeoutMs: 10 * 60_000 });
   if (!result.passed) throw new GraftError(`\`${command}\` failed:\n${result.output}`, 'install/failed');
   return command;

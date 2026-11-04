@@ -2,7 +2,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { ACTIVE_STATUSES } from '@graftsync/spec';
 import { GraftError } from './errors.js';
-import { installPackage } from './install.js';
+import { installPackage, reinstall } from './install.js';
 import { runOracle, type OracleResult } from './oracle.js';
 import { summarizeMisses, updateGraft } from './operations.js';
 import type { Project } from './project.js';
@@ -159,9 +159,13 @@ export async function sync(project: Project, options: SyncOptions = {}): Promise
         installError = `${pkg}@${version} is not installed (installed: ${installedBefore ?? 'none'}); the oracle must run against the target version — rerun with --install`;
       } else {
         try {
-          for (const s of ready) await project.adapterFor(s.graft).beforeInstall?.(project.context(s.graft), version);
+          let bare = false;
+          for (const s of ready) {
+            const r = await project.adapterFor(s.graft).beforeInstall?.(project.context(s.graft), version);
+            if (r && r.install === 'reinstall') bare = true;
+          }
           log(`installing ${pkg}@${version}`);
-          target.installCommand = await installPackage(project.root, pkg, project.upstream.installSpec(pkg, version));
+          target.installCommand = bare ? await reinstall(project.root) : await installPackage(project.root, pkg, project.upstream.installSpec(pkg, version));
           const now = await project.installedVersion(pkg);
           if (now !== version) installError = `installed ${pkg} but found version ${now ?? 'none'}, expected ${version}`;
           else for (const s of ready) await project.adapterFor(s.graft).afterInstall?.(project.context(s.graft), version);

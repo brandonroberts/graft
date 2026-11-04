@@ -143,6 +143,9 @@ When asked to capture a modification as a graft (new, or migrating an existing p
   wires the selected variant: pnpm `patchedDependencies`, bun's version-pinned key, or (npm,
   yarn and others) Graft's built-in applier, `graft apply --installed` in `postinstall`. The
   built-in applier is offline, idempotent, and never edits store-shared files in place.
+  With upm (or the `vendor` applier forced in `.grafts/config.json`), Graft builds a patched
+  tarball under `.grafts/.vendor/` and points overrides and the root dependency at it. Commit
+  that tarball; never edit it by hand. `graft check` rebuilds it and reports a stale one.
   `graft sync --install` rewires it for the new version before installing. At the installed
   version, `check_anchors` reports any configuration that would apply something else or fail
   silently, and any patched file in `node_modules` that doesn't match pristine upstream + the

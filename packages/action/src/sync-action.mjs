@@ -56,6 +56,7 @@ const slug = (s) => s.replace(/^@/, '').replace(/[^a-zA-Z0-9.-]+/g, '-');
 
 /** Detect a reinstall command from the lockfile, used to reset node_modules between candidates. */
 export function detectInstallCommand(cwd) {
+  if (existsSync(path.join(cwd, 'upm.lock'))) return 'upm install --frozen-lockfile';
   if (existsSync(path.join(cwd, 'pnpm-lock.yaml'))) return 'pnpm install --frozen-lockfile';
   if (existsSync(path.join(cwd, 'yarn.lock'))) return 'yarn install --immutable';
   if (existsSync(path.join(cwd, 'bun.lock')) || existsSync(path.join(cwd, 'bun.lockb'))) return 'bun install --frozen-lockfile';

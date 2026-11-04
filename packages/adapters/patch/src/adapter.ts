@@ -114,7 +114,7 @@ export function createPatchAdapter(): MechanismAdapter {
       }
       const installed = await project.upstream.installed(pkg);
       if (installed?.version === version) {
-        report.errors.push(...(await applierFor(project).problems(project.root, pkg, version, report.variant.path)));
+        report.errors.push(...(await applierFor(project).problems(project.root, pkg, version, report.variant.path, { upstream: project.upstream })));
         // Whatever the configuration says, check what actually got installed: each patched file
         // must equal pristine upstream + this variant. Catches patches dropped silently.
         if (report.anchors.every((a) => a.matched) && installed.dir !== dir) {
@@ -240,10 +240,11 @@ export function createPatchAdapter(): MechanismAdapter {
       if (report.errors.length) throw new GraftError(report.errors.join('; '), 'apply/installed');
     },
 
-    async beforeInstall(ctx: GraftContext, version: string): Promise<void> {
+    async beforeInstall(ctx: GraftContext, version: string) {
       const variant = ctx.project.selectVariant(ctx.graft, version);
       if (!variant) throw new GraftError(`graft "${ctx.graft.id}": no variant covers ${version}`, 'variant/none');
-      await applierFor(ctx.project).configure(ctx.project.root, ctx.graft.frontmatter.rootstock.package, version, variant.path);
+      const r = await applierFor(ctx.project).configure(ctx.project.root, ctx.graft.frontmatter.rootstock.package, version, variant.path, { upstream: ctx.project.upstream });
+      return r.install ? { install: r.install } : undefined;
     },
 
     async validateVariant(ctx: GraftContext, variant: ResolvedVariant): Promise<void> {

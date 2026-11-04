@@ -7,6 +7,9 @@
 //   pnpm           patchedDependencies (name-only key) + ignorePatchFailures: false
 //   bun            package.json patchedDependencies["<pkg>@<installed>"]; bun silently ignores
 //                  name-only keys and keys for other versions, so the key tracks the version
+//   vendor         (default for upm; works with any package manager that supports overrides)
+//                  pristine + variant built into .grafts/.vendor/<pkg>-<version>.tgz, installed
+//                  through overrides/resolutions and the root's own dependency
 //   graft          (default for npm, yarn classic, anything with node_modules + postinstall)
 //                  Graft applies the variants itself: `graft apply --installed` in postinstall
 //   patch-package  (opt-in) a generated <pkg>+<version>.patch in a graft-owned dir, applied by
@@ -15,24 +18,33 @@
 import { existsSync } from 'node:fs';
 import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { detectPackageManager } from '@graftsync/core';
+import { detectPackageManager, type UpstreamSource } from '@graftsync/core';
 import { configurePnpmPatch, findPnpmWorkspaceRoot, pnpmConfigProblems } from './pnpm.js';
+import { vendorConfigure, vendorProblems } from './vendor.js';
 
-export type ApplierName = 'pnpm' | 'bun' | 'graft' | 'patch-package';
+export type ApplierName = 'pnpm' | 'bun' | 'graft' | 'patch-package' | 'vendor';
+
+export interface ApplierContext {
+  /** Pristine upstream contents, for appliers that build the patched package themselves. */
+  upstream?: UpstreamSource;
+}
 
 export interface PatchApplier {
   name: ApplierName;
   /** Problems that would make the package manager apply something other than `variantPath`, or fail silently. */
-  problems(root: string, pkg: string, version: string, variantPath: string): Promise<string[]>;
-  /** Wire the package manager to apply `variantPath` to `pkg@version` on the next install. */
-  configure(root: string, pkg: string, version: string, variantPath: string): Promise<{ files: string[] }>;
+  problems(root: string, pkg: string, version: string, variantPath: string, ctx?: ApplierContext): Promise<string[]>;
+  /**
+   * Wire the package manager to apply `variantPath` to `pkg@version` on the next install.
+   * `install: 'reinstall'` means a targeted `add pkg@version` would undo the wiring.
+   */
+  configure(root: string, pkg: string, version: string, variantPath: string, ctx?: ApplierContext): Promise<{ files: string[]; install?: 'reinstall' }>;
 }
 
 /** Pick the applier: explicit config wins, then the project's package manager. */
 export function selectApplier(root: string, configured?: string): PatchApplier {
-  const name = (configured ?? { pnpm: 'pnpm', bun: 'bun', npm: 'graft', yarn: 'graft' }[detectPackageManager(root)]) as ApplierName;
+  const name = (configured ?? { pnpm: 'pnpm', bun: 'bun', npm: 'graft', yarn: 'graft', upm: 'vendor' }[detectPackageManager(root)]) as ApplierName;
   const applier = APPLIERS[name];
-  if (!applier) throw new Error(`unknown patch applier "${configured}" (expected pnpm | bun | graft | patch-package)`);
+  if (!applier) throw new Error(`unknown patch applier "${configured}" (expected pnpm | bun | graft | patch-package | vendor)`);
   return applier;
 }
 
@@ -45,7 +57,7 @@ function manifestRoot(from: string): string {
   let found: string | undefined;
   for (;;) {
     if (existsSync(path.join(dir, 'package.json'))) found ??= dir;
-    if (['bun.lock', 'bun.lockb', 'package-lock.json', 'yarn.lock'].some((f) => existsSync(path.join(dir, f)))) return dir;
+    if (['bun.lock', 'bun.lockb', 'package-lock.json', 'yarn.lock', 'upm.lock', 'pnpm-lock.yaml'].some((f) => existsSync(path.join(dir, f)))) return dir;
     const parent = path.dirname(dir);
     if (parent === dir) return found ?? path.resolve(from);
     dir = parent;
@@ -227,6 +239,15 @@ export const graftApplier: PatchApplier = {
   },
 };
 
-const APPLIERS: Record<ApplierName, PatchApplier> = { pnpm: pnpmApplier, bun: bunApplier, graft: graftApplier, 'patch-package': patchPackageApplier };
+export const vendorApplier: PatchApplier = {
+  name: 'vendor',
+  problems: (root, pkg, version, variantPath, ctx) => vendorProblems({ upstream: ctx?.upstream, graftRoot: root, installRoot: manifestRoot(root) }, pkg, version, variantPath),
+  async configure(root, pkg, version, variantPath, ctx) {
+    const r = await vendorConfigure({ upstream: ctx?.upstream, graftRoot: root, installRoot: manifestRoot(root) }, pkg, version, variantPath);
+    return { ...r, install: 'reinstall' };
+  },
+};
+
+const APPLIERS: Record<ApplierName, PatchApplier> = { pnpm: pnpmApplier, bun: bunApplier, graft: graftApplier, 'patch-package': patchPackageApplier, vendor: vendorApplier };
 
 export { findPnpmWorkspaceRoot };

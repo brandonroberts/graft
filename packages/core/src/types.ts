@@ -127,6 +127,15 @@ export interface VariantInput {
   narrow?: boolean;
 }
 
+export interface BeforeInstallResult {
+  /**
+   * 'reinstall': the mechanism already pointed the package manager at the target (e.g. a
+   * vendored tarball override), so run a bare install instead of `add <pkg>@<version>`,
+   * which would replace that configuration.
+   */
+  install?: 'reinstall';
+}
+
 /** One installed copy of the rootstock package, as handled by `applyInstalled`. */
 export interface InstalledCopyResult {
   /** Real path of the installed package directory. */
@@ -165,7 +174,7 @@ export interface MechanismAdapter {
    * Prepare the package manager to apply the variant for `version` on the next install
    * (e.g. point pnpm patchedDependencies at it). Called by `sync --install` before installing.
    */
-  beforeInstall?(ctx: GraftContext, version: string): Promise<void>;
+  beforeInstall?(ctx: GraftContext, version: string): Promise<void | BeforeInstallResult>;
   /**
    * Called by `sync --install` right after installing `version`. Mechanisms that apply
    * themselves (rather than through the package manager) do so here, because package
