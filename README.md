@@ -374,15 +374,12 @@ pnpm graft status
 Releases use [Changesets](https://github.com/changesets/changesets). All `@graftsync/*` packages are versioned together.
 
 1. With a user-facing change, run `pnpm changeset`, pick a bump, describe the change, and commit the generated `.changeset/*.md` with your PR.
-2. On every push to `main`, the Release workflow (`.github/workflows/release.yml`) opens or updates a "Version packages" PR that bumps versions and writes changelogs (`pnpm version-packages`).
-3. Merging that PR runs `pnpm release` (build, then `changeset publish`), which publishes every version not yet on npm, with provenance, and tags it.
+2. When you want to release, run the **Release** workflow manually from the Actions tab (or `gh workflow run release.yml`). It doesn't run on push. With pending changesets, it opens or updates a "Version packages" PR that bumps versions and writes changelogs (`pnpm version-packages`).
+3. Merge that PR, then run **Release** again. With no changesets pending, it runs `pnpm release` (build, then `changeset publish`), which publishes every version not yet on npm, with provenance, and tags it.
 
-Two one-time steps need a maintainer before anything is published (until then the workflow skips the release step):
+Prerequisites (done): the `graftsync` npm organization exists, and an npm token that can publish to it is set as the `NPM_TOKEN` repository secret. Without the secret, the workflow skips the release step.
 
-- Create the `graftsync` organization on npm.
-- Add an npm automation token that can publish to it as the `NPM_TOKEN` repository secret.
-
-The packages start at 0.1.0, which is not on npm yet, so the first run after those steps publishes 0.1.0 as is.
+The packages start at 0.1.0, which is not on npm yet, so the first manual run with no changesets publishes 0.1.0 as is.
 
 ## Roadmap
 

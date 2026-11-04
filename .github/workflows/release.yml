@@ -1,14 +1,14 @@
 # Versions and publishes the @graftsync/* packages with Changesets.
-# On push to main: if changesets are pending, opens (or updates) a "Version packages" PR;
-# otherwise publishes any package version not yet on npm, with provenance.
+# Manual only: run it from the Actions tab (or `gh workflow run release.yml`) on main.
+# If changesets are pending, it opens (or updates) a "Version packages" PR; otherwise it
+# publishes any package version not yet on npm, with provenance.
 #
 # Requires: the `graftsync` npm org, and an NPM_TOKEN repository secret that can publish to it.
-# Until NPM_TOKEN is set, the release step is skipped.
+# Without NPM_TOKEN, the release step is skipped.
 name: Release
 
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write
