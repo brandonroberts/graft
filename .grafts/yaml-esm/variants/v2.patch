@@ -1,0 +1,2506 @@
+diff --git a/package.json b/package.json
+===================================================================
+--- a/package.json
++++ b/package.json
+@@ -17,7 +17,7 @@
+     "dist/",
+     "util.js"
+   ],
+-  "type": "commonjs",
++  "type": "module",
+   "main": "./dist/index.js",
+   "bin": "./bin.mjs",
+   "browser": {
+diff --git a/dist/compose/compose-collection.js b/dist/compose/compose-collection.js
+===================================================================
+--- a/dist/compose/compose-collection.js
++++ b/dist/compose/compose-collection.js
+@@ -1,13 +1,23 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import identity from '../nodes/identity.js'
++import Scalar from '../nodes/Scalar.js'
++import YAMLMap from '../nodes/YAMLMap.js'
++import YAMLSeq from '../nodes/YAMLSeq.js'
++import resolveBlockMap from './resolve-block-map.js'
++import resolveBlockSeq from './resolve-block-seq.js'
++import resolveFlowCollection from './resolve-flow-collection.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var identity = require('../nodes/identity.js');
+-var Scalar = require('../nodes/Scalar.js');
+-var YAMLMap = require('../nodes/YAMLMap.js');
+-var YAMLSeq = require('../nodes/YAMLSeq.js');
+-var resolveBlockMap = require('./resolve-block-map.js');
+-var resolveBlockSeq = require('./resolve-block-seq.js');
+-var resolveFlowCollection = require('./resolve-flow-collection.js');
+ 
++
++
++
++
++
++
++
+ function resolveCollection(CN, ctx, token, onError, tagName, tag) {
+     const coll = token.type === 'block-map'
+         ? resolveBlockMap.resolveBlockMap(CN, ctx, token, onError, tag)
+@@ -88,3 +98,9 @@
+ }
+ 
+ exports.composeCollection = composeCollection;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { composeCollection: __graft_e0 } = __graft_exports
++export { __graft_e0 as composeCollection }
+diff --git a/dist/compose/compose-doc.js b/dist/compose/compose-doc.js
+===================================================================
+--- a/dist/compose/compose-doc.js
++++ b/dist/compose/compose-doc.js
+@@ -1,10 +1,17 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import Document from '../doc/Document.js'
++import composeNode from './compose-node.js'
++import resolveEnd from './resolve-end.js'
++import resolveProps from './resolve-props.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var Document = require('../doc/Document.js');
+-var composeNode = require('./compose-node.js');
+-var resolveEnd = require('./resolve-end.js');
+-var resolveProps = require('./resolve-props.js');
+ 
++
++
++
++
+ function composeDoc(options, directives, { offset, start, value, end }, onError) {
+     const opts = Object.assign({ _directives: directives }, options);
+     const doc = new Document.Document(undefined, opts);
+@@ -43,3 +50,9 @@
+ }
+ 
+ exports.composeDoc = composeDoc;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { composeDoc: __graft_e0 } = __graft_exports
++export { __graft_e0 as composeDoc }
+diff --git a/dist/compose/compose-node.js b/dist/compose/compose-node.js
+===================================================================
+--- a/dist/compose/compose-node.js
++++ b/dist/compose/compose-node.js
+@@ -1,12 +1,21 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import Alias from '../nodes/Alias.js'
++import identity from '../nodes/identity.js'
++import composeCollection from './compose-collection.js'
++import composeScalar from './compose-scalar.js'
++import resolveEnd from './resolve-end.js'
++import utilEmptyScalarPosition from './util-empty-scalar-position.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var Alias = require('../nodes/Alias.js');
+-var identity = require('../nodes/identity.js');
+-var composeCollection = require('./compose-collection.js');
+-var composeScalar = require('./compose-scalar.js');
+-var resolveEnd = require('./resolve-end.js');
+-var utilEmptyScalarPosition = require('./util-empty-scalar-position.js');
+ 
++
++
++
++
++
++
+ const CN = { composeNode, composeEmptyNode };
+ function composeNode(ctx, token, props, onError) {
+     const atKey = ctx.atKey;
+@@ -110,3 +119,9 @@
+ 
+ exports.composeEmptyNode = composeEmptyNode;
+ exports.composeNode = composeNode;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { composeEmptyNode: __graft_e0, composeNode: __graft_e1 } = __graft_exports
++export { __graft_e0 as composeEmptyNode, __graft_e1 as composeNode }
+diff --git a/dist/compose/compose-scalar.js b/dist/compose/compose-scalar.js
+===================================================================
+--- a/dist/compose/compose-scalar.js
++++ b/dist/compose/compose-scalar.js
+@@ -1,10 +1,17 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import identity from '../nodes/identity.js'
++import Scalar from '../nodes/Scalar.js'
++import resolveBlockScalar from './resolve-block-scalar.js'
++import resolveFlowScalar from './resolve-flow-scalar.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var identity = require('../nodes/identity.js');
+-var Scalar = require('../nodes/Scalar.js');
+-var resolveBlockScalar = require('./resolve-block-scalar.js');
+-var resolveFlowScalar = require('./resolve-flow-scalar.js');
+ 
++
++
++
++
+ function composeScalar(ctx, token, tagToken, onError) {
+     const { value, type, comment, range } = token.type === 'block-scalar'
+         ? resolveBlockScalar.resolveBlockScalar(ctx, token, onError)
+@@ -86,3 +93,9 @@
+ }
+ 
+ exports.composeScalar = composeScalar;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { composeScalar: __graft_e0 } = __graft_exports
++export { __graft_e0 as composeScalar }
+diff --git a/dist/compose/composer.js b/dist/compose/composer.js
+===================================================================
+--- a/dist/compose/composer.js
++++ b/dist/compose/composer.js
+@@ -1,13 +1,24 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import { createRequire as __graft_createRequire } from 'node:module'
++import directives from '../doc/directives.js'
++import Document from '../doc/Document.js'
++import errors from '../errors.js'
++import identity from '../nodes/identity.js'
++import composeDoc from './compose-doc.js'
++import resolveEnd from './resolve-end.js'
++const require = __graft_createRequire(import.meta.url)
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+ var node_process = require('process');
+-var directives = require('../doc/directives.js');
+-var Document = require('../doc/Document.js');
+-var errors = require('../errors.js');
+-var identity = require('../nodes/identity.js');
+-var composeDoc = require('./compose-doc.js');
+-var resolveEnd = require('./resolve-end.js');
+ 
++
++
++
++
++
++
+ function getErrorPos(src) {
+     if (typeof src === 'number')
+         return [src, src + 1];
+@@ -222,3 +233,9 @@
+ }
+ 
+ exports.Composer = Composer;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { Composer: __graft_e0 } = __graft_exports
++export { __graft_e0 as Composer }
+diff --git a/dist/compose/resolve-block-map.js b/dist/compose/resolve-block-map.js
+===================================================================
+--- a/dist/compose/resolve-block-map.js
++++ b/dist/compose/resolve-block-map.js
+@@ -1,12 +1,21 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import Pair from '../nodes/Pair.js'
++import YAMLMap from '../nodes/YAMLMap.js'
++import resolveProps from './resolve-props.js'
++import utilContainsNewline from './util-contains-newline.js'
++import utilFlowIndentCheck from './util-flow-indent-check.js'
++import utilMapIncludes from './util-map-includes.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var Pair = require('../nodes/Pair.js');
+-var YAMLMap = require('../nodes/YAMLMap.js');
+-var resolveProps = require('./resolve-props.js');
+-var utilContainsNewline = require('./util-contains-newline.js');
+-var utilFlowIndentCheck = require('./util-flow-indent-check.js');
+-var utilMapIncludes = require('./util-map-includes.js');
+ 
++
++
++
++
++
++
+ const startColMsg = 'All mapping items must start at the same column';
+ function resolveBlockMap({ composeNode, composeEmptyNode }, ctx, bm, onError, tag) {
+     const NodeClass = tag?.nodeClass ?? YAMLMap.YAMLMap;
+@@ -115,3 +124,9 @@
+ }
+ 
+ exports.resolveBlockMap = resolveBlockMap;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { resolveBlockMap: __graft_e0 } = __graft_exports
++export { __graft_e0 as resolveBlockMap }
+diff --git a/dist/compose/resolve-block-scalar.js b/dist/compose/resolve-block-scalar.js
+===================================================================
+--- a/dist/compose/resolve-block-scalar.js
++++ b/dist/compose/resolve-block-scalar.js
+@@ -1,7 +1,11 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import Scalar from '../nodes/Scalar.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var Scalar = require('../nodes/Scalar.js');
+ 
++
+ function resolveBlockScalar(ctx, scalar, onError) {
+     const start = scalar.offset;
+     const header = parseBlockScalarHeader(scalar, ctx.options.strict, onError);
+@@ -198,3 +202,9 @@
+ }
+ 
+ exports.resolveBlockScalar = resolveBlockScalar;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { resolveBlockScalar: __graft_e0 } = __graft_exports
++export { __graft_e0 as resolveBlockScalar }
+diff --git a/dist/compose/resolve-block-seq.js b/dist/compose/resolve-block-seq.js
+===================================================================
+--- a/dist/compose/resolve-block-seq.js
++++ b/dist/compose/resolve-block-seq.js
+@@ -1,9 +1,15 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import YAMLSeq from '../nodes/YAMLSeq.js'
++import resolveProps from './resolve-props.js'
++import utilFlowIndentCheck from './util-flow-indent-check.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var YAMLSeq = require('../nodes/YAMLSeq.js');
+-var resolveProps = require('./resolve-props.js');
+-var utilFlowIndentCheck = require('./util-flow-indent-check.js');
+ 
++
++
++
+ function resolveBlockSeq({ composeNode, composeEmptyNode }, ctx, bs, onError, tag) {
+     const NodeClass = tag?.nodeClass ?? YAMLSeq.YAMLSeq;
+     const seq = new NodeClass(ctx.schema);
+@@ -49,3 +55,9 @@
+ }
+ 
+ exports.resolveBlockSeq = resolveBlockSeq;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { resolveBlockSeq: __graft_e0 } = __graft_exports
++export { __graft_e0 as resolveBlockSeq }
+diff --git a/dist/compose/resolve-end.js b/dist/compose/resolve-end.js
+===================================================================
+--- a/dist/compose/resolve-end.js
++++ b/dist/compose/resolve-end.js
+@@ -1,3 +1,6 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+ function resolveEnd(end, offset, reqSpace, onError) {
+@@ -37,3 +40,9 @@
+ }
+ 
+ exports.resolveEnd = resolveEnd;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { resolveEnd: __graft_e0 } = __graft_exports
++export { __graft_e0 as resolveEnd }
+diff --git a/dist/compose/resolve-flow-collection.js b/dist/compose/resolve-flow-collection.js
+===================================================================
+--- a/dist/compose/resolve-flow-collection.js
++++ b/dist/compose/resolve-flow-collection.js
+@@ -1,14 +1,25 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import identity from '../nodes/identity.js'
++import Pair from '../nodes/Pair.js'
++import YAMLMap from '../nodes/YAMLMap.js'
++import YAMLSeq from '../nodes/YAMLSeq.js'
++import resolveEnd from './resolve-end.js'
++import resolveProps from './resolve-props.js'
++import utilContainsNewline from './util-contains-newline.js'
++import utilMapIncludes from './util-map-includes.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var identity = require('../nodes/identity.js');
+-var Pair = require('../nodes/Pair.js');
+-var YAMLMap = require('../nodes/YAMLMap.js');
+-var YAMLSeq = require('../nodes/YAMLSeq.js');
+-var resolveEnd = require('./resolve-end.js');
+-var resolveProps = require('./resolve-props.js');
+-var utilContainsNewline = require('./util-contains-newline.js');
+-var utilMapIncludes = require('./util-map-includes.js');
+ 
++
++
++
++
++
++
++
++
+ const blockMsg = 'Block collections are not allowed within flow collections';
+ const isBlock = (token) => token && (token.type === 'block-map' || token.type === 'block-seq');
+ function resolveFlowCollection({ composeNode, composeEmptyNode }, ctx, fc, onError, tag) {
+@@ -207,3 +218,9 @@
+ }
+ 
+ exports.resolveFlowCollection = resolveFlowCollection;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { resolveFlowCollection: __graft_e0 } = __graft_exports
++export { __graft_e0 as resolveFlowCollection }
+diff --git a/dist/compose/resolve-flow-scalar.js b/dist/compose/resolve-flow-scalar.js
+===================================================================
+--- a/dist/compose/resolve-flow-scalar.js
++++ b/dist/compose/resolve-flow-scalar.js
+@@ -1,8 +1,13 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import Scalar from '../nodes/Scalar.js'
++import resolveEnd from './resolve-end.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var Scalar = require('../nodes/Scalar.js');
+-var resolveEnd = require('./resolve-end.js');
+ 
++
++
+ function resolveFlowScalar(scalar, strict, onError) {
+     const { offset, type, source, end } = scalar;
+     let _type;
+@@ -226,3 +231,9 @@
+ }
+ 
+ exports.resolveFlowScalar = resolveFlowScalar;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { resolveFlowScalar: __graft_e0 } = __graft_exports
++export { __graft_e0 as resolveFlowScalar }
+diff --git a/dist/compose/resolve-props.js b/dist/compose/resolve-props.js
+===================================================================
+--- a/dist/compose/resolve-props.js
++++ b/dist/compose/resolve-props.js
+@@ -1,3 +1,6 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+ function resolveProps(tokens, { flow, indicator, next, offset, onError, parentIndent, startOnNewline }) {
+@@ -146,3 +149,9 @@
+ }
+ 
+ exports.resolveProps = resolveProps;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { resolveProps: __graft_e0 } = __graft_exports
++export { __graft_e0 as resolveProps }
+diff --git a/dist/compose/util-contains-newline.js b/dist/compose/util-contains-newline.js
+===================================================================
+--- a/dist/compose/util-contains-newline.js
++++ b/dist/compose/util-contains-newline.js
+@@ -1,3 +1,6 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+ function containsNewline(key) {
+@@ -34,3 +37,9 @@
+ }
+ 
+ exports.containsNewline = containsNewline;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { containsNewline: __graft_e0 } = __graft_exports
++export { __graft_e0 as containsNewline }
+diff --git a/dist/compose/util-empty-scalar-position.js b/dist/compose/util-empty-scalar-position.js
+===================================================================
+--- a/dist/compose/util-empty-scalar-position.js
++++ b/dist/compose/util-empty-scalar-position.js
+@@ -1,3 +1,6 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+ function emptyScalarPosition(offset, before, pos) {
+@@ -26,3 +29,9 @@
+ }
+ 
+ exports.emptyScalarPosition = emptyScalarPosition;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { emptyScalarPosition: __graft_e0 } = __graft_exports
++export { __graft_e0 as emptyScalarPosition }
+diff --git a/dist/compose/util-flow-indent-check.js b/dist/compose/util-flow-indent-check.js
+===================================================================
+--- a/dist/compose/util-flow-indent-check.js
++++ b/dist/compose/util-flow-indent-check.js
+@@ -1,7 +1,11 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import utilContainsNewline from './util-contains-newline.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var utilContainsNewline = require('./util-contains-newline.js');
+ 
++
+ function flowIndentCheck(indent, fc, onError) {
+     if (fc?.type === 'flow-collection') {
+         const end = fc.end[0];
+@@ -15,3 +19,9 @@
+ }
+ 
+ exports.flowIndentCheck = flowIndentCheck;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { flowIndentCheck: __graft_e0 } = __graft_exports
++export { __graft_e0 as flowIndentCheck }
+diff --git a/dist/compose/util-map-includes.js b/dist/compose/util-map-includes.js
+===================================================================
+--- a/dist/compose/util-map-includes.js
++++ b/dist/compose/util-map-includes.js
+@@ -1,7 +1,11 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import identity from '../nodes/identity.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var identity = require('../nodes/identity.js');
+ 
++
+ function mapIncludes(ctx, items, search) {
+     const { uniqueKeys } = ctx.options;
+     if (uniqueKeys === false)
+@@ -13,3 +17,9 @@
+ }
+ 
+ exports.mapIncludes = mapIncludes;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { mapIncludes: __graft_e0 } = __graft_exports
++export { __graft_e0 as mapIncludes }
+diff --git a/dist/doc/Document.js b/dist/doc/Document.js
+===================================================================
+--- a/dist/doc/Document.js
++++ b/dist/doc/Document.js
+@@ -1,17 +1,31 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import Alias from '../nodes/Alias.js'
++import Collection from '../nodes/Collection.js'
++import identity from '../nodes/identity.js'
++import Pair from '../nodes/Pair.js'
++import toJS from '../nodes/toJS.js'
++import Schema from '../schema/Schema.js'
++import stringifyDocument from '../stringify/stringifyDocument.js'
++import anchors from './anchors.js'
++import applyReviver from './applyReviver.js'
++import createNode from './createNode.js'
++import directives from './directives.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var Alias = require('../nodes/Alias.js');
+-var Collection = require('../nodes/Collection.js');
+-var identity = require('../nodes/identity.js');
+-var Pair = require('../nodes/Pair.js');
+-var toJS = require('../nodes/toJS.js');
+-var Schema = require('../schema/Schema.js');
+-var stringifyDocument = require('../stringify/stringifyDocument.js');
+-var anchors = require('./anchors.js');
+-var applyReviver = require('./applyReviver.js');
+-var createNode = require('./createNode.js');
+-var directives = require('./directives.js');
+ 
++
++
++
++
++
++
++
++
++
++
++
+ class Document {
+     constructor(value, replacer, options) {
+         /** A comment before this Document */
+@@ -335,3 +349,9 @@
+ }
+ 
+ exports.Document = Document;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { Document: __graft_e0 } = __graft_exports
++export { __graft_e0 as Document }
+diff --git a/dist/doc/anchors.js b/dist/doc/anchors.js
+===================================================================
+--- a/dist/doc/anchors.js
++++ b/dist/doc/anchors.js
+@@ -1,8 +1,13 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import identity from '../nodes/identity.js'
++import visit from '../visit.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var identity = require('../nodes/identity.js');
+-var visit = require('../visit.js');
+ 
++
++
+ /**
+  * Verify that the input string is a valid anchor.
+  *
+@@ -74,3 +79,9 @@
+ exports.anchorNames = anchorNames;
+ exports.createNodeAnchors = createNodeAnchors;
+ exports.findNewAnchor = findNewAnchor;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { anchorIsValid: __graft_e0, anchorNames: __graft_e1, createNodeAnchors: __graft_e2, findNewAnchor: __graft_e3 } = __graft_exports
++export { __graft_e0 as anchorIsValid, __graft_e1 as anchorNames, __graft_e2 as createNodeAnchors, __graft_e3 as findNewAnchor }
+diff --git a/dist/doc/applyReviver.js b/dist/doc/applyReviver.js
+===================================================================
+--- a/dist/doc/applyReviver.js
++++ b/dist/doc/applyReviver.js
+@@ -1,3 +1,6 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+ /**
+@@ -55,3 +58,9 @@
+ }
+ 
+ exports.applyReviver = applyReviver;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { applyReviver: __graft_e0 } = __graft_exports
++export { __graft_e0 as applyReviver }
+diff --git a/dist/doc/createNode.js b/dist/doc/createNode.js
+===================================================================
+--- a/dist/doc/createNode.js
++++ b/dist/doc/createNode.js
+@@ -1,9 +1,15 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import Alias from '../nodes/Alias.js'
++import identity from '../nodes/identity.js'
++import Scalar from '../nodes/Scalar.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var Alias = require('../nodes/Alias.js');
+-var identity = require('../nodes/identity.js');
+-var Scalar = require('../nodes/Scalar.js');
+ 
++
++
++
+ const defaultTagPrefix = 'tag:yaml.org,2002:';
+ function findTagObject(value, tagName, tags) {
+     if (tagName) {
+@@ -88,3 +94,9 @@
+ }
+ 
+ exports.createNode = createNode;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { createNode: __graft_e0 } = __graft_exports
++export { __graft_e0 as createNode }
+diff --git a/dist/doc/directives.js b/dist/doc/directives.js
+===================================================================
+--- a/dist/doc/directives.js
++++ b/dist/doc/directives.js
+@@ -1,8 +1,13 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import identity from '../nodes/identity.js'
++import visit from '../visit.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var identity = require('../nodes/identity.js');
+-var visit = require('../visit.js');
+ 
++
++
+ const escapeChars = {
+     '!': '%21',
+     ',': '%2C',
+@@ -176,3 +181,9 @@
+ Directives.defaultTags = { '!!': 'tag:yaml.org,2002:' };
+ 
+ exports.Directives = Directives;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { Directives: __graft_e0 } = __graft_exports
++export { __graft_e0 as Directives }
+diff --git a/dist/errors.js b/dist/errors.js
+===================================================================
+--- a/dist/errors.js
++++ b/dist/errors.js
+@@ -1,3 +1,6 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+ class YAMLError extends Error {
+@@ -60,3 +63,9 @@
+ exports.YAMLParseError = YAMLParseError;
+ exports.YAMLWarning = YAMLWarning;
+ exports.prettifyError = prettifyError;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { YAMLError: __graft_e0, YAMLParseError: __graft_e1, YAMLWarning: __graft_e2, prettifyError: __graft_e3 } = __graft_exports
++export { __graft_e0 as YAMLError, __graft_e1 as YAMLParseError, __graft_e2 as YAMLWarning, __graft_e3 as prettifyError }
+diff --git a/dist/index.js b/dist/index.js
+===================================================================
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -1,24 +1,43 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import composer from './compose/composer.js'
++import Document from './doc/Document.js'
++import Schema from './schema/Schema.js'
++import errors from './errors.js'
++import Alias from './nodes/Alias.js'
++import identity from './nodes/identity.js'
++import Pair from './nodes/Pair.js'
++import Scalar from './nodes/Scalar.js'
++import YAMLMap from './nodes/YAMLMap.js'
++import YAMLSeq from './nodes/YAMLSeq.js'
++import cst from './parse/cst.js'
++import lexer from './parse/lexer.js'
++import lineCounter from './parse/line-counter.js'
++import parser from './parse/parser.js'
++import publicApi from './public-api.js'
++import visit from './visit.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var composer = require('./compose/composer.js');
+-var Document = require('./doc/Document.js');
+-var Schema = require('./schema/Schema.js');
+-var errors = require('./errors.js');
+-var Alias = require('./nodes/Alias.js');
+-var identity = require('./nodes/identity.js');
+-var Pair = require('./nodes/Pair.js');
+-var Scalar = require('./nodes/Scalar.js');
+-var YAMLMap = require('./nodes/YAMLMap.js');
+-var YAMLSeq = require('./nodes/YAMLSeq.js');
+-var cst = require('./parse/cst.js');
+-var lexer = require('./parse/lexer.js');
+-var lineCounter = require('./parse/line-counter.js');
+-var parser = require('./parse/parser.js');
+-var publicApi = require('./public-api.js');
+-var visit = require('./visit.js');
+ 
+ 
+ 
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
+ exports.Composer = composer.Composer;
+ exports.Document = Document.Document;
+ exports.Schema = Schema.Schema;
+@@ -48,3 +67,9 @@
+ exports.stringify = publicApi.stringify;
+ exports.visit = visit.visit;
+ exports.visitAsync = visit.visitAsync;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { Composer: __graft_e0, Document: __graft_e1, Schema: __graft_e2, YAMLError: __graft_e3, YAMLParseError: __graft_e4, YAMLWarning: __graft_e5, Alias: __graft_e6, isAlias: __graft_e7, isCollection: __graft_e8, isDocument: __graft_e9, isMap: __graft_e10, isNode: __graft_e11, isPair: __graft_e12, isScalar: __graft_e13, isSeq: __graft_e14, Pair: __graft_e15, Scalar: __graft_e16, YAMLMap: __graft_e17, YAMLSeq: __graft_e18, CST: __graft_e19, Lexer: __graft_e20, LineCounter: __graft_e21, Parser: __graft_e22, parse: __graft_e23, parseAllDocuments: __graft_e24, parseDocument: __graft_e25, stringify: __graft_e26, visit: __graft_e27, visitAsync: __graft_e28 } = __graft_exports
++export { __graft_e0 as Composer, __graft_e1 as Document, __graft_e2 as Schema, __graft_e3 as YAMLError, __graft_e4 as YAMLParseError, __graft_e5 as YAMLWarning, __graft_e6 as Alias, __graft_e7 as isAlias, __graft_e8 as isCollection, __graft_e9 as isDocument, __graft_e10 as isMap, __graft_e11 as isNode, __graft_e12 as isPair, __graft_e13 as isScalar, __graft_e14 as isSeq, __graft_e15 as Pair, __graft_e16 as Scalar, __graft_e17 as YAMLMap, __graft_e18 as YAMLSeq, __graft_e19 as CST, __graft_e20 as Lexer, __graft_e21 as LineCounter, __graft_e22 as Parser, __graft_e23 as parse, __graft_e24 as parseAllDocuments, __graft_e25 as parseDocument, __graft_e26 as stringify, __graft_e27 as visit, __graft_e28 as visitAsync }
+diff --git a/dist/log.js b/dist/log.js
+===================================================================
+--- a/dist/log.js
++++ b/dist/log.js
+@@ -1,3 +1,8 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import { createRequire as __graft_createRequire } from 'node:module'
++const require = __graft_createRequire(import.meta.url)
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+ var node_process = require('process');
+@@ -17,3 +22,9 @@
+ 
+ exports.debug = debug;
+ exports.warn = warn;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { debug: __graft_e0, warn: __graft_e1 } = __graft_exports
++export { __graft_e0 as debug, __graft_e1 as warn }
+diff --git a/dist/nodes/Alias.js b/dist/nodes/Alias.js
+===================================================================
+--- a/dist/nodes/Alias.js
++++ b/dist/nodes/Alias.js
+@@ -1,11 +1,19 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import anchors from '../doc/anchors.js'
++import visit from '../visit.js'
++import identity from './identity.js'
++import Node from './Node.js'
++import toJS from './toJS.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var anchors = require('../doc/anchors.js');
+-var visit = require('../visit.js');
+-var identity = require('./identity.js');
+-var Node = require('./Node.js');
+-var toJS = require('./toJS.js');
+ 
++
++
++
++
++
+ class Alias extends Node.NodeBase {
+     constructor(source) {
+         super(identity.ALIAS);
+@@ -118,3 +126,9 @@
+ }
+ 
+ exports.Alias = Alias;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { Alias: __graft_e0 } = __graft_exports
++export { __graft_e0 as Alias }
+diff --git a/dist/nodes/Collection.js b/dist/nodes/Collection.js
+===================================================================
+--- a/dist/nodes/Collection.js
++++ b/dist/nodes/Collection.js
+@@ -1,9 +1,15 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import createNode from '../doc/createNode.js'
++import identity from './identity.js'
++import Node from './Node.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var createNode = require('../doc/createNode.js');
+-var identity = require('./identity.js');
+-var Node = require('./Node.js');
+ 
++
++
++
+ function collectionFromPath(schema, path, value) {
+     let v = value;
+     for (let i = path.length - 1; i >= 0; --i) {
+@@ -149,3 +155,9 @@
+ exports.Collection = Collection;
+ exports.collectionFromPath = collectionFromPath;
+ exports.isEmptyPath = isEmptyPath;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { Collection: __graft_e0, collectionFromPath: __graft_e1, isEmptyPath: __graft_e2 } = __graft_exports
++export { __graft_e0 as Collection, __graft_e1 as collectionFromPath, __graft_e2 as isEmptyPath }
+diff --git a/dist/nodes/Node.js b/dist/nodes/Node.js
+===================================================================
+--- a/dist/nodes/Node.js
++++ b/dist/nodes/Node.js
+@@ -1,9 +1,15 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import applyReviver from '../doc/applyReviver.js'
++import identity from './identity.js'
++import toJS from './toJS.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var applyReviver = require('../doc/applyReviver.js');
+-var identity = require('./identity.js');
+-var toJS = require('./toJS.js');
+ 
++
++
++
+ class NodeBase {
+     constructor(type) {
+         Object.defineProperty(this, identity.NODE_TYPE, { value: type });
+@@ -38,3 +44,9 @@
+ }
+ 
+ exports.NodeBase = NodeBase;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { NodeBase: __graft_e0 } = __graft_exports
++export { __graft_e0 as NodeBase }
+diff --git a/dist/nodes/Pair.js b/dist/nodes/Pair.js
+===================================================================
+--- a/dist/nodes/Pair.js
++++ b/dist/nodes/Pair.js
+@@ -1,10 +1,17 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import createNode from '../doc/createNode.js'
++import stringifyPair from '../stringify/stringifyPair.js'
++import addPairToJSMap from './addPairToJSMap.js'
++import identity from './identity.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var createNode = require('../doc/createNode.js');
+-var stringifyPair = require('../stringify/stringifyPair.js');
+-var addPairToJSMap = require('./addPairToJSMap.js');
+-var identity = require('./identity.js');
+ 
++
++
++
++
+ function createPair(key, value, ctx) {
+     const k = createNode.createNode(key, undefined, ctx);
+     const v = createNode.createNode(value, undefined, ctx);
+@@ -37,3 +44,9 @@
+ 
+ exports.Pair = Pair;
+ exports.createPair = createPair;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { Pair: __graft_e0, createPair: __graft_e1 } = __graft_exports
++export { __graft_e0 as Pair, __graft_e1 as createPair }
+diff --git a/dist/nodes/Scalar.js b/dist/nodes/Scalar.js
+===================================================================
+--- a/dist/nodes/Scalar.js
++++ b/dist/nodes/Scalar.js
+@@ -1,9 +1,15 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import identity from './identity.js'
++import Node from './Node.js'
++import toJS from './toJS.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var identity = require('./identity.js');
+-var Node = require('./Node.js');
+-var toJS = require('./toJS.js');
+ 
++
++
++
+ const isScalarValue = (value) => !value || (typeof value !== 'function' && typeof value !== 'object');
+ class Scalar extends Node.NodeBase {
+     constructor(value) {
+@@ -25,3 +31,9 @@
+ 
+ exports.Scalar = Scalar;
+ exports.isScalarValue = isScalarValue;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { Scalar: __graft_e0, isScalarValue: __graft_e1 } = __graft_exports
++export { __graft_e0 as Scalar, __graft_e1 as isScalarValue }
+diff --git a/dist/nodes/YAMLMap.js b/dist/nodes/YAMLMap.js
+===================================================================
+--- a/dist/nodes/YAMLMap.js
++++ b/dist/nodes/YAMLMap.js
+@@ -1,12 +1,21 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import stringifyCollection from '../stringify/stringifyCollection.js'
++import addPairToJSMap from './addPairToJSMap.js'
++import Collection from './Collection.js'
++import identity from './identity.js'
++import Pair from './Pair.js'
++import Scalar from './Scalar.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var stringifyCollection = require('../stringify/stringifyCollection.js');
+-var addPairToJSMap = require('./addPairToJSMap.js');
+-var Collection = require('./Collection.js');
+-var identity = require('./identity.js');
+-var Pair = require('./Pair.js');
+-var Scalar = require('./Scalar.js');
+ 
++
++
++
++
++
++
+ function findPair(items, key) {
+     const k = identity.isScalar(key) ? key.value : key;
+     for (const it of items) {
+@@ -145,3 +154,9 @@
+ 
+ exports.YAMLMap = YAMLMap;
+ exports.findPair = findPair;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { YAMLMap: __graft_e0, findPair: __graft_e1 } = __graft_exports
++export { __graft_e0 as YAMLMap, __graft_e1 as findPair }
+diff --git a/dist/nodes/YAMLSeq.js b/dist/nodes/YAMLSeq.js
+===================================================================
+--- a/dist/nodes/YAMLSeq.js
++++ b/dist/nodes/YAMLSeq.js
+@@ -1,12 +1,21 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import createNode from '../doc/createNode.js'
++import stringifyCollection from '../stringify/stringifyCollection.js'
++import Collection from './Collection.js'
++import identity from './identity.js'
++import Scalar from './Scalar.js'
++import toJS from './toJS.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var createNode = require('../doc/createNode.js');
+-var stringifyCollection = require('../stringify/stringifyCollection.js');
+-var Collection = require('./Collection.js');
+-var identity = require('./identity.js');
+-var Scalar = require('./Scalar.js');
+-var toJS = require('./toJS.js');
+ 
++
++
++
++
++
++
+ class YAMLSeq extends Collection.Collection {
+     static get tagName() {
+         return 'tag:yaml.org,2002:seq';
+@@ -113,3 +122,9 @@
+ }
+ 
+ exports.YAMLSeq = YAMLSeq;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { YAMLSeq: __graft_e0 } = __graft_exports
++export { __graft_e0 as YAMLSeq }
+diff --git a/dist/nodes/addPairToJSMap.js b/dist/nodes/addPairToJSMap.js
+===================================================================
+--- a/dist/nodes/addPairToJSMap.js
++++ b/dist/nodes/addPairToJSMap.js
+@@ -1,11 +1,19 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import log from '../log.js'
++import merge from '../schema/yaml-1.1/merge.js'
++import stringify from '../stringify/stringify.js'
++import identity from './identity.js'
++import toJS from './toJS.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var log = require('../log.js');
+-var merge = require('../schema/yaml-1.1/merge.js');
+-var stringify = require('../stringify/stringify.js');
+-var identity = require('./identity.js');
+-var toJS = require('./toJS.js');
+ 
++
++
++
++
++
+ function addPairToJSMap(ctx, map, { key, value }) {
+     if (identity.isNode(key) && key.addToJSMap)
+         key.addToJSMap(ctx, map, value);
+@@ -63,3 +71,9 @@
+ }
+ 
+ exports.addPairToJSMap = addPairToJSMap;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { addPairToJSMap: __graft_e0 } = __graft_exports
++export { __graft_e0 as addPairToJSMap }
+diff --git a/dist/nodes/identity.js b/dist/nodes/identity.js
+===================================================================
+--- a/dist/nodes/identity.js
++++ b/dist/nodes/identity.js
+@@ -1,3 +1,6 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+ const ALIAS = Symbol.for('yaml.alias');
+@@ -51,3 +54,9 @@
+ exports.isPair = isPair;
+ exports.isScalar = isScalar;
+ exports.isSeq = isSeq;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { ALIAS: __graft_e0, DOC: __graft_e1, MAP: __graft_e2, NODE_TYPE: __graft_e3, PAIR: __graft_e4, SCALAR: __graft_e5, SEQ: __graft_e6, hasAnchor: __graft_e7, isAlias: __graft_e8, isCollection: __graft_e9, isDocument: __graft_e10, isMap: __graft_e11, isNode: __graft_e12, isPair: __graft_e13, isScalar: __graft_e14, isSeq: __graft_e15 } = __graft_exports
++export { __graft_e0 as ALIAS, __graft_e1 as DOC, __graft_e2 as MAP, __graft_e3 as NODE_TYPE, __graft_e4 as PAIR, __graft_e5 as SCALAR, __graft_e6 as SEQ, __graft_e7 as hasAnchor, __graft_e8 as isAlias, __graft_e9 as isCollection, __graft_e10 as isDocument, __graft_e11 as isMap, __graft_e12 as isNode, __graft_e13 as isPair, __graft_e14 as isScalar, __graft_e15 as isSeq }
+diff --git a/dist/nodes/toJS.js b/dist/nodes/toJS.js
+===================================================================
+--- a/dist/nodes/toJS.js
++++ b/dist/nodes/toJS.js
+@@ -1,7 +1,11 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import identity from './identity.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var identity = require('./identity.js');
+ 
++
+ /**
+  * Recursively convert any node or its contents to native JavaScript
+  *
+@@ -37,3 +41,9 @@
+ }
+ 
+ exports.toJS = toJS;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { toJS: __graft_e0 } = __graft_exports
++export { __graft_e0 as toJS }
+diff --git a/dist/parse/cst-scalar.js b/dist/parse/cst-scalar.js
+===================================================================
+--- a/dist/parse/cst-scalar.js
++++ b/dist/parse/cst-scalar.js
+@@ -1,10 +1,17 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import resolveBlockScalar from '../compose/resolve-block-scalar.js'
++import resolveFlowScalar from '../compose/resolve-flow-scalar.js'
++import errors from '../errors.js'
++import stringifyString from '../stringify/stringifyString.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var resolveBlockScalar = require('../compose/resolve-block-scalar.js');
+-var resolveFlowScalar = require('../compose/resolve-flow-scalar.js');
+-var errors = require('../errors.js');
+-var stringifyString = require('../stringify/stringifyString.js');
+ 
++
++
++
++
+ function resolveAsScalar(token, strict = true, onError) {
+     if (token) {
+         const _onError = (pos, code, message) => {
+@@ -216,3 +223,9 @@
+ exports.createScalarToken = createScalarToken;
+ exports.resolveAsScalar = resolveAsScalar;
+ exports.setScalarValue = setScalarValue;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { createScalarToken: __graft_e0, resolveAsScalar: __graft_e1, setScalarValue: __graft_e2 } = __graft_exports
++export { __graft_e0 as createScalarToken, __graft_e1 as resolveAsScalar, __graft_e2 as setScalarValue }
+diff --git a/dist/parse/cst-stringify.js b/dist/parse/cst-stringify.js
+===================================================================
+--- a/dist/parse/cst-stringify.js
++++ b/dist/parse/cst-stringify.js
+@@ -1,3 +1,6 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+ /**
+@@ -61,3 +64,9 @@
+ }
+ 
+ exports.stringify = stringify;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { stringify: __graft_e0 } = __graft_exports
++export { __graft_e0 as stringify }
+diff --git a/dist/parse/cst-visit.js b/dist/parse/cst-visit.js
+===================================================================
+--- a/dist/parse/cst-visit.js
++++ b/dist/parse/cst-visit.js
+@@ -1,3 +1,6 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+ const BREAK = Symbol('break visit');
+@@ -97,3 +100,9 @@
+ }
+ 
+ exports.visit = visit;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { visit: __graft_e0 } = __graft_exports
++export { __graft_e0 as visit }
+diff --git a/dist/parse/cst.js b/dist/parse/cst.js
+===================================================================
+--- a/dist/parse/cst.js
++++ b/dist/parse/cst.js
+@@ -1,9 +1,15 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import cstScalar from './cst-scalar.js'
++import cstStringify from './cst-stringify.js'
++import cstVisit from './cst-visit.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var cstScalar = require('./cst-scalar.js');
+-var cstStringify = require('./cst-stringify.js');
+-var cstVisit = require('./cst-visit.js');
+ 
++
++
++
+ /** The byte order mark */
+ const BOM = '\u{FEFF}';
+ /** Start of doc-mode */
+@@ -110,3 +116,9 @@
+ exports.isScalar = isScalar;
+ exports.prettyToken = prettyToken;
+ exports.tokenType = tokenType;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { createScalarToken: __graft_e0, resolveAsScalar: __graft_e1, setScalarValue: __graft_e2, stringify: __graft_e3, visit: __graft_e4, BOM: __graft_e5, DOCUMENT: __graft_e6, FLOW_END: __graft_e7, SCALAR: __graft_e8, isCollection: __graft_e9, isScalar: __graft_e10, prettyToken: __graft_e11, tokenType: __graft_e12 } = __graft_exports
++export { __graft_e0 as createScalarToken, __graft_e1 as resolveAsScalar, __graft_e2 as setScalarValue, __graft_e3 as stringify, __graft_e4 as visit, __graft_e5 as BOM, __graft_e6 as DOCUMENT, __graft_e7 as FLOW_END, __graft_e8 as SCALAR, __graft_e9 as isCollection, __graft_e10 as isScalar, __graft_e11 as prettyToken, __graft_e12 as tokenType }
+diff --git a/dist/parse/lexer.js b/dist/parse/lexer.js
+===================================================================
+--- a/dist/parse/lexer.js
++++ b/dist/parse/lexer.js
+@@ -1,7 +1,11 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import cst from './cst.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var cst = require('./cst.js');
+ 
++
+ /*
+ START -> stream
+ 
+@@ -721,3 +725,9 @@
+ }
+ 
+ exports.Lexer = Lexer;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { Lexer: __graft_e0 } = __graft_exports
++export { __graft_e0 as Lexer }
+diff --git a/dist/parse/line-counter.js b/dist/parse/line-counter.js
+===================================================================
+--- a/dist/parse/line-counter.js
++++ b/dist/parse/line-counter.js
+@@ -1,3 +1,6 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+ /**
+@@ -39,3 +42,9 @@
+ }
+ 
+ exports.LineCounter = LineCounter;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { LineCounter: __graft_e0 } = __graft_exports
++export { __graft_e0 as LineCounter }
+diff --git a/dist/parse/parser.js b/dist/parse/parser.js
+===================================================================
+--- a/dist/parse/parser.js
++++ b/dist/parse/parser.js
+@@ -1,9 +1,16 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import { createRequire as __graft_createRequire } from 'node:module'
++import cst from './cst.js'
++import lexer from './lexer.js'
++const require = __graft_createRequire(import.meta.url)
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+ var node_process = require('process');
+-var cst = require('./cst.js');
+-var lexer = require('./lexer.js');
+ 
++
++
+ function includesToken(list, type) {
+     for (let i = 0; i < list.length; ++i)
+         if (list[i].type === type)
+@@ -978,3 +985,9 @@
+ }
+ 
+ exports.Parser = Parser;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { Parser: __graft_e0 } = __graft_exports
++export { __graft_e0 as Parser }
+diff --git a/dist/public-api.js b/dist/public-api.js
+===================================================================
+--- a/dist/public-api.js
++++ b/dist/public-api.js
+@@ -1,13 +1,23 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import composer from './compose/composer.js'
++import Document from './doc/Document.js'
++import errors from './errors.js'
++import log from './log.js'
++import identity from './nodes/identity.js'
++import lineCounter from './parse/line-counter.js'
++import parser from './parse/parser.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var composer = require('./compose/composer.js');
+-var Document = require('./doc/Document.js');
+-var errors = require('./errors.js');
+-var log = require('./log.js');
+-var identity = require('./nodes/identity.js');
+-var lineCounter = require('./parse/line-counter.js');
+-var parser = require('./parse/parser.js');
+ 
++
++
++
++
++
++
++
+ function parseOptions(options) {
+     const prettyErrors = options.prettyErrors !== false;
+     const lineCounter$1 = options.lineCounter || (prettyErrors && new lineCounter.LineCounter()) || null;
+@@ -105,3 +115,9 @@
+ exports.parseAllDocuments = parseAllDocuments;
+ exports.parseDocument = parseDocument;
+ exports.stringify = stringify;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { parse: __graft_e0, parseAllDocuments: __graft_e1, parseDocument: __graft_e2, stringify: __graft_e3 } = __graft_exports
++export { __graft_e0 as parse, __graft_e1 as parseAllDocuments, __graft_e2 as parseDocument, __graft_e3 as stringify }
+diff --git a/dist/schema/Schema.js b/dist/schema/Schema.js
+===================================================================
+--- a/dist/schema/Schema.js
++++ b/dist/schema/Schema.js
+@@ -1,11 +1,19 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import identity from '../nodes/identity.js'
++import map from './common/map.js'
++import seq from './common/seq.js'
++import string from './common/string.js'
++import tags from './tags.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var identity = require('../nodes/identity.js');
+-var map = require('./common/map.js');
+-var seq = require('./common/seq.js');
+-var string = require('./common/string.js');
+-var tags = require('./tags.js');
+ 
++
++
++
++
++
+ const sortMapEntriesByKey = (a, b) => a.key < b.key ? -1 : a.key > b.key ? 1 : 0;
+ class Schema {
+     constructor({ compat, customTags, merge, resolveKnownTags, schema, sortMapEntries, toStringDefaults }) {
+@@ -37,3 +45,9 @@
+ }
+ 
+ exports.Schema = Schema;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { Schema: __graft_e0 } = __graft_exports
++export { __graft_e0 as Schema }
+diff --git a/dist/schema/common/map.js b/dist/schema/common/map.js
+===================================================================
+--- a/dist/schema/common/map.js
++++ b/dist/schema/common/map.js
+@@ -1,8 +1,13 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import identity from '../../nodes/identity.js'
++import YAMLMap from '../../nodes/YAMLMap.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var identity = require('../../nodes/identity.js');
+-var YAMLMap = require('../../nodes/YAMLMap.js');
+ 
++
++
+ const map = {
+     collection: 'map',
+     default: true,
+@@ -17,3 +22,9 @@
+ };
+ 
+ exports.map = map;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { map: __graft_e0 } = __graft_exports
++export { __graft_e0 as map }
+diff --git a/dist/schema/common/null.js b/dist/schema/common/null.js
+===================================================================
+--- a/dist/schema/common/null.js
++++ b/dist/schema/common/null.js
+@@ -1,7 +1,11 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import Scalar from '../../nodes/Scalar.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var Scalar = require('../../nodes/Scalar.js');
+ 
++
+ const nullTag = {
+     identify: value => value == null,
+     createNode: () => new Scalar.Scalar(null),
+@@ -15,3 +19,9 @@
+ };
+ 
+ exports.nullTag = nullTag;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { nullTag: __graft_e0 } = __graft_exports
++export { __graft_e0 as nullTag }
+diff --git a/dist/schema/common/seq.js b/dist/schema/common/seq.js
+===================================================================
+--- a/dist/schema/common/seq.js
++++ b/dist/schema/common/seq.js
+@@ -1,8 +1,13 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import identity from '../../nodes/identity.js'
++import YAMLSeq from '../../nodes/YAMLSeq.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var identity = require('../../nodes/identity.js');
+-var YAMLSeq = require('../../nodes/YAMLSeq.js');
+ 
++
++
+ const seq = {
+     collection: 'seq',
+     default: true,
+@@ -17,3 +22,9 @@
+ };
+ 
+ exports.seq = seq;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { seq: __graft_e0 } = __graft_exports
++export { __graft_e0 as seq }
+diff --git a/dist/schema/common/string.js b/dist/schema/common/string.js
+===================================================================
+--- a/dist/schema/common/string.js
++++ b/dist/schema/common/string.js
+@@ -1,7 +1,11 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import stringifyString from '../../stringify/stringifyString.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var stringifyString = require('../../stringify/stringifyString.js');
+ 
++
+ const string = {
+     identify: value => typeof value === 'string',
+     default: true,
+@@ -14,3 +18,9 @@
+ };
+ 
+ exports.string = string;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { string: __graft_e0 } = __graft_exports
++export { __graft_e0 as string }
+diff --git a/dist/schema/core/bool.js b/dist/schema/core/bool.js
+===================================================================
+--- a/dist/schema/core/bool.js
++++ b/dist/schema/core/bool.js
+@@ -1,7 +1,11 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import Scalar from '../../nodes/Scalar.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var Scalar = require('../../nodes/Scalar.js');
+ 
++
+ const boolTag = {
+     identify: value => typeof value === 'boolean',
+     default: true,
+@@ -19,3 +23,9 @@
+ };
+ 
+ exports.boolTag = boolTag;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { boolTag: __graft_e0 } = __graft_exports
++export { __graft_e0 as boolTag }
+diff --git a/dist/schema/core/float.js b/dist/schema/core/float.js
+===================================================================
+--- a/dist/schema/core/float.js
++++ b/dist/schema/core/float.js
+@@ -1,8 +1,13 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import Scalar from '../../nodes/Scalar.js'
++import stringifyNumber from '../../stringify/stringifyNumber.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var Scalar = require('../../nodes/Scalar.js');
+-var stringifyNumber = require('../../stringify/stringifyNumber.js');
+ 
++
++
+ const floatNaN = {
+     identify: value => typeof value === 'number',
+     default: true,
+@@ -45,3 +50,9 @@
+ exports.float = float;
+ exports.floatExp = floatExp;
+ exports.floatNaN = floatNaN;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { float: __graft_e0, floatExp: __graft_e1, floatNaN: __graft_e2 } = __graft_exports
++export { __graft_e0 as float, __graft_e1 as floatExp, __graft_e2 as floatNaN }
+diff --git a/dist/schema/core/int.js b/dist/schema/core/int.js
+===================================================================
+--- a/dist/schema/core/int.js
++++ b/dist/schema/core/int.js
+@@ -1,7 +1,11 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import stringifyNumber from '../../stringify/stringifyNumber.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var stringifyNumber = require('../../stringify/stringifyNumber.js');
+ 
++
+ const intIdentify = (value) => typeof value === 'bigint' || Number.isInteger(value);
+ const intResolve = (str, offset, radix, { intAsBigInt }) => (intAsBigInt ? BigInt(str) : parseInt(str.substring(offset), radix));
+ function intStringify(node, radix, prefix) {
+@@ -40,3 +44,9 @@
+ exports.int = int;
+ exports.intHex = intHex;
+ exports.intOct = intOct;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { int: __graft_e0, intHex: __graft_e1, intOct: __graft_e2 } = __graft_exports
++export { __graft_e0 as int, __graft_e1 as intHex, __graft_e2 as intOct }
+diff --git a/dist/schema/core/schema.js b/dist/schema/core/schema.js
+===================================================================
+--- a/dist/schema/core/schema.js
++++ b/dist/schema/core/schema.js
+@@ -1,13 +1,23 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import map from '../common/map.js'
++import _null from '../common/null.js'
++import seq from '../common/seq.js'
++import string from '../common/string.js'
++import bool from './bool.js'
++import float from './float.js'
++import int from './int.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var map = require('../common/map.js');
+-var _null = require('../common/null.js');
+-var seq = require('../common/seq.js');
+-var string = require('../common/string.js');
+-var bool = require('./bool.js');
+-var float = require('./float.js');
+-var int = require('./int.js');
+ 
++
++
++
++
++
++
++
+ const schema = [
+     map.map,
+     seq.seq,
+@@ -23,3 +33,9 @@
+ ];
+ 
+ exports.schema = schema;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { schema: __graft_e0 } = __graft_exports
++export { __graft_e0 as schema }
+diff --git a/dist/schema/json/schema.js b/dist/schema/json/schema.js
+===================================================================
+--- a/dist/schema/json/schema.js
++++ b/dist/schema/json/schema.js
+@@ -1,9 +1,15 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import Scalar from '../../nodes/Scalar.js'
++import map from '../common/map.js'
++import seq from '../common/seq.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var Scalar = require('../../nodes/Scalar.js');
+-var map = require('../common/map.js');
+-var seq = require('../common/seq.js');
+ 
++
++
++
+ function intIdentify(value) {
+     return typeof value === 'bigint' || Number.isInteger(value);
+ }
+@@ -62,3 +68,9 @@
+ const schema = [map.map, seq.seq].concat(jsonScalars, jsonError);
+ 
+ exports.schema = schema;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { schema: __graft_e0 } = __graft_exports
++export { __graft_e0 as schema }
+diff --git a/dist/schema/tags.js b/dist/schema/tags.js
+===================================================================
+--- a/dist/schema/tags.js
++++ b/dist/schema/tags.js
+@@ -1,22 +1,41 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import map from './common/map.js'
++import _null from './common/null.js'
++import seq from './common/seq.js'
++import string from './common/string.js'
++import bool from './core/bool.js'
++import float from './core/float.js'
++import int from './core/int.js'
++import schema from './core/schema.js'
++import schema$1 from './json/schema.js'
++import binary from './yaml-1.1/binary.js'
++import merge from './yaml-1.1/merge.js'
++import omap from './yaml-1.1/omap.js'
++import pairs from './yaml-1.1/pairs.js'
++import schema$2 from './yaml-1.1/schema.js'
++import set from './yaml-1.1/set.js'
++import timestamp from './yaml-1.1/timestamp.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var map = require('./common/map.js');
+-var _null = require('./common/null.js');
+-var seq = require('./common/seq.js');
+-var string = require('./common/string.js');
+-var bool = require('./core/bool.js');
+-var float = require('./core/float.js');
+-var int = require('./core/int.js');
+-var schema = require('./core/schema.js');
+-var schema$1 = require('./json/schema.js');
+-var binary = require('./yaml-1.1/binary.js');
+-var merge = require('./yaml-1.1/merge.js');
+-var omap = require('./yaml-1.1/omap.js');
+-var pairs = require('./yaml-1.1/pairs.js');
+-var schema$2 = require('./yaml-1.1/schema.js');
+-var set = require('./yaml-1.1/set.js');
+-var timestamp = require('./yaml-1.1/timestamp.js');
+ 
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
+ const schemas = new Map([
+     ['core', schema.schema],
+     ['failsafe', [map.map, seq.seq, string.string]],
+@@ -97,3 +116,9 @@
+ 
+ exports.coreKnownTags = coreKnownTags;
+ exports.getTags = getTags;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { coreKnownTags: __graft_e0, getTags: __graft_e1 } = __graft_exports
++export { __graft_e0 as coreKnownTags, __graft_e1 as getTags }
+diff --git a/dist/schema/yaml-1.1/binary.js b/dist/schema/yaml-1.1/binary.js
+===================================================================
+--- a/dist/schema/yaml-1.1/binary.js
++++ b/dist/schema/yaml-1.1/binary.js
+@@ -1,9 +1,16 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import { createRequire as __graft_createRequire } from 'node:module'
++import Scalar from '../../nodes/Scalar.js'
++import stringifyString from '../../stringify/stringifyString.js'
++const require = __graft_createRequire(import.meta.url)
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+ var node_buffer = require('buffer');
+-var Scalar = require('../../nodes/Scalar.js');
+-var stringifyString = require('../../stringify/stringifyString.js');
+ 
++
++
+ const binary = {
+     identify: value => value instanceof Uint8Array, // Buffer inherits from Uint8Array
+     default: false,
+@@ -68,3 +75,9 @@
+ };
+ 
+ exports.binary = binary;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { binary: __graft_e0 } = __graft_exports
++export { __graft_e0 as binary }
+diff --git a/dist/schema/yaml-1.1/bool.js b/dist/schema/yaml-1.1/bool.js
+===================================================================
+--- a/dist/schema/yaml-1.1/bool.js
++++ b/dist/schema/yaml-1.1/bool.js
+@@ -1,7 +1,11 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import Scalar from '../../nodes/Scalar.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var Scalar = require('../../nodes/Scalar.js');
+ 
++
+ function boolStringify({ value, source }, ctx) {
+     const boolObj = value ? trueTag : falseTag;
+     if (source && boolObj.test.test(source))
+@@ -27,3 +31,9 @@
+ 
+ exports.falseTag = falseTag;
+ exports.trueTag = trueTag;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { falseTag: __graft_e0, trueTag: __graft_e1 } = __graft_exports
++export { __graft_e0 as falseTag, __graft_e1 as trueTag }
+diff --git a/dist/schema/yaml-1.1/float.js b/dist/schema/yaml-1.1/float.js
+===================================================================
+--- a/dist/schema/yaml-1.1/float.js
++++ b/dist/schema/yaml-1.1/float.js
+@@ -1,8 +1,13 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import Scalar from '../../nodes/Scalar.js'
++import stringifyNumber from '../../stringify/stringifyNumber.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var Scalar = require('../../nodes/Scalar.js');
+-var stringifyNumber = require('../../stringify/stringifyNumber.js');
+ 
++
++
+ const floatNaN = {
+     identify: value => typeof value === 'number',
+     default: true,
+@@ -48,3 +53,9 @@
+ exports.float = float;
+ exports.floatExp = floatExp;
+ exports.floatNaN = floatNaN;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { float: __graft_e0, floatExp: __graft_e1, floatNaN: __graft_e2 } = __graft_exports
++export { __graft_e0 as float, __graft_e1 as floatExp, __graft_e2 as floatNaN }
+diff --git a/dist/schema/yaml-1.1/int.js b/dist/schema/yaml-1.1/int.js
+===================================================================
+--- a/dist/schema/yaml-1.1/int.js
++++ b/dist/schema/yaml-1.1/int.js
+@@ -1,7 +1,11 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import stringifyNumber from '../../stringify/stringifyNumber.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var stringifyNumber = require('../../stringify/stringifyNumber.js');
+ 
++
+ const intIdentify = (value) => typeof value === 'bigint' || Number.isInteger(value);
+ function intResolve(str, offset, radix, { intAsBigInt }) {
+     const sign = str[0];
+@@ -74,3 +78,9 @@
+ exports.intBin = intBin;
+ exports.intHex = intHex;
+ exports.intOct = intOct;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { int: __graft_e0, intBin: __graft_e1, intHex: __graft_e2, intOct: __graft_e3 } = __graft_exports
++export { __graft_e0 as int, __graft_e1 as intBin, __graft_e2 as intHex, __graft_e3 as intOct }
+diff --git a/dist/schema/yaml-1.1/merge.js b/dist/schema/yaml-1.1/merge.js
+===================================================================
+--- a/dist/schema/yaml-1.1/merge.js
++++ b/dist/schema/yaml-1.1/merge.js
+@@ -1,8 +1,13 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import identity from '../../nodes/identity.js'
++import Scalar from '../../nodes/Scalar.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var identity = require('../../nodes/identity.js');
+-var Scalar = require('../../nodes/Scalar.js');
+ 
++
++
+ // If the value associated with a merge key is a single mapping node, each of
+ // its key/value pairs is inserted into the current mapping, unless the key
+ // already exists in it. If the value associated with the merge key is a
+@@ -69,3 +74,9 @@
+ exports.addMergeToJSMap = addMergeToJSMap;
+ exports.isMergeKey = isMergeKey;
+ exports.merge = merge;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { addMergeToJSMap: __graft_e0, isMergeKey: __graft_e1, merge: __graft_e2 } = __graft_exports
++export { __graft_e0 as addMergeToJSMap, __graft_e1 as isMergeKey, __graft_e2 as merge }
+diff --git a/dist/schema/yaml-1.1/omap.js b/dist/schema/yaml-1.1/omap.js
+===================================================================
+--- a/dist/schema/yaml-1.1/omap.js
++++ b/dist/schema/yaml-1.1/omap.js
+@@ -1,11 +1,19 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import identity from '../../nodes/identity.js'
++import toJS from '../../nodes/toJS.js'
++import YAMLMap from '../../nodes/YAMLMap.js'
++import YAMLSeq from '../../nodes/YAMLSeq.js'
++import pairs from './pairs.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var identity = require('../../nodes/identity.js');
+-var toJS = require('../../nodes/toJS.js');
+-var YAMLMap = require('../../nodes/YAMLMap.js');
+-var YAMLSeq = require('../../nodes/YAMLSeq.js');
+-var pairs = require('./pairs.js');
+ 
++
++
++
++
++
+ class YAMLOMap extends YAMLSeq.YAMLSeq {
+     constructor() {
+         super();
+@@ -75,3 +83,9 @@
+ 
+ exports.YAMLOMap = YAMLOMap;
+ exports.omap = omap;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { YAMLOMap: __graft_e0, omap: __graft_e1 } = __graft_exports
++export { __graft_e0 as YAMLOMap, __graft_e1 as omap }
+diff --git a/dist/schema/yaml-1.1/pairs.js b/dist/schema/yaml-1.1/pairs.js
+===================================================================
+--- a/dist/schema/yaml-1.1/pairs.js
++++ b/dist/schema/yaml-1.1/pairs.js
+@@ -1,10 +1,17 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import identity from '../../nodes/identity.js'
++import Pair from '../../nodes/Pair.js'
++import Scalar from '../../nodes/Scalar.js'
++import YAMLSeq from '../../nodes/YAMLSeq.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var identity = require('../../nodes/identity.js');
+-var Pair = require('../../nodes/Pair.js');
+-var Scalar = require('../../nodes/Scalar.js');
+-var YAMLSeq = require('../../nodes/YAMLSeq.js');
+ 
++
++
++
++
+ function resolvePairs(seq, onError) {
+     if (identity.isSeq(seq)) {
+         for (let i = 0; i < seq.items.length; ++i) {
+@@ -80,3 +87,9 @@
+ exports.createPairs = createPairs;
+ exports.pairs = pairs;
+ exports.resolvePairs = resolvePairs;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { createPairs: __graft_e0, pairs: __graft_e1, resolvePairs: __graft_e2 } = __graft_exports
++export { __graft_e0 as createPairs, __graft_e1 as pairs, __graft_e2 as resolvePairs }
+diff --git a/dist/schema/yaml-1.1/schema.js b/dist/schema/yaml-1.1/schema.js
+===================================================================
+--- a/dist/schema/yaml-1.1/schema.js
++++ b/dist/schema/yaml-1.1/schema.js
+@@ -1,19 +1,35 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import map from '../common/map.js'
++import _null from '../common/null.js'
++import seq from '../common/seq.js'
++import string from '../common/string.js'
++import binary from './binary.js'
++import bool from './bool.js'
++import float from './float.js'
++import int from './int.js'
++import merge from './merge.js'
++import omap from './omap.js'
++import pairs from './pairs.js'
++import set from './set.js'
++import timestamp from './timestamp.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var map = require('../common/map.js');
+-var _null = require('../common/null.js');
+-var seq = require('../common/seq.js');
+-var string = require('../common/string.js');
+-var binary = require('./binary.js');
+-var bool = require('./bool.js');
+-var float = require('./float.js');
+-var int = require('./int.js');
+-var merge = require('./merge.js');
+-var omap = require('./omap.js');
+-var pairs = require('./pairs.js');
+-var set = require('./set.js');
+-var timestamp = require('./timestamp.js');
+ 
++
++
++
++
++
++
++
++
++
++
++
++
++
+ const schema = [
+     map.map,
+     seq.seq,
+@@ -39,3 +55,9 @@
+ ];
+ 
+ exports.schema = schema;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { schema: __graft_e0 } = __graft_exports
++export { __graft_e0 as schema }
+diff --git a/dist/schema/yaml-1.1/set.js b/dist/schema/yaml-1.1/set.js
+===================================================================
+--- a/dist/schema/yaml-1.1/set.js
++++ b/dist/schema/yaml-1.1/set.js
+@@ -1,9 +1,15 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import identity from '../../nodes/identity.js'
++import Pair from '../../nodes/Pair.js'
++import YAMLMap from '../../nodes/YAMLMap.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var identity = require('../../nodes/identity.js');
+-var Pair = require('../../nodes/Pair.js');
+-var YAMLMap = require('../../nodes/YAMLMap.js');
+ 
++
++
++
+ class YAMLSet extends YAMLMap.YAMLMap {
+     constructor(schema) {
+         super(schema);
+@@ -94,3 +100,9 @@
+ 
+ exports.YAMLSet = YAMLSet;
+ exports.set = set;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { YAMLSet: __graft_e0, set: __graft_e1 } = __graft_exports
++export { __graft_e0 as YAMLSet, __graft_e1 as set }
+diff --git a/dist/schema/yaml-1.1/timestamp.js b/dist/schema/yaml-1.1/timestamp.js
+===================================================================
+--- a/dist/schema/yaml-1.1/timestamp.js
++++ b/dist/schema/yaml-1.1/timestamp.js
+@@ -1,7 +1,11 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import stringifyNumber from '../../stringify/stringifyNumber.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var stringifyNumber = require('../../stringify/stringifyNumber.js');
+ 
++
+ /** Internal types handle bigint as number, because TS can't figure it out. */
+ function parseSexagesimal(str, asBigInt) {
+     const sign = str[0];
+@@ -103,3 +107,9 @@
+ exports.floatTime = floatTime;
+ exports.intTime = intTime;
+ exports.timestamp = timestamp;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { floatTime: __graft_e0, intTime: __graft_e1, timestamp: __graft_e2 } = __graft_exports
++export { __graft_e0 as floatTime, __graft_e1 as intTime, __graft_e2 as timestamp }
+diff --git a/dist/stringify/foldFlowLines.js b/dist/stringify/foldFlowLines.js
+===================================================================
+--- a/dist/stringify/foldFlowLines.js
++++ b/dist/stringify/foldFlowLines.js
+@@ -1,3 +1,6 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+ const FOLD_FLOW = 'flow';
+@@ -149,3 +152,9 @@
+ exports.FOLD_FLOW = FOLD_FLOW;
+ exports.FOLD_QUOTED = FOLD_QUOTED;
+ exports.foldFlowLines = foldFlowLines;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { FOLD_BLOCK: __graft_e0, FOLD_FLOW: __graft_e1, FOLD_QUOTED: __graft_e2, foldFlowLines: __graft_e3 } = __graft_exports
++export { __graft_e0 as FOLD_BLOCK, __graft_e1 as FOLD_FLOW, __graft_e2 as FOLD_QUOTED, __graft_e3 as foldFlowLines }
+diff --git a/dist/stringify/stringify.js b/dist/stringify/stringify.js
+===================================================================
+--- a/dist/stringify/stringify.js
++++ b/dist/stringify/stringify.js
+@@ -1,10 +1,17 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import anchors from '../doc/anchors.js'
++import identity from '../nodes/identity.js'
++import stringifyComment from './stringifyComment.js'
++import stringifyString from './stringifyString.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var anchors = require('../doc/anchors.js');
+-var identity = require('../nodes/identity.js');
+-var stringifyComment = require('./stringifyComment.js');
+-var stringifyString = require('./stringifyString.js');
+ 
++
++
++
++
+ function createStringifyContext(doc, options) {
+     const opt = Object.assign({
+         blockQuote: true,
+@@ -130,3 +137,9 @@
+ 
+ exports.createStringifyContext = createStringifyContext;
+ exports.stringify = stringify;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { createStringifyContext: __graft_e0, stringify: __graft_e1 } = __graft_exports
++export { __graft_e0 as createStringifyContext, __graft_e1 as stringify }
+diff --git a/dist/stringify/stringifyCollection.js b/dist/stringify/stringifyCollection.js
+===================================================================
+--- a/dist/stringify/stringifyCollection.js
++++ b/dist/stringify/stringifyCollection.js
+@@ -1,9 +1,15 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import identity from '../nodes/identity.js'
++import stringify from './stringify.js'
++import stringifyComment from './stringifyComment.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var identity = require('../nodes/identity.js');
+-var stringify = require('./stringify.js');
+-var stringifyComment = require('./stringifyComment.js');
+ 
++
++
++
+ function stringifyCollection(collection, ctx, options) {
+     const flow = ctx.inFlow ?? collection.flow;
+     const stringify = flow ? stringifyFlowCollection : stringifyBlockCollection;
+@@ -153,3 +159,9 @@
+ }
+ 
+ exports.stringifyCollection = stringifyCollection;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { stringifyCollection: __graft_e0 } = __graft_exports
++export { __graft_e0 as stringifyCollection }
+diff --git a/dist/stringify/stringifyComment.js b/dist/stringify/stringifyComment.js
+===================================================================
+--- a/dist/stringify/stringifyComment.js
++++ b/dist/stringify/stringifyComment.js
+@@ -1,3 +1,6 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+ /**
+@@ -22,3 +25,9 @@
+ exports.indentComment = indentComment;
+ exports.lineComment = lineComment;
+ exports.stringifyComment = stringifyComment;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { indentComment: __graft_e0, lineComment: __graft_e1, stringifyComment: __graft_e2 } = __graft_exports
++export { __graft_e0 as indentComment, __graft_e1 as lineComment, __graft_e2 as stringifyComment }
+diff --git a/dist/stringify/stringifyDocument.js b/dist/stringify/stringifyDocument.js
+===================================================================
+--- a/dist/stringify/stringifyDocument.js
++++ b/dist/stringify/stringifyDocument.js
+@@ -1,9 +1,15 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import identity from '../nodes/identity.js'
++import stringify from './stringify.js'
++import stringifyComment from './stringifyComment.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var identity = require('../nodes/identity.js');
+-var stringify = require('./stringify.js');
+-var stringifyComment = require('./stringifyComment.js');
+ 
++
++
++
+ function stringifyDocument(doc, options) {
+     const lines = [];
+     let hasDirectives = options.directives === true;
+@@ -85,3 +91,9 @@
+ }
+ 
+ exports.stringifyDocument = stringifyDocument;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { stringifyDocument: __graft_e0 } = __graft_exports
++export { __graft_e0 as stringifyDocument }
+diff --git a/dist/stringify/stringifyNumber.js b/dist/stringify/stringifyNumber.js
+===================================================================
+--- a/dist/stringify/stringifyNumber.js
++++ b/dist/stringify/stringifyNumber.js
+@@ -1,3 +1,6 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+ function stringifyNumber({ format, minFractionDigits, tag, value }) {
+@@ -25,3 +28,9 @@
+ }
+ 
+ exports.stringifyNumber = stringifyNumber;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { stringifyNumber: __graft_e0 } = __graft_exports
++export { __graft_e0 as stringifyNumber }
+diff --git a/dist/stringify/stringifyPair.js b/dist/stringify/stringifyPair.js
+===================================================================
+--- a/dist/stringify/stringifyPair.js
++++ b/dist/stringify/stringifyPair.js
+@@ -1,10 +1,17 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import identity from '../nodes/identity.js'
++import Scalar from '../nodes/Scalar.js'
++import stringify from './stringify.js'
++import stringifyComment from './stringifyComment.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var identity = require('../nodes/identity.js');
+-var Scalar = require('../nodes/Scalar.js');
+-var stringify = require('./stringify.js');
+-var stringifyComment = require('./stringifyComment.js');
+ 
++
++
++
++
+ function stringifyPair({ key, value }, ctx, onComment, onChompKeep) {
+     const { allNullValues, doc, indent, indentStep, options: { commentString, indentSeq, simpleKeys } } = ctx;
+     let keyComment = (identity.isNode(key) && key.comment) || null;
+@@ -150,3 +157,9 @@
+ }
+ 
+ exports.stringifyPair = stringifyPair;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { stringifyPair: __graft_e0 } = __graft_exports
++export { __graft_e0 as stringifyPair }
+diff --git a/dist/stringify/stringifyString.js b/dist/stringify/stringifyString.js
+===================================================================
+--- a/dist/stringify/stringifyString.js
++++ b/dist/stringify/stringifyString.js
+@@ -1,8 +1,13 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import Scalar from '../nodes/Scalar.js'
++import foldFlowLines from './foldFlowLines.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var Scalar = require('../nodes/Scalar.js');
+-var foldFlowLines = require('./foldFlowLines.js');
+ 
++
++
+ const getFoldOptions = (ctx, isBlock) => ({
+     indentAtStart: isBlock ? ctx.indent.length : ctx.indentAtStart,
+     lineWidth: ctx.options.lineWidth,
+@@ -336,3 +341,9 @@
+ }
+ 
+ exports.stringifyString = stringifyString;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { stringifyString: __graft_e0 } = __graft_exports
++export { __graft_e0 as stringifyString }
+diff --git a/dist/test-events.js b/dist/test-events.js
+===================================================================
+--- a/dist/test-events.js
++++ b/dist/test-events.js
+@@ -1,9 +1,15 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import identity from './nodes/identity.js'
++import publicApi from './public-api.js'
++import visit from './visit.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var identity = require('./nodes/identity.js');
+-var publicApi = require('./public-api.js');
+-var visit = require('./visit.js');
+ 
++
++
++
+ const scalarChar = {
+     BLOCK_FOLDED: '>',
+     BLOCK_LITERAL: '|',
+@@ -132,3 +138,9 @@
+ }
+ 
+ exports.testEvents = testEvents;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { testEvents: __graft_e0 } = __graft_exports
++export { __graft_e0 as testEvents }
+diff --git a/dist/util.js b/dist/util.js
+===================================================================
+--- a/dist/util.js
++++ b/dist/util.js
+@@ -1,19 +1,33 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import createNode from './doc/createNode.js'
++import log from './log.js'
++import Pair from './nodes/Pair.js'
++import toJS from './nodes/toJS.js'
++import YAMLMap from './nodes/YAMLMap.js'
++import map from './schema/common/map.js'
++import seq from './schema/common/seq.js'
++import string from './schema/common/string.js'
++import foldFlowLines from './stringify/foldFlowLines.js'
++import stringifyNumber from './stringify/stringifyNumber.js'
++import stringifyString from './stringify/stringifyString.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var createNode = require('./doc/createNode.js');
+-var log = require('./log.js');
+-var Pair = require('./nodes/Pair.js');
+-var toJS = require('./nodes/toJS.js');
+-var YAMLMap = require('./nodes/YAMLMap.js');
+-var map = require('./schema/common/map.js');
+-var seq = require('./schema/common/seq.js');
+-var string = require('./schema/common/string.js');
+-var foldFlowLines = require('./stringify/foldFlowLines.js');
+-var stringifyNumber = require('./stringify/stringifyNumber.js');
+-var stringifyString = require('./stringify/stringifyString.js');
+ 
+ 
+ 
++
++
++
++
++
++
++
++
++
++
++
+ exports.createNode = createNode.createNode;
+ exports.debug = log.debug;
+ exports.warn = log.warn;
+@@ -26,3 +40,9 @@
+ exports.foldFlowLines = foldFlowLines.foldFlowLines;
+ exports.stringifyNumber = stringifyNumber.stringifyNumber;
+ exports.stringifyString = stringifyString.stringifyString;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { createNode: __graft_e0, debug: __graft_e1, warn: __graft_e2, createPair: __graft_e3, toJS: __graft_e4, findPair: __graft_e5, mapTag: __graft_e6, seqTag: __graft_e7, stringTag: __graft_e8, foldFlowLines: __graft_e9, stringifyNumber: __graft_e10, stringifyString: __graft_e11 } = __graft_exports
++export { __graft_e0 as createNode, __graft_e1 as debug, __graft_e2 as warn, __graft_e3 as createPair, __graft_e4 as toJS, __graft_e5 as findPair, __graft_e6 as mapTag, __graft_e7 as seqTag, __graft_e8 as stringTag, __graft_e9 as foldFlowLines, __graft_e10 as stringifyNumber, __graft_e11 as stringifyString }
+diff --git a/dist/visit.js b/dist/visit.js
+===================================================================
+--- a/dist/visit.js
++++ b/dist/visit.js
+@@ -1,7 +1,11 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import identity from './nodes/identity.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict';
+ 
+-var identity = require('./nodes/identity.js');
+ 
++
+ const BREAK = Symbol('break visit');
+ const SKIP = Symbol('skip children');
+ const REMOVE = Symbol('remove node');
+@@ -234,3 +238,9 @@
+ 
+ exports.visit = visit;
+ exports.visitAsync = visitAsync;
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { visit: __graft_e0, visitAsync: __graft_e1 } = __graft_exports
++export { __graft_e0 as visit, __graft_e1 as visitAsync }
+diff --git a/util.js b/util.js
+===================================================================
+--- a/util.js
++++ b/util.js
+@@ -1,2 +1,12 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import __graft_req0 from './dist/util.js'
++const module = { exports: {} }
++let exports = module.exports
+ // Re-exporter for Node.js < 12.16.0
+-module.exports = require('./dist/util.js')
++module.exports = __graft_req0
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { createNode: __graft_e0, debug: __graft_e1, warn: __graft_e2, createPair: __graft_e3, toJS: __graft_e4, findPair: __graft_e5, mapTag: __graft_e6, seqTag: __graft_e7, stringTag: __graft_e8, foldFlowLines: __graft_e9, stringifyNumber: __graft_e10, stringifyString: __graft_e11 } = __graft_exports
++export { __graft_e0 as createNode, __graft_e1 as debug, __graft_e2 as warn, __graft_e3 as createPair, __graft_e4 as toJS, __graft_e5 as findPair, __graft_e6 as mapTag, __graft_e7 as seqTag, __graft_e8 as stringTag, __graft_e9 as foldFlowLines, __graft_e10 as stringifyNumber, __graft_e11 as stringifyString }

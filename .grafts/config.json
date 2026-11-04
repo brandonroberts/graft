@@ -1,5 +1,7 @@
 {
   "resolveFrom": {
-    "pacote": "packages/core"
+    "pacote": "packages/core",
+    "semver": "packages/core",
+    "yaml": "packages/spec"
   }
 }

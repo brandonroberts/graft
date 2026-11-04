@@ -1,0 +1,537 @@
+diff --git a/package.json b/package.json
+===================================================================
+--- a/package.json
++++ b/package.json
+@@ -36,6 +36,7 @@
+     "rimraf": "^6.0.1",
+     "tap": "^16.0.1"
+   },
++  "type": "module",
+   "files": [
+     "bin/",
+     "lib/"
+diff --git a/bin/index.js b/bin/index.js
+===================================================================
+--- a/bin/index.js
++++ b/bin/index.js
+@@ -1,7 +1,14 @@
+ #!/usr/bin/env node
++// Converted to ESM by graft (tools/cjs-to-esm).
++import { realpathSync as __graft_realpathSync } from 'node:fs'
++import __graft_req0 from '../lib/index.js'
++import __graft_req1 from '../package.json' with { type: 'json' }
++const module = { exports: {} }
++let exports = module.exports
++const __graft_main = process.argv[1] !== undefined && __graft_realpathSync(process.argv[1]) === import.meta.filename ? module : undefined
+ 
+ const run = conf => {
+-  const pacote = require('../')
++  const pacote = __graft_req0
+   switch (conf._[0]) {
+     case 'resolve':
+     case 'manifest':
+@@ -41,7 +48,7 @@
+   }
+ }
+ 
+-const version = require('../package.json').version
++const version = __graft_req1.version
+ const usage = () =>
+ `Pacote - The JavaScript Package Handler, v${version}
+ 
+@@ -145,7 +152,7 @@
+   return conf
+ }
+ 
+-if (module === require.main) {
++if (module === __graft_main) {
+   main(process.argv.slice(2))
+ } else {
+   module.exports = {
+@@ -156,3 +163,9 @@
+     parse,
+   }
+ }
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { main: __graft_e0, run: __graft_e1, usage: __graft_e2, parseArg: __graft_e3, parse: __graft_e4 } = __graft_exports
++export { __graft_e0 as main, __graft_e1 as run, __graft_e2 as usage, __graft_e3 as parseArg, __graft_e4 as parse }
+diff --git a/lib/dir.js b/lib/dir.js
+===================================================================
+--- a/lib/dir.js
++++ b/lib/dir.js
+@@ -1,3 +1,12 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import { createRequire as __graft_createRequire } from 'node:module'
++import Fetcher from './fetcher.js'
++import FileFetcher from './file.js'
++import _ from './util/protected.js'
++import tarCreateOptions from './util/tar-create-options.js'
++const require = __graft_createRequire(import.meta.url)
++const module = { exports: {} }
++let exports = module.exports
+ const { resolve, join } = require('node:path')
+ const { mkdtemp, writeFile, rm } = require('node:fs/promises')
+ const { tmpdir } = require('node:os')
+@@ -6,11 +15,11 @@
+ const tar = require('tar')
+ const { Minipass } = require('minipass')
+ const PackageJson = require('@npmcli/package-json')
+-const Fetcher = require('./fetcher.js')
+-const FileFetcher = require('./file.js')
+-const _ = require('./util/protected.js')
+-const tarCreateOptions = require('./util/tar-create-options.js')
+ 
++
++
++
++
+ class DirFetcher extends Fetcher {
+   constructor (spec, opts) {
+     super(spec, opts)
+@@ -158,3 +167,7 @@
+   }
+ }
+ module.exports = DirFetcher
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/lib/fetcher.js b/lib/fetcher.js
+===================================================================
+--- a/lib/fetcher.js
++++ b/lib/fetcher.js
+@@ -1,3 +1,17 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import { createRequire as __graft_createRequire } from 'node:module'
++import _ from './util/protected.js'
++import cacheDir from './util/cache-dir.js'
++import isPackageBin from './util/is-package-bin.js'
++import removeTrailingSlashes from './util/trailing-slashes.js'
++const require = __graft_createRequire(import.meta.url)
++let __graft_lazy0_value; const __graft_lazy0 = () => (__graft_lazy0_value ??= require('./git.js'))
++let __graft_lazy1_value; const __graft_lazy1 = () => (__graft_lazy1_value ??= require('./registry.js'))
++let __graft_lazy2_value; const __graft_lazy2 = () => (__graft_lazy2_value ??= require('./file.js'))
++let __graft_lazy3_value; const __graft_lazy3 = () => (__graft_lazy3_value ??= require('./dir.js'))
++let __graft_lazy4_value; const __graft_lazy4 = () => (__graft_lazy4_value ??= require('./remote.js'))
++const module = { exports: {} }
++let exports = module.exports
+ // This is the base class that the other fetcher types in lib
+ // all descend from.
+ // It handles the unpacking and retry logic that is shared among
+@@ -15,11 +29,11 @@
+ const tar = require('tar')
+ const { Minipass } = require('minipass')
+ const { log } = require('proc-log')
+-const _ = require('./util/protected.js')
+-const cacheDir = require('./util/cache-dir.js')
+-const isPackageBin = require('./util/is-package-bin.js')
+-const removeTrailingSlashes = require('./util/trailing-slashes.js')
+ 
++
++
++
++
+ // Pacote is only concerned with the package.json contents
+ const packageJsonPrepare = (p) => PackageJson.prepare(p).then(pkg => pkg.content)
+ const packageJsonNormalize = (p) => PackageJson.normalize(p).then(pkg => pkg.content)
+@@ -467,12 +481,12 @@
+ module.exports = FetcherBase
+ 
+ // Child classes
+-const GitFetcher = require('./git.js')
+-const RegistryFetcher = require('./registry.js')
+-const FileFetcher = require('./file.js')
+-const DirFetcher = require('./dir.js')
+-const RemoteFetcher = require('./remote.js')
+ 
++
++
++
++
++
+ // possible values for allow: 'all', 'root', 'none'
+ const canUse = ({ allow = 'all', isRoot = false, allowType, spec }) => {
+   if (allow === 'all') {
+@@ -496,28 +510,32 @@
+   switch (spec.type) {
+     case 'git':
+       canUse({ allow: opts.allowGit, isRoot: opts._isRoot, allowType: 'git', spec })
+-      return new GitFetcher(spec, opts)
++      return new (__graft_lazy0())(spec, opts)
+ 
+     case 'remote':
+       canUse({ allow: opts.allowRemote, isRoot: opts._isRoot, allowType: 'remote', spec })
+-      return new RemoteFetcher(spec, opts)
++      return new (__graft_lazy4())(spec, opts)
+ 
+     case 'version':
+     case 'range':
+     case 'tag':
+     case 'alias':
+       canUse({ allow: opts.allowRegistry, isRoot: opts._isRoot, allowType: 'registry', spec })
+-      return new RegistryFetcher(spec.subSpec || spec, opts)
++      return new (__graft_lazy1())(spec.subSpec || spec, opts)
+ 
+     case 'file':
+       canUse({ allow: opts.allowFile, isRoot: opts._isRoot, allowType: 'file', spec })
+-      return new FileFetcher(spec, opts)
++      return new (__graft_lazy2())(spec, opts)
+ 
+     case 'directory':
+       canUse({ allow: opts.allowDirectory, isRoot: opts._isRoot, allowType: 'directory', spec })
+-      return new DirFetcher(spec, opts)
++      return new (__graft_lazy3())(spec, opts)
+ 
+     default:
+       throw new TypeError('Unknown spec type: ' + spec.type)
+   }
+ }
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/lib/file.js b/lib/file.js
+===================================================================
+--- a/lib/file.js
++++ b/lib/file.js
+@@ -1,10 +1,17 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import { createRequire as __graft_createRequire } from 'node:module'
++import Fetcher from './fetcher.js'
++import _ from './util/protected.js'
++const require = __graft_createRequire(import.meta.url)
++const module = { exports: {} }
++let exports = module.exports
+ const { resolve } = require('node:path')
+ const { stat, chmod } = require('node:fs/promises')
+ const cacache = require('cacache')
+ const fsm = require('fs-minipass')
+-const Fetcher = require('./fetcher.js')
+-const _ = require('./util/protected.js')
+ 
++
++
+ class FileFetcher extends Fetcher {
+   constructor (spec, opts) {
+     super(spec, opts)
+@@ -92,3 +99,7 @@
+ }
+ 
+ module.exports = FileFetcher
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/lib/git.js b/lib/git.js
+===================================================================
+--- a/lib/git.js
++++ b/lib/git.js
+@@ -1,17 +1,29 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import { createRequire as __graft_createRequire } from 'node:module'
++import DirFetcher from './dir.js'
++import Fetcher from './fetcher.js'
++import FileFetcher from './file.js'
++import RemoteFetcher from './remote.js'
++import _ from './util/protected.js'
++import addGitSha from './util/add-git-sha.js'
++import npm from './util/npm.js'
++const require = __graft_createRequire(import.meta.url)
++const module = { exports: {} }
++let exports = module.exports
+ const cacache = require('cacache')
+ const git = require('@npmcli/git')
+ const npa = require('npm-package-arg')
+ const pickManifest = require('npm-pick-manifest')
+ const { Minipass } = require('minipass')
+ const { log } = require('proc-log')
+-const DirFetcher = require('./dir.js')
+-const Fetcher = require('./fetcher.js')
+-const FileFetcher = require('./file.js')
+-const RemoteFetcher = require('./remote.js')
+-const _ = require('./util/protected.js')
+-const addGitSha = require('./util/add-git-sha.js')
+-const npm = require('./util/npm.js')
+ 
++
++
++
++
++
++
++
+ const hashre = /^[a-f0-9]{40,64}$/
+ 
+ // get the repository url.
+@@ -335,3 +347,7 @@
+   }
+ }
+ module.exports = GitFetcher
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/lib/index.js b/lib/index.js
+===================================================================
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -1,10 +1,19 @@
+-const { get } = require('./fetcher.js')
+-const GitFetcher = require('./git.js')
+-const RegistryFetcher = require('./registry.js')
+-const FileFetcher = require('./file.js')
+-const DirFetcher = require('./dir.js')
+-const RemoteFetcher = require('./remote.js')
++// Converted to ESM by graft (tools/cjs-to-esm).
++import GitFetcher from './git.js'
++import RegistryFetcher from './registry.js'
++import FileFetcher from './file.js'
++import DirFetcher from './dir.js'
++import RemoteFetcher from './remote.js'
++import __graft_req0 from './fetcher.js'
++const module = { exports: {} }
++let exports = module.exports
++const { get } = __graft_req0
+ 
++
++
++
++
++
+ const tarball = (spec, opts) => get(spec, opts).tarball()
+ tarball.stream = (spec, handler, opts) => get(spec, opts).tarballStream(handler)
+ tarball.file = (spec, dest, opts) => get(spec, opts).tarballFile(dest)
+@@ -21,3 +30,9 @@
+   packument: (spec, opts) => get(spec, opts).packument(),
+   tarball,
+ }
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { GitFetcher: __graft_e0, RegistryFetcher: __graft_e1, FileFetcher: __graft_e2, DirFetcher: __graft_e3, RemoteFetcher: __graft_e4, resolve: __graft_e5, extract: __graft_e6, manifest: __graft_e7, packument: __graft_e8, tarball: __graft_e9 } = __graft_exports
++export { __graft_e0 as GitFetcher, __graft_e1 as RegistryFetcher, __graft_e2 as FileFetcher, __graft_e3 as DirFetcher, __graft_e4 as RemoteFetcher, __graft_e5 as resolve, __graft_e6 as extract, __graft_e7 as manifest, __graft_e8 as packument, __graft_e9 as tarball }
+diff --git a/lib/registry.js b/lib/registry.js
+===================================================================
+--- a/lib/registry.js
++++ b/lib/registry.js
+@@ -1,3 +1,13 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import { createRequire as __graft_createRequire } from 'node:module'
++import Fetcher from './fetcher.js'
++import RemoteFetcher from './remote.js'
++import removeTrailingSlashes from './util/trailing-slashes.js'
++import _ from './util/protected.js'
++import __graft_req0 from '../package.json' with { type: 'json' }
++const require = __graft_createRequire(import.meta.url)
++const module = { exports: {} }
++let exports = module.exports
+ const crypto = require('node:crypto')
+ const PackageJson = require('@npmcli/package-json')
+ const pickManifest = require('npm-pick-manifest')
+@@ -5,12 +15,12 @@
+ const npa = require('npm-package-arg')
+ const sigstore = require('sigstore')
+ const fetch = require('npm-registry-fetch')
+-const Fetcher = require('./fetcher.js')
+-const RemoteFetcher = require('./remote.js')
+-const pacoteVersion = require('../package.json').version
+-const removeTrailingSlashes = require('./util/trailing-slashes.js')
+-const _ = require('./util/protected.js')
+ 
++
++const pacoteVersion = __graft_req0.version
++
++
++
+ // Corgis are cute. 🐕🐶
+ const corgiDoc = 'application/vnd.npm.install-v1+json; q=1.0, application/json; q=0.8, */*'
+ const fullDoc = 'application/json'
+@@ -440,3 +450,7 @@
+   }
+ }
+ module.exports = RegistryFetcher
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/lib/remote.js b/lib/remote.js
+===================================================================
+--- a/lib/remote.js
++++ b/lib/remote.js
+@@ -1,10 +1,19 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import { createRequire as __graft_createRequire } from 'node:module'
++import Fetcher from './fetcher.js'
++import FileFetcher from './file.js'
++import _ from './util/protected.js'
++import __graft_req0 from '../package.json' with { type: 'json' }
++const require = __graft_createRequire(import.meta.url)
++const module = { exports: {} }
++let exports = module.exports
+ const fetch = require('npm-registry-fetch')
+ const { Minipass } = require('minipass')
+-const Fetcher = require('./fetcher.js')
+-const FileFetcher = require('./file.js')
+-const _ = require('./util/protected.js')
+-const pacoteVersion = require('../package.json').version
+ 
++
++
++const pacoteVersion = __graft_req0.version
++
+ class RemoteFetcher extends Fetcher {
+   constructor (spec, opts) {
+     super(spec, opts)
+@@ -87,3 +96,7 @@
+   }
+ }
+ module.exports = RemoteFetcher
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/lib/util/add-git-sha.js b/lib/util/add-git-sha.js
+===================================================================
+--- a/lib/util/add-git-sha.js
++++ b/lib/util/add-git-sha.js
+@@ -1,3 +1,6 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++const module = { exports: {} }
++let exports = module.exports
+ // add a sha to a git remote url spec
+ const addGitSha = (spec, sha) => {
+   if (spec.hosted) {
+@@ -16,3 +19,7 @@
+ }
+ 
+ module.exports = addGitSha
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/lib/util/cache-dir.js b/lib/util/cache-dir.js
+===================================================================
+--- a/lib/util/cache-dir.js
++++ b/lib/util/cache-dir.js
+@@ -1,3 +1,8 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import { createRequire as __graft_createRequire } from 'node:module'
++const require = __graft_createRequire(import.meta.url)
++const module = { exports: {} }
++let exports = module.exports
+ const { resolve } = require('node:path')
+ const { tmpdir, homedir } = require('node:os')
+ 
+@@ -13,3 +18,7 @@
+     tufcache: resolve(cacheRoot, cacheExtra, '_tuf'),
+   }
+ }
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/lib/util/is-package-bin.js b/lib/util/is-package-bin.js
+===================================================================
+--- a/lib/util/is-package-bin.js
++++ b/lib/util/is-package-bin.js
+@@ -1,3 +1,6 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++const module = { exports: {} }
++let exports = module.exports
+ // Function to determine whether a path is in the package.bin set.
+ // Used to prevent issues when people publish a package from a
+ // windows machine, and then install with --no-bin-links.
+@@ -23,3 +26,7 @@
+ 
+ module.exports = (pkg, path) =>
+   pkg && pkg.bin ? hasBin(pkg, path) : false
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/lib/util/npm.js b/lib/util/npm.js
+===================================================================
+--- a/lib/util/npm.js
++++ b/lib/util/npm.js
+@@ -1,3 +1,8 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import { createRequire as __graft_createRequire } from 'node:module'
++const require = __graft_createRequire(import.meta.url)
++const module = { exports: {} }
++let exports = module.exports
+ // run an npm command
+ const spawn = require('@npmcli/promise-spawn')
+ 
+@@ -12,3 +17,7 @@
+ 
+   return spawn(cmd, args, { cwd, env }, extra)
+ }
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/lib/util/protected.js b/lib/util/protected.js
+===================================================================
+--- a/lib/util/protected.js
++++ b/lib/util/protected.js
+@@ -1,5 +1,14 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++const module = { exports: {} }
++let exports = module.exports
+ module.exports = {
+   cacheFetches: Symbol.for('pacote.Fetcher._cacheFetches'),
+   readPackageJson: Symbol.for('package.Fetcher._readPackageJson'),
+   tarballFromResolved: Symbol.for('pacote.Fetcher._tarballFromResolved'),
+ }
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { cacheFetches: __graft_e0, readPackageJson: __graft_e1, tarballFromResolved: __graft_e2 } = __graft_exports
++export { __graft_e0 as cacheFetches, __graft_e1 as readPackageJson, __graft_e2 as tarballFromResolved }
+diff --git a/lib/util/tar-create-options.js b/lib/util/tar-create-options.js
+===================================================================
+--- a/lib/util/tar-create-options.js
++++ b/lib/util/tar-create-options.js
+@@ -1,5 +1,9 @@
+-const isPackageBin = require('./is-package-bin.js')
++// Converted to ESM by graft (tools/cjs-to-esm).
++import isPackageBin from './is-package-bin.js'
++const module = { exports: {} }
++let exports = module.exports
+ 
++
+ const tarCreateOptions = manifest => ({
+   cwd: manifest._resolved,
+   prefix: 'package/',
+@@ -29,3 +33,7 @@
+ })
+ 
+ module.exports = tarCreateOptions
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/lib/util/trailing-slashes.js b/lib/util/trailing-slashes.js
+===================================================================
+--- a/lib/util/trailing-slashes.js
++++ b/lib/util/trailing-slashes.js
+@@ -1,3 +1,6 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++const module = { exports: {} }
++let exports = module.exports
+ const removeTrailingSlashes = (input) => {
+   // in order to avoid regexp redos detection
+   let output = input
+@@ -8,3 +11,7 @@
+ }
+ 
+ module.exports = removeTrailingSlashes
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }

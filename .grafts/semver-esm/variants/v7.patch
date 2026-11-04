@@ -1,0 +1,1458 @@
+diff --git a/package.json b/package.json
+===================================================================
+--- a/package.json
++++ b/package.json
+@@ -27,6 +27,7 @@
+   "bin": {
+     "semver": "bin/semver.js"
+   },
++  "type": "module",
+   "files": [
+     "bin/",
+     "lib/",
+diff --git a/bin/semver.js b/bin/semver.js
+===================================================================
+--- a/bin/semver.js
++++ b/bin/semver.js
+@@ -1,4 +1,10 @@
+ #!/usr/bin/env node
++// Converted to ESM by graft (tools/cjs-to-esm).
++import semver from '../index.js'
++import parseOptions from '../internal/parse-options.js'
++import __graft_req0 from '../package.json' with { type: 'json' }
++const module = { exports: {} }
++let exports = module.exports
+ // Standalone semver comparison program.
+ // Exits successfully and prints matching version(s) if
+ // any supplied version is valid and passes all tests.
+@@ -13,7 +19,7 @@
+ 
+ let inc = null
+ 
+-const version = require('../package.json').version
++const version = __graft_req0.version
+ 
+ let loose = false
+ 
+@@ -27,9 +33,9 @@
+ 
+ let identifierBase
+ 
+-const semver = require('../')
+-const parseOptions = require('../internal/parse-options')
+ 
++
++
+ let reverse = false
+ 
+ let options = {}
+@@ -193,3 +199,7 @@
+ multiple versions to the utility will just sort them.`)
+ 
+ main()
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/classes/comparator.js b/classes/comparator.js
+===================================================================
+--- a/classes/comparator.js
++++ b/classes/comparator.js
+@@ -1,3 +1,14 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import { createRequire as __graft_createRequire } from 'node:module'
++import parseOptions from '../internal/parse-options.js'
++import { safeRe as re, t } from '../internal/re.js'
++import cmp from '../functions/cmp.js'
++import debug from '../internal/debug.js'
++import SemVer from './semver.js'
++const require = __graft_createRequire(import.meta.url)
++let __graft_lazy0_value; const __graft_lazy0 = () => (__graft_lazy0_value ??= require('./range.js'))
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict'
+ 
+ const ANY = Symbol('SemVer ANY')
+@@ -85,12 +96,12 @@
+       if (this.value === '') {
+         return true
+       }
+-      return new Range(comp.value, options).test(this.value)
++      return new (__graft_lazy0())(comp.value, options).test(this.value)
+     } else if (comp.operator === '') {
+       if (comp.value === '') {
+         return true
+       }
+-      return new Range(this.value, options).test(comp.semver)
++      return new (__graft_lazy0())(this.value, options).test(comp.semver)
+     }
+ 
+     options = parseOptions(options)
+@@ -135,9 +146,6 @@
+ 
+ module.exports = Comparator
+ 
+-const parseOptions = require('../internal/parse-options')
+-const { safeRe: re, t } = require('../internal/re')
+-const cmp = require('../functions/cmp')
+-const debug = require('../internal/debug')
+-const SemVer = require('./semver')
+-const Range = require('./range')
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/classes/index.js b/classes/index.js
+===================================================================
+--- a/classes/index.js
++++ b/classes/index.js
+@@ -1,7 +1,19 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import __graft_req0 from './semver.js'
++import __graft_req1 from './range.js'
++import __graft_req2 from './comparator.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict'
+ 
+ module.exports = {
+-  SemVer: require('./semver.js'),
+-  Range: require('./range.js'),
+-  Comparator: require('./comparator.js'),
++  SemVer: __graft_req0,
++  Range: __graft_req1,
++  Comparator: __graft_req2,
+ }
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { SemVer: __graft_e0, Range: __graft_e1, Comparator: __graft_e2 } = __graft_exports
++export { __graft_e0 as SemVer, __graft_e1 as Range, __graft_e2 as Comparator }
+diff --git a/classes/range.js b/classes/range.js
+===================================================================
+--- a/classes/range.js
++++ b/classes/range.js
+@@ -1,3 +1,16 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import { createRequire as __graft_createRequire } from 'node:module'
++import LRU from '../internal/lrucache.js'
++import parseOptions from '../internal/parse-options.js'
++import debug from '../internal/debug.js'
++import SemVer from './semver.js'
++import trimComparatorWhitespace from '../internal/trim-comparator-whitespace.js'
++import { safeRe as re, src, t, tildeTrimReplace, caretTrimReplace } from '../internal/re.js'
++import { FLAG_INCLUDE_PRERELEASE, FLAG_LOOSE } from '../internal/constants.js'
++const require = __graft_createRequire(import.meta.url)
++let __graft_lazy0_value; const __graft_lazy0 = () => (__graft_lazy0_value ??= require('./comparator.js'))
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict'
+ 
+ const SPACE_CHARACTERS = /\s+/g
+@@ -18,7 +31,7 @@
+       }
+     }
+ 
+-    if (range instanceof Comparator) {
++    if (range instanceof (__graft_lazy0())) {
+       // just put it in the set and return
+       this.raw = range.value
+       this.set = [[range]]
+@@ -154,7 +167,7 @@
+     // if more than one comparator, remove any * comparators
+     // also, don't include the same comparator more than once
+     const rangeMap = new Map()
+-    const comparators = rangeList.map(comp => new Comparator(comp, this.options))
++    const comparators = rangeList.map(comp => new (__graft_lazy0())(comp, this.options))
+     for (const comp of comparators) {
+       if (isNullSet(comp)) {
+         return [comp]
+@@ -217,23 +230,17 @@
+ 
+ module.exports = Range
+ 
+-const LRU = require('../internal/lrucache')
++
+ const cache = new LRU()
+ 
+-const parseOptions = require('../internal/parse-options')
+-const Comparator = require('./comparator')
+-const debug = require('../internal/debug')
+-const SemVer = require('./semver')
+-const trimComparatorWhitespace = require('../internal/trim-comparator-whitespace')
+-const {
+-  safeRe: re,
+-  src,
+-  t,
+-  tildeTrimReplace,
+-  caretTrimReplace,
+-} = require('../internal/re')
+-const { FLAG_INCLUDE_PRERELEASE, FLAG_LOOSE } = require('../internal/constants')
+ 
++
++
++
++
++
++
++
+ // unbounded global build-metadata stripper used by parseRange
+ const BUILDSTRIPRE = new RegExp(src[t.BUILD], 'g')
+ 
+@@ -555,7 +562,7 @@
+     // even though it's within the range set by the comparators.
+     for (let i = 0; i < set.length; i++) {
+       debug(set[i].semver)
+-      if (set[i].semver === Comparator.ANY) {
++      if (set[i].semver === (__graft_lazy0()).ANY) {
+         continue
+       }
+ 
+@@ -575,3 +582,7 @@
+ 
+   return true
+ }
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/classes/semver.js b/classes/semver.js
+===================================================================
+--- a/classes/semver.js
++++ b/classes/semver.js
+@@ -1,12 +1,20 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import debug from '../internal/debug.js'
++import { MAX_LENGTH, MAX_SAFE_INTEGER } from '../internal/constants.js'
++import { safeRe as re, t } from '../internal/re.js'
++import parseOptions from '../internal/parse-options.js'
++import { compareIdentifiers } from '../internal/identifiers.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict'
+ 
+-const debug = require('../internal/debug')
+-const { MAX_LENGTH, MAX_SAFE_INTEGER } = require('../internal/constants')
+-const { safeRe: re, t } = require('../internal/re')
+ 
+-const parseOptions = require('../internal/parse-options')
+-const { compareIdentifiers } = require('../internal/identifiers')
+ 
++
++
++
++
++
+ const isPrereleaseIdentifier = (prerelease, identifier) => {
+   const identifiers = identifier.split('.')
+   if (identifiers.length > prerelease.length) {
+@@ -348,3 +356,7 @@
+ }
+ 
+ module.exports = SemVer
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/functions/clean.js b/functions/clean.js
+===================================================================
+--- a/functions/clean.js
++++ b/functions/clean.js
+@@ -1,8 +1,16 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import parse from './parse.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict'
+ 
+-const parse = require('./parse')
++
+ const clean = (version, options) => {
+   const s = parse(version.trim().replace(/^[=v]+/, ''), options)
+   return s ? s.version : null
+ }
+ module.exports = clean
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/functions/cmp.js b/functions/cmp.js
+===================================================================
+--- a/functions/cmp.js
++++ b/functions/cmp.js
+@@ -1,12 +1,21 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import eq from './eq.js'
++import neq from './neq.js'
++import gt from './gt.js'
++import gte from './gte.js'
++import lt from './lt.js'
++import lte from './lte.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict'
+ 
+-const eq = require('./eq')
+-const neq = require('./neq')
+-const gt = require('./gt')
+-const gte = require('./gte')
+-const lt = require('./lt')
+-const lte = require('./lte')
+ 
++
++
++
++
++
++
+ const cmp = (a, op, b, loose) => {
+   switch (op) {
+     case '===':
+@@ -52,3 +61,7 @@
+   }
+ }
+ module.exports = cmp
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/functions/coerce.js b/functions/coerce.js
+===================================================================
+--- a/functions/coerce.js
++++ b/functions/coerce.js
+@@ -1,9 +1,15 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import SemVer from '../classes/semver.js'
++import parse from './parse.js'
++import { safeRe as re, t } from '../internal/re.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict'
+ 
+-const SemVer = require('../classes/semver')
+-const parse = require('./parse')
+-const { safeRe: re, t } = require('../internal/re')
+ 
++
++
++
+ const coerce = (version, options) => {
+   if (version instanceof SemVer) {
+     return version
+@@ -60,3 +66,7 @@
+   return parse(`${major}.${minor}.${patch}${prerelease}${build}`, options)
+ }
+ module.exports = coerce
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/functions/compare-build.js b/functions/compare-build.js
+===================================================================
+--- a/functions/compare-build.js
++++ b/functions/compare-build.js
+@@ -1,9 +1,17 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import SemVer from '../classes/semver.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict'
+ 
+-const SemVer = require('../classes/semver')
++
+ const compareBuild = (a, b, loose) => {
+   const versionA = new SemVer(a, loose)
+   const versionB = new SemVer(b, loose)
+   return versionA.compare(versionB) || versionA.compareBuild(versionB)
+ }
+ module.exports = compareBuild
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/functions/compare-loose.js b/functions/compare-loose.js
+===================================================================
+--- a/functions/compare-loose.js
++++ b/functions/compare-loose.js
+@@ -1,5 +1,13 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import compare from './compare.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict'
+ 
+-const compare = require('./compare')
++
+ const compareLoose = (a, b) => compare(a, b, true)
+ module.exports = compareLoose
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/functions/compare.js b/functions/compare.js
+===================================================================
+--- a/functions/compare.js
++++ b/functions/compare.js
+@@ -1,7 +1,15 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import SemVer from '../classes/semver.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict'
+ 
+-const SemVer = require('../classes/semver')
++
+ const compare = (a, b, loose) =>
+   new SemVer(a, loose).compare(new SemVer(b, loose))
+ 
+ module.exports = compare
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/functions/diff.js b/functions/diff.js
+===================================================================
+--- a/functions/diff.js
++++ b/functions/diff.js
+@@ -1,7 +1,11 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import parse from './parse.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict'
+ 
+-const parse = require('./parse.js')
+ 
++
+ const diff = (version1, version2) => {
+   const v1 = parse(version1, null, true)
+   const v2 = parse(version2, null, true)
+@@ -58,3 +62,7 @@
+ }
+ 
+ module.exports = diff
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/functions/eq.js b/functions/eq.js
+===================================================================
+--- a/functions/eq.js
++++ b/functions/eq.js
+@@ -1,5 +1,13 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import compare from './compare.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict'
+ 
+-const compare = require('./compare')
++
+ const eq = (a, b, loose) => compare(a, b, loose) === 0
+ module.exports = eq
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/functions/gt.js b/functions/gt.js
+===================================================================
+--- a/functions/gt.js
++++ b/functions/gt.js
+@@ -1,5 +1,13 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import compare from './compare.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict'
+ 
+-const compare = require('./compare')
++
+ const gt = (a, b, loose) => compare(a, b, loose) > 0
+ module.exports = gt
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/functions/gte.js b/functions/gte.js
+===================================================================
+--- a/functions/gte.js
++++ b/functions/gte.js
+@@ -1,5 +1,13 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import compare from './compare.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict'
+ 
+-const compare = require('./compare')
++
+ const gte = (a, b, loose) => compare(a, b, loose) >= 0
+ module.exports = gte
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/functions/inc.js b/functions/inc.js
+===================================================================
+--- a/functions/inc.js
++++ b/functions/inc.js
+@@ -1,7 +1,11 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import SemVer from '../classes/semver.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict'
+ 
+-const SemVer = require('../classes/semver')
+ 
++
+ const inc = (version, release, options, identifier, identifierBase) => {
+   if (typeof (options) === 'string') {
+     identifierBase = identifier
+@@ -19,3 +23,7 @@
+   }
+ }
+ module.exports = inc
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/functions/lt.js b/functions/lt.js
+===================================================================
+--- a/functions/lt.js
++++ b/functions/lt.js
+@@ -1,5 +1,13 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import compare from './compare.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict'
+ 
+-const compare = require('./compare')
++
+ const lt = (a, b, loose) => compare(a, b, loose) < 0
+ module.exports = lt
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/functions/lte.js b/functions/lte.js
+===================================================================
+--- a/functions/lte.js
++++ b/functions/lte.js
+@@ -1,5 +1,13 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import compare from './compare.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict'
+ 
+-const compare = require('./compare')
++
+ const lte = (a, b, loose) => compare(a, b, loose) <= 0
+ module.exports = lte
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/functions/major.js b/functions/major.js
+===================================================================
+--- a/functions/major.js
++++ b/functions/major.js
+@@ -1,5 +1,13 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import SemVer from '../classes/semver.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict'
+ 
+-const SemVer = require('../classes/semver')
++
+ const major = (a, loose) => new SemVer(a, loose).major
+ module.exports = major
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/functions/minor.js b/functions/minor.js
+===================================================================
+--- a/functions/minor.js
++++ b/functions/minor.js
+@@ -1,5 +1,13 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import SemVer from '../classes/semver.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict'
+ 
+-const SemVer = require('../classes/semver')
++
+ const minor = (a, loose) => new SemVer(a, loose).minor
+ module.exports = minor
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/functions/neq.js b/functions/neq.js
+===================================================================
+--- a/functions/neq.js
++++ b/functions/neq.js
+@@ -1,5 +1,13 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import compare from './compare.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict'
+ 
+-const compare = require('./compare')
++
+ const neq = (a, b, loose) => compare(a, b, loose) !== 0
+ module.exports = neq
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/functions/parse.js b/functions/parse.js
+===================================================================
+--- a/functions/parse.js
++++ b/functions/parse.js
+@@ -1,6 +1,10 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import SemVer from '../classes/semver.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict'
+ 
+-const SemVer = require('../classes/semver')
++
+ const parse = (version, options, throwErrors = false) => {
+   if (version instanceof SemVer) {
+     return version
+@@ -16,3 +20,7 @@
+ }
+ 
+ module.exports = parse
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/functions/patch.js b/functions/patch.js
+===================================================================
+--- a/functions/patch.js
++++ b/functions/patch.js
+@@ -1,5 +1,13 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import SemVer from '../classes/semver.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict'
+ 
+-const SemVer = require('../classes/semver')
++
+ const patch = (a, loose) => new SemVer(a, loose).patch
+ module.exports = patch
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/functions/prerelease.js b/functions/prerelease.js
+===================================================================
+--- a/functions/prerelease.js
++++ b/functions/prerelease.js
+@@ -1,8 +1,16 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import parse from './parse.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict'
+ 
+-const parse = require('./parse')
++
+ const prerelease = (version, options) => {
+   const parsed = parse(version, options)
+   return (parsed && parsed.prerelease.length) ? parsed.prerelease : null
+ }
+ module.exports = prerelease
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/functions/rcompare.js b/functions/rcompare.js
+===================================================================
+--- a/functions/rcompare.js
++++ b/functions/rcompare.js
+@@ -1,5 +1,13 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import compare from './compare.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict'
+ 
+-const compare = require('./compare')
++
+ const rcompare = (a, b, loose) => compare(b, a, loose)
+ module.exports = rcompare
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/functions/rsort.js b/functions/rsort.js
+===================================================================
+--- a/functions/rsort.js
++++ b/functions/rsort.js
+@@ -1,5 +1,13 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import compareBuild from './compare-build.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict'
+ 
+-const compareBuild = require('./compare-build')
++
+ const rsort = (list, loose) => list.sort((a, b) => compareBuild(b, a, loose))
+ module.exports = rsort
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/functions/satisfies.js b/functions/satisfies.js
+===================================================================
+--- a/functions/satisfies.js
++++ b/functions/satisfies.js
+@@ -1,6 +1,10 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import Range from '../classes/range.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict'
+ 
+-const Range = require('../classes/range')
++
+ const satisfies = (version, range, options) => {
+   try {
+     range = new Range(range, options)
+@@ -10,3 +14,7 @@
+   return range.test(version)
+ }
+ module.exports = satisfies
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/functions/sort.js b/functions/sort.js
+===================================================================
+--- a/functions/sort.js
++++ b/functions/sort.js
+@@ -1,5 +1,13 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import compareBuild from './compare-build.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict'
+ 
+-const compareBuild = require('./compare-build')
++
+ const sort = (list, loose) => list.sort((a, b) => compareBuild(a, b, loose))
+ module.exports = sort
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/functions/truncate.js b/functions/truncate.js
+===================================================================
+--- a/functions/truncate.js
++++ b/functions/truncate.js
+@@ -1,9 +1,15 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import parse from './parse.js'
++import constants from '../internal/constants.js'
++import SemVer from '../classes/semver.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict'
+ 
+-const parse = require('./parse')
+-const constants = require('../internal/constants')
+-const SemVer = require('../classes/semver')
+ 
++
++
++
+ const truncate = (version, truncation, options) => {
+   if (!constants.RELEASE_TYPES.includes(truncation)) {
+     return null
+@@ -46,3 +52,7 @@
+ }
+ 
+ module.exports = truncate
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/functions/valid.js b/functions/valid.js
+===================================================================
+--- a/functions/valid.js
++++ b/functions/valid.js
+@@ -1,8 +1,16 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import parse from './parse.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict'
+ 
+-const parse = require('./parse')
++
+ const valid = (version, options) => {
+   const v = parse(version, options)
+   return v ? v.version : null
+ }
+ module.exports = valid
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/index.js b/index.js
+===================================================================
+--- a/index.js
++++ b/index.js
+@@ -1,48 +1,93 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import internalRe from './internal/re.js'
++import constants from './internal/constants.js'
++import SemVer from './classes/semver.js'
++import identifiers from './internal/identifiers.js'
++import parse from './functions/parse.js'
++import valid from './functions/valid.js'
++import clean from './functions/clean.js'
++import inc from './functions/inc.js'
++import diff from './functions/diff.js'
++import major from './functions/major.js'
++import minor from './functions/minor.js'
++import patch from './functions/patch.js'
++import prerelease from './functions/prerelease.js'
++import compare from './functions/compare.js'
++import rcompare from './functions/rcompare.js'
++import compareLoose from './functions/compare-loose.js'
++import compareBuild from './functions/compare-build.js'
++import sort from './functions/sort.js'
++import rsort from './functions/rsort.js'
++import gt from './functions/gt.js'
++import lt from './functions/lt.js'
++import eq from './functions/eq.js'
++import neq from './functions/neq.js'
++import gte from './functions/gte.js'
++import lte from './functions/lte.js'
++import cmp from './functions/cmp.js'
++import coerce from './functions/coerce.js'
++import truncate from './functions/truncate.js'
++import Comparator from './classes/comparator.js'
++import Range from './classes/range.js'
++import satisfies from './functions/satisfies.js'
++import toComparators from './ranges/to-comparators.js'
++import maxSatisfying from './ranges/max-satisfying.js'
++import minSatisfying from './ranges/min-satisfying.js'
++import minVersion from './ranges/min-version.js'
++import validRange from './ranges/valid.js'
++import outside from './ranges/outside.js'
++import gtr from './ranges/gtr.js'
++import ltr from './ranges/ltr.js'
++import intersects from './ranges/intersects.js'
++import simplifyRange from './ranges/simplify.js'
++import subset from './ranges/subset.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict'
+ 
+ // just pre-load all the stuff that index.js lazily exports
+-const internalRe = require('./internal/re')
+-const constants = require('./internal/constants')
+-const SemVer = require('./classes/semver')
+-const identifiers = require('./internal/identifiers')
+-const parse = require('./functions/parse')
+-const valid = require('./functions/valid')
+-const clean = require('./functions/clean')
+-const inc = require('./functions/inc')
+-const diff = require('./functions/diff')
+-const major = require('./functions/major')
+-const minor = require('./functions/minor')
+-const patch = require('./functions/patch')
+-const prerelease = require('./functions/prerelease')
+-const compare = require('./functions/compare')
+-const rcompare = require('./functions/rcompare')
+-const compareLoose = require('./functions/compare-loose')
+-const compareBuild = require('./functions/compare-build')
+-const sort = require('./functions/sort')
+-const rsort = require('./functions/rsort')
+-const gt = require('./functions/gt')
+-const lt = require('./functions/lt')
+-const eq = require('./functions/eq')
+-const neq = require('./functions/neq')
+-const gte = require('./functions/gte')
+-const lte = require('./functions/lte')
+-const cmp = require('./functions/cmp')
+-const coerce = require('./functions/coerce')
+-const truncate = require('./functions/truncate')
+-const Comparator = require('./classes/comparator')
+-const Range = require('./classes/range')
+-const satisfies = require('./functions/satisfies')
+-const toComparators = require('./ranges/to-comparators')
+-const maxSatisfying = require('./ranges/max-satisfying')
+-const minSatisfying = require('./ranges/min-satisfying')
+-const minVersion = require('./ranges/min-version')
+-const validRange = require('./ranges/valid')
+-const outside = require('./ranges/outside')
+-const gtr = require('./ranges/gtr')
+-const ltr = require('./ranges/ltr')
+-const intersects = require('./ranges/intersects')
+-const simplifyRange = require('./ranges/simplify')
+-const subset = require('./ranges/subset')
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
+ module.exports = {
+   parse,
+   valid,
+@@ -91,3 +136,9 @@
+   compareIdentifiers: identifiers.compareIdentifiers,
+   rcompareIdentifiers: identifiers.rcompareIdentifiers,
+ }
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { parse: __graft_e0, valid: __graft_e1, clean: __graft_e2, inc: __graft_e3, diff: __graft_e4, major: __graft_e5, minor: __graft_e6, patch: __graft_e7, prerelease: __graft_e8, compare: __graft_e9, rcompare: __graft_e10, compareLoose: __graft_e11, compareBuild: __graft_e12, sort: __graft_e13, rsort: __graft_e14, gt: __graft_e15, lt: __graft_e16, eq: __graft_e17, neq: __graft_e18, gte: __graft_e19, lte: __graft_e20, cmp: __graft_e21, coerce: __graft_e22, truncate: __graft_e23, Comparator: __graft_e24, Range: __graft_e25, satisfies: __graft_e26, toComparators: __graft_e27, maxSatisfying: __graft_e28, minSatisfying: __graft_e29, minVersion: __graft_e30, validRange: __graft_e31, outside: __graft_e32, gtr: __graft_e33, ltr: __graft_e34, intersects: __graft_e35, simplifyRange: __graft_e36, subset: __graft_e37, SemVer: __graft_e38, re: __graft_e39, src: __graft_e40, tokens: __graft_e41, SEMVER_SPEC_VERSION: __graft_e42, RELEASE_TYPES: __graft_e43, compareIdentifiers: __graft_e44, rcompareIdentifiers: __graft_e45 } = __graft_exports
++export { __graft_e0 as parse, __graft_e1 as valid, __graft_e2 as clean, __graft_e3 as inc, __graft_e4 as diff, __graft_e5 as major, __graft_e6 as minor, __graft_e7 as patch, __graft_e8 as prerelease, __graft_e9 as compare, __graft_e10 as rcompare, __graft_e11 as compareLoose, __graft_e12 as compareBuild, __graft_e13 as sort, __graft_e14 as rsort, __graft_e15 as gt, __graft_e16 as lt, __graft_e17 as eq, __graft_e18 as neq, __graft_e19 as gte, __graft_e20 as lte, __graft_e21 as cmp, __graft_e22 as coerce, __graft_e23 as truncate, __graft_e24 as Comparator, __graft_e25 as Range, __graft_e26 as satisfies, __graft_e27 as toComparators, __graft_e28 as maxSatisfying, __graft_e29 as minSatisfying, __graft_e30 as minVersion, __graft_e31 as validRange, __graft_e32 as outside, __graft_e33 as gtr, __graft_e34 as ltr, __graft_e35 as intersects, __graft_e36 as simplifyRange, __graft_e37 as subset, __graft_e38 as SemVer, __graft_e39 as re, __graft_e40 as src, __graft_e41 as tokens, __graft_e42 as SEMVER_SPEC_VERSION, __graft_e43 as RELEASE_TYPES, __graft_e44 as compareIdentifiers, __graft_e45 as rcompareIdentifiers }
+diff --git a/internal/constants.js b/internal/constants.js
+===================================================================
+--- a/internal/constants.js
++++ b/internal/constants.js
+@@ -1,3 +1,6 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict'
+ 
+ // Note: this is the semver.org version of the spec that it implements
+@@ -65,3 +68,9 @@
+   FLAG_INCLUDE_PRERELEASE: 0b001,
+   FLAG_LOOSE: 0b010,
+ }
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { MAX_LENGTH: __graft_e0, MAX_SAFE_COMPONENT_LENGTH: __graft_e1, MAX_SAFE_BUILD_LENGTH: __graft_e2, MAX_SAFE_INTEGER: __graft_e3, WHITESPACE_CHARACTERS: __graft_e4, RELEASE_TYPES: __graft_e5, SEMVER_SPEC_VERSION: __graft_e6, FLAG_INCLUDE_PRERELEASE: __graft_e7, FLAG_LOOSE: __graft_e8 } = __graft_exports
++export { __graft_e0 as MAX_LENGTH, __graft_e1 as MAX_SAFE_COMPONENT_LENGTH, __graft_e2 as MAX_SAFE_BUILD_LENGTH, __graft_e3 as MAX_SAFE_INTEGER, __graft_e4 as WHITESPACE_CHARACTERS, __graft_e5 as RELEASE_TYPES, __graft_e6 as SEMVER_SPEC_VERSION, __graft_e7 as FLAG_INCLUDE_PRERELEASE, __graft_e8 as FLAG_LOOSE }
+diff --git a/internal/debug.js b/internal/debug.js
+===================================================================
+--- a/internal/debug.js
++++ b/internal/debug.js
+@@ -1,3 +1,6 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict'
+ 
+ const debug = (
+@@ -9,3 +12,7 @@
+   : () => {}
+ 
+ module.exports = debug
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/internal/identifiers.js b/internal/identifiers.js
+===================================================================
+--- a/internal/identifiers.js
++++ b/internal/identifiers.js
+@@ -1,3 +1,6 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict'
+ 
+ const numeric = /^[0-9]+$/
+@@ -27,3 +30,9 @@
+   compareIdentifiers,
+   rcompareIdentifiers,
+ }
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { compareIdentifiers: __graft_e0, rcompareIdentifiers: __graft_e1 } = __graft_exports
++export { __graft_e0 as compareIdentifiers, __graft_e1 as rcompareIdentifiers }
+diff --git a/internal/lrucache.js b/internal/lrucache.js
+===================================================================
+--- a/internal/lrucache.js
++++ b/internal/lrucache.js
+@@ -1,3 +1,6 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict'
+ 
+ class LRUCache {
+@@ -40,3 +43,7 @@
+ }
+ 
+ module.exports = LRUCache
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/internal/parse-options.js b/internal/parse-options.js
+===================================================================
+--- a/internal/parse-options.js
++++ b/internal/parse-options.js
+@@ -1,3 +1,6 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict'
+ 
+ // parse out just the options we care about
+@@ -15,3 +18,7 @@
+   return options
+ }
+ module.exports = parseOptions
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/internal/re.js b/internal/re.js
+===================================================================
+--- a/internal/re.js
++++ b/internal/re.js
+@@ -1,11 +1,12 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import { MAX_SAFE_COMPONENT_LENGTH, MAX_SAFE_BUILD_LENGTH, MAX_LENGTH } from './constants.js'
++import debug from './debug.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict'
+ 
+-const {
+-  MAX_SAFE_COMPONENT_LENGTH,
+-  MAX_SAFE_BUILD_LENGTH,
+-  MAX_LENGTH,
+-} = require('./constants')
+-const debug = require('./debug')
++
++
+ exports = module.exports = {}
+ 
+ // The actual regexps go on exports.re
+@@ -221,3 +222,9 @@
+ // >=0.0.0 is like a star
+ createToken('GTE0', '^\\s*>=\\s*0\\.0\\.0\\s*$')
+ createToken('GTE0PRE', '^\\s*>=\\s*0\\.0\\.0-0\\s*$')
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { re: __graft_e0, safeRe: __graft_e1, src: __graft_e2, safeSrc: __graft_e3, t: __graft_e4, tildeTrimReplace: __graft_e5, caretTrimReplace: __graft_e6, comparatorTrimReplace: __graft_e7 } = __graft_exports
++export { __graft_e0 as re, __graft_e1 as safeRe, __graft_e2 as src, __graft_e3 as safeSrc, __graft_e4 as t, __graft_e5 as tildeTrimReplace, __graft_e6 as caretTrimReplace, __graft_e7 as comparatorTrimReplace }
+diff --git a/internal/trim-comparator-whitespace.js b/internal/trim-comparator-whitespace.js
+===================================================================
+--- a/internal/trim-comparator-whitespace.js
++++ b/internal/trim-comparator-whitespace.js
+@@ -1,3 +1,7 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import { MAX_LENGTH, MAX_SAFE_BUILD_LENGTH, WHITESPACE_CHARACTERS } from './constants.js'
++const module = { exports: {} }
++let exports = module.exports
+ // @ts-check
+ 'use strict'
+ 
+@@ -6,12 +10,8 @@
+ // on no match.
+ // Positions count from zero. An end of 3 means characters 0, 1, and 2 were read;
+ // range.slice(start, end) gives the matched text, not a converted number.
+-const {
+-  MAX_LENGTH,
+-  MAX_SAFE_BUILD_LENGTH,
+-  WHITESPACE_CHARACTERS,
+-} = require('./constants')
+ 
++
+ /**
+  * Remembers the last two rows of digits so their characters need not be reread.
+  * Positions start at -1 until a row has been found.
+@@ -436,3 +436,7 @@
+ }
+ 
+ module.exports = trimComparatorWhitespace
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/preload.js b/preload.js
+===================================================================
+--- a/preload.js
++++ b/preload.js
+@@ -1,4 +1,14 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import __graft_req0 from './index.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict'
+ 
+ // XXX remove in v8 or beyond
+-module.exports = require('./index.js')
++module.exports = __graft_req0
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
++const { parse: __graft_e0, valid: __graft_e1, clean: __graft_e2, inc: __graft_e3, diff: __graft_e4, major: __graft_e5, minor: __graft_e6, patch: __graft_e7, prerelease: __graft_e8, compare: __graft_e9, rcompare: __graft_e10, compareLoose: __graft_e11, compareBuild: __graft_e12, sort: __graft_e13, rsort: __graft_e14, gt: __graft_e15, lt: __graft_e16, eq: __graft_e17, neq: __graft_e18, gte: __graft_e19, lte: __graft_e20, cmp: __graft_e21, coerce: __graft_e22, truncate: __graft_e23, Comparator: __graft_e24, Range: __graft_e25, satisfies: __graft_e26, toComparators: __graft_e27, maxSatisfying: __graft_e28, minSatisfying: __graft_e29, minVersion: __graft_e30, validRange: __graft_e31, outside: __graft_e32, gtr: __graft_e33, ltr: __graft_e34, intersects: __graft_e35, simplifyRange: __graft_e36, subset: __graft_e37, SemVer: __graft_e38, re: __graft_e39, src: __graft_e40, tokens: __graft_e41, SEMVER_SPEC_VERSION: __graft_e42, RELEASE_TYPES: __graft_e43, compareIdentifiers: __graft_e44, rcompareIdentifiers: __graft_e45 } = __graft_exports
++export { __graft_e0 as parse, __graft_e1 as valid, __graft_e2 as clean, __graft_e3 as inc, __graft_e4 as diff, __graft_e5 as major, __graft_e6 as minor, __graft_e7 as patch, __graft_e8 as prerelease, __graft_e9 as compare, __graft_e10 as rcompare, __graft_e11 as compareLoose, __graft_e12 as compareBuild, __graft_e13 as sort, __graft_e14 as rsort, __graft_e15 as gt, __graft_e16 as lt, __graft_e17 as eq, __graft_e18 as neq, __graft_e19 as gte, __graft_e20 as lte, __graft_e21 as cmp, __graft_e22 as coerce, __graft_e23 as truncate, __graft_e24 as Comparator, __graft_e25 as Range, __graft_e26 as satisfies, __graft_e27 as toComparators, __graft_e28 as maxSatisfying, __graft_e29 as minSatisfying, __graft_e30 as minVersion, __graft_e31 as validRange, __graft_e32 as outside, __graft_e33 as gtr, __graft_e34 as ltr, __graft_e35 as intersects, __graft_e36 as simplifyRange, __graft_e37 as subset, __graft_e38 as SemVer, __graft_e39 as re, __graft_e40 as src, __graft_e41 as tokens, __graft_e42 as SEMVER_SPEC_VERSION, __graft_e43 as RELEASE_TYPES, __graft_e44 as compareIdentifiers, __graft_e45 as rcompareIdentifiers }
+diff --git a/ranges/gtr.js b/ranges/gtr.js
+===================================================================
+--- a/ranges/gtr.js
++++ b/ranges/gtr.js
+@@ -1,6 +1,14 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import outside from './outside.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict'
+ 
+ // Determine if version is greater than all the versions possible in the range.
+-const outside = require('./outside')
++
+ const gtr = (version, range, options) => outside(version, range, '>', options)
+ module.exports = gtr
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/ranges/intersects.js b/ranges/intersects.js
+===================================================================
+--- a/ranges/intersects.js
++++ b/ranges/intersects.js
+@@ -1,9 +1,17 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import Range from '../classes/range.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict'
+ 
+-const Range = require('../classes/range')
++
+ const intersects = (r1, r2, options) => {
+   r1 = new Range(r1, options)
+   r2 = new Range(r2, options)
+   return r1.intersects(r2, options)
+ }
+ module.exports = intersects
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/ranges/ltr.js b/ranges/ltr.js
+===================================================================
+--- a/ranges/ltr.js
++++ b/ranges/ltr.js
+@@ -1,6 +1,14 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import outside from './outside.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict'
+ 
+-const outside = require('./outside')
++
+ // Determine if version is less than all the versions possible in the range
+ const ltr = (version, range, options) => outside(version, range, '<', options)
+ module.exports = ltr
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/ranges/max-satisfying.js b/ranges/max-satisfying.js
+===================================================================
+--- a/ranges/max-satisfying.js
++++ b/ranges/max-satisfying.js
+@@ -1,8 +1,13 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import SemVer from '../classes/semver.js'
++import Range from '../classes/range.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict'
+ 
+-const SemVer = require('../classes/semver')
+-const Range = require('../classes/range')
+ 
++
++
+ const maxSatisfying = (versions, range, options) => {
+   let max = null
+   let maxSV = null
+@@ -25,3 +30,7 @@
+   return max
+ }
+ module.exports = maxSatisfying
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/ranges/min-satisfying.js b/ranges/min-satisfying.js
+===================================================================
+--- a/ranges/min-satisfying.js
++++ b/ranges/min-satisfying.js
+@@ -1,7 +1,12 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import SemVer from '../classes/semver.js'
++import Range from '../classes/range.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict'
+ 
+-const SemVer = require('../classes/semver')
+-const Range = require('../classes/range')
++
++
+ const minSatisfying = (versions, range, options) => {
+   let min = null
+   let minSV = null
+@@ -24,3 +29,7 @@
+   return min
+ }
+ module.exports = minSatisfying
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/ranges/min-version.js b/ranges/min-version.js
+===================================================================
+--- a/ranges/min-version.js
++++ b/ranges/min-version.js
+@@ -1,9 +1,15 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import SemVer from '../classes/semver.js'
++import Range from '../classes/range.js'
++import gt from '../functions/gt.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict'
+ 
+-const SemVer = require('../classes/semver')
+-const Range = require('../classes/range')
+-const gt = require('../functions/gt')
+ 
++
++
++
+ const minVersion = (range, loose) => {
+   range = new Range(range, loose)
+ 
+@@ -61,3 +67,7 @@
+   return null
+ }
+ module.exports = minVersion
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/ranges/outside.js b/ranges/outside.js
+===================================================================
+--- a/ranges/outside.js
++++ b/ranges/outside.js
+@@ -1,15 +1,26 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import SemVer from '../classes/semver.js'
++import Comparator from '../classes/comparator.js'
++import Range from '../classes/range.js'
++import satisfies from '../functions/satisfies.js'
++import gt from '../functions/gt.js'
++import lt from '../functions/lt.js'
++import lte from '../functions/lte.js'
++import gte from '../functions/gte.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict'
+ 
+-const SemVer = require('../classes/semver')
+-const Comparator = require('../classes/comparator')
++
++
+ const { ANY } = Comparator
+-const Range = require('../classes/range')
+-const satisfies = require('../functions/satisfies')
+-const gt = require('../functions/gt')
+-const lt = require('../functions/lt')
+-const lte = require('../functions/lte')
+-const gte = require('../functions/gte')
+ 
++
++
++
++
++
++
+ const outside = (version, range, hilo, options) => {
+   version = new SemVer(version, options)
+   range = new Range(range, options)
+@@ -80,3 +91,7 @@
+ }
+ 
+ module.exports = outside
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/ranges/simplify.js b/ranges/simplify.js
+===================================================================
+--- a/ranges/simplify.js
++++ b/ranges/simplify.js
+@@ -1,10 +1,15 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import satisfies from '../functions/satisfies.js'
++import compare from '../functions/compare.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict'
+ 
+ // given a set of versions and a range, create a "simplified" range
+ // that includes the same versions that the original range does
+ // If the original range is shorter than the simplified one, return that.
+-const satisfies = require('../functions/satisfies.js')
+-const compare = require('../functions/compare.js')
++
++
+ module.exports = (versions, range, options) => {
+   const set = []
+   let first = null
+@@ -47,3 +52,7 @@
+   const original = typeof range.raw === 'string' ? range.raw : String(range)
+   return simplified.length < original.length ? simplified : range
+ }
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/ranges/subset.js b/ranges/subset.js
+===================================================================
+--- a/ranges/subset.js
++++ b/ranges/subset.js
+@@ -1,11 +1,18 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import Range from '../classes/range.js'
++import Comparator from '../classes/comparator.js'
++import satisfies from '../functions/satisfies.js'
++import compare from '../functions/compare.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict'
+ 
+-const Range = require('../classes/range.js')
+-const Comparator = require('../classes/comparator.js')
++
++
+ const { ANY } = Comparator
+-const satisfies = require('../functions/satisfies.js')
+-const compare = require('../functions/compare.js')
+ 
++
++
+ // Complex range `r1 || r2 || ...` is a subset of `R1 || R2 || ...` iff:
+ // - Every simple range `r1, r2, ...` is a null set, OR
+ // - Every simple range `r1, r2, ...` which is not a null set is a subset of
+@@ -247,3 +254,7 @@
+ }
+ 
+ module.exports = subset
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/ranges/to-comparators.js b/ranges/to-comparators.js
+===================================================================
+--- a/ranges/to-comparators.js
++++ b/ranges/to-comparators.js
+@@ -1,10 +1,18 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import Range from '../classes/range.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict'
+ 
+-const Range = require('../classes/range')
+ 
++
+ // Mostly just for testing and legacy API reasons
+ const toComparators = (range, options) =>
+   new Range(range, options).set
+     .map(comp => comp.map(c => c.value).join(' ').trim().split(' '))
+ 
+ module.exports = toComparators
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }
+diff --git a/ranges/valid.js b/ranges/valid.js
+===================================================================
+--- a/ranges/valid.js
++++ b/ranges/valid.js
+@@ -1,6 +1,10 @@
++// Converted to ESM by graft (tools/cjs-to-esm).
++import Range from '../classes/range.js'
++const module = { exports: {} }
++let exports = module.exports
+ 'use strict'
+ 
+-const Range = require('../classes/range')
++
+ const validRange = (range, options) => {
+   try {
+     // Return '*' instead of '' so that truthiness works.
+@@ -11,3 +15,7 @@
+   }
+ }
+ module.exports = validRange
++
++;const __graft_exports = module.exports
++export default __graft_exports
++export { __graft_exports as 'module.exports' }

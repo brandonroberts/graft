@@ -6,8 +6,14 @@ settings:
 
 patchedDependencies:
   pacote:
-    hash: b1ff5f54a5cf9c431d7470f0ca9b2acb756448c385c529c8db7fe6deb3a830ee
-    path: .grafts/pacote-esm-named-exports/variants/v18.patch
+    hash: c5c171ff5ce9644933e080804d9c535e6797d152eb942fc677501143f76009af
+    path: .grafts/pacote-esm/variants/v22.patch
+  semver:
+    hash: 0947e43b5ed23af7999e3f96c9aff3b942a900e128439305229a9b031d0890b4
+    path: .grafts/semver-esm/variants/v7.patch
+  yaml:
+    hash: 48f10651313b364525b85ecf86c3c6106702743517271dea8307f8fb4a437edf
+    path: .grafts/yaml-esm/variants/v2.patch
 
 importers:
 
@@ -16,18 +22,27 @@ importers:
       '@graft/cli':
         specifier: workspace:*
         version: link:packages/cli
+      '@graft/core':
+        specifier: workspace:*
+        version: link:packages/core
       '@types/node':
         specifier: ^22.20.5
         version: 22.20.5
       '@types/semver':
         specifier: ^7.8.0
         version: 7.8.0
+      acorn:
+        specifier: ^8.19.0
+        version: 8.19.0
+      diff:
+        specifier: ^9.0.0
+        version: 9.0.0
       typescript:
         specifier: ~7.0.2
         version: 7.0.2
       vitest:
         specifier: ^5.1.0
-        version: 5.1.0(@types/node@22.20.5)(vite@8.3.5(@types/node@22.20.5)(jiti@2.7.0)(yaml@2.9.1))
+        version: 5.1.0(@types/node@22.20.5)(vite@8.3.5(@types/node@22.20.5)(jiti@2.7.0)(yaml@2.9.1(patch_hash=48f10651313b364525b85ecf86c3c6106702743517271dea8307f8fb4a437edf)))
 
   packages/adapters/patch:
     dependencies:
@@ -42,7 +57,7 @@ importers:
         version: 9.0.0
       yaml:
         specifier: ^2.9.1
-        version: 2.9.1
+        version: 2.9.1(patch_hash=48f10651313b364525b85ecf86c3c6106702743517271dea8307f8fb4a437edf)
 
   packages/cli:
     dependencies:
@@ -72,10 +87,10 @@ importers:
         version: 2.7.0
       pacote:
         specifier: ^22.0.1
-        version: 22.0.1(patch_hash=b1ff5f54a5cf9c431d7470f0ca9b2acb756448c385c529c8db7fe6deb3a830ee)
+        version: 22.0.1(patch_hash=c5c171ff5ce9644933e080804d9c535e6797d152eb942fc677501143f76009af)
       semver:
         specifier: ^7.8.6
-        version: 7.8.6
+        version: 7.8.6(patch_hash=0947e43b5ed23af7999e3f96c9aff3b942a900e128439305229a9b031d0890b4)
     devDependencies:
       '@types/pacote':
         specifier: ^11.1.8
@@ -100,10 +115,10 @@ importers:
     dependencies:
       semver:
         specifier: ^7.8.6
-        version: 7.8.6
+        version: 7.8.6(patch_hash=0947e43b5ed23af7999e3f96c9aff3b942a900e128439305229a9b031d0890b4)
       yaml:
         specifier: ^2.9.1
-        version: 2.9.1
+        version: 2.9.1(patch_hash=48f10651313b364525b85ecf86c3c6106702743517271dea8307f8fb4a437edf)
       zod:
         specifier: ^4.6.7
         version: 4.6.7
@@ -486,6 +501,11 @@ packages:
   accepts@2.0.0:
     resolution: {integrity: sha512-5cvg6CtKwfgdmVqY1WIiXKc3Q1bkRqGLi+2W/6ao+6Y7gu/RCwRuAhGEzh5B4KlszSuTLgZYuqFqo5bImjNKng==}
     engines: {node: '>= 0.6'}
+
+  acorn@8.19.0:
+    resolution: {integrity: sha512-oJlA3XiRm7Cyk6qFD2Jn8ak9B7jSy0qy00ADO3+8dpT0LSjFihQYv4C02LFCSYJV3Q37xYwwRy5m+IpIiUzqWw==}
+    engines: {node: '>=0.4.0'}
+    hasBin: true
 
   agent-base@9.0.0:
     resolution: {integrity: sha512-TQf59BsZnytt8GdJKLPfUZ54g/iaUL2OWDSFCCvMOhsHduDQxO8xC4PNeyIkVcA5KwL2phPSv0douC0fgWzmnA==}
@@ -1436,7 +1456,7 @@ snapshots:
 
   '@npmcli/fs@6.0.0':
     dependencies:
-      semver: 7.8.6
+      semver: 7.8.6(patch_hash=0947e43b5ed23af7999e3f96c9aff3b942a900e128439305229a9b031d0890b4)
 
   '@npmcli/git@8.0.0':
     dependencies:
@@ -1446,7 +1466,7 @@ snapshots:
       lru-cache: 11.5.3
       npm-pick-manifest: 12.0.0
       proc-log: 7.0.0
-      semver: 7.8.6
+      semver: 7.8.6(patch_hash=0947e43b5ed23af7999e3f96c9aff3b942a900e128439305229a9b031d0890b4)
       which: 7.0.0
 
   '@npmcli/installed-package-contents@5.0.0':
@@ -1463,7 +1483,7 @@ snapshots:
       hosted-git-info: 10.1.1
       json-parse-even-better-errors: 6.0.0
       proc-log: 7.0.0
-      semver: 7.8.6
+      semver: 7.8.6(patch_hash=0947e43b5ed23af7999e3f96c9aff3b942a900e128439305229a9b031d0890b4)
       spdx-expression-parse: 4.0.0
 
   '@npmcli/promise-spawn@10.0.1':
@@ -1678,14 +1698,14 @@ snapshots:
   '@typescript/typescript-win32-x64@7.0.2':
     optional: true
 
-  '@vitest/mocker@5.1.0(vite@8.3.5(@types/node@22.20.5)(jiti@2.7.0)(yaml@2.9.1))':
+  '@vitest/mocker@5.1.0(vite@8.3.5(@types/node@22.20.5)(jiti@2.7.0)(yaml@2.9.1(patch_hash=48f10651313b364525b85ecf86c3c6106702743517271dea8307f8fb4a437edf)))':
     dependencies:
       '@jridgewell/trace-mapping': 0.3.31
       '@vitest/spy': 5.1.0
       estree-walker: 3.0.3
       magic-string: 1.4.5
     optionalDependencies:
-      vite: 8.3.5(@types/node@22.20.5)(jiti@2.7.0)(yaml@2.9.1)
+      vite: 8.3.5(@types/node@22.20.5)(jiti@2.7.0)(yaml@2.9.1(patch_hash=48f10651313b364525b85ecf86c3c6106702743517271dea8307f8fb4a437edf))
 
   '@vitest/spy@5.1.0': {}
 
@@ -1695,6 +1715,8 @@ snapshots:
     dependencies:
       mime-types: 3.0.2
       negotiator: 1.1.0
+
+  acorn@8.19.0: {}
 
   agent-base@9.0.0: {}
 
@@ -2179,7 +2201,7 @@ snapshots:
       graceful-fs: 4.2.11
       nopt: 10.0.1
       proc-log: 7.0.0
-      semver: 7.8.6
+      semver: 7.8.6(patch_hash=0947e43b5ed23af7999e3f96c9aff3b942a900e128439305229a9b031d0890b4)
       tar: 7.5.22
       tinyglobby: 0.2.17
       undici: 8.12.3
@@ -2195,7 +2217,7 @@ snapshots:
 
   npm-install-checks@9.0.0:
     dependencies:
-      semver: 7.8.6
+      semver: 7.8.6(patch_hash=0947e43b5ed23af7999e3f96c9aff3b942a900e128439305229a9b031d0890b4)
 
   npm-normalize-package-bin@6.0.0: {}
 
@@ -2203,7 +2225,7 @@ snapshots:
     dependencies:
       hosted-git-info: 10.1.1
       proc-log: 7.0.0
-      semver: 7.8.6
+      semver: 7.8.6(patch_hash=0947e43b5ed23af7999e3f96c9aff3b942a900e128439305229a9b031d0890b4)
       validate-npm-package-name: 8.0.0
 
   npm-packlist@11.3.0:
@@ -2217,7 +2239,7 @@ snapshots:
       npm-install-checks: 9.0.0
       npm-normalize-package-bin: 6.0.0
       npm-package-arg: 14.0.0
-      semver: 7.8.6
+      semver: 7.8.6(patch_hash=0947e43b5ed23af7999e3f96c9aff3b942a900e128439305229a9b031d0890b4)
 
   npm-registry-fetch@20.0.1:
     dependencies:
@@ -2249,7 +2271,7 @@ snapshots:
 
   p-map@7.1.1: {}
 
-  pacote@22.0.1(patch_hash=b1ff5f54a5cf9c431d7470f0ca9b2acb756448c385c529c8db7fe6deb3a830ee):
+  pacote@22.0.1(patch_hash=c5c171ff5ce9644933e080804d9c535e6797d152eb942fc677501143f76009af):
     dependencies:
       '@gar/promise-retry': 1.0.3
       '@npmcli/git': 8.0.0
@@ -2353,7 +2375,7 @@ snapshots:
 
   safer-buffer@2.1.2: {}
 
-  semver@7.8.6: {}
+  semver@7.8.6(patch_hash=0947e43b5ed23af7999e3f96c9aff3b942a900e128439305229a9b031d0890b4): {}
 
   send@1.2.1:
     dependencies:
@@ -2530,7 +2552,7 @@ snapshots:
 
   vary@1.1.2: {}
 
-  vite@8.3.5(@types/node@22.20.5)(jiti@2.7.0)(yaml@2.9.1):
+  vite@8.3.5(@types/node@22.20.5)(jiti@2.7.0)(yaml@2.9.1(patch_hash=48f10651313b364525b85ecf86c3c6106702743517271dea8307f8fb4a437edf)):
     dependencies:
       lightningcss: 1.33.0
       picomatch: 4.0.7
@@ -2541,12 +2563,12 @@ snapshots:
       '@types/node': 22.20.5
       fsevents: 2.3.3
       jiti: 2.7.0
-      yaml: 2.9.1
+      yaml: 2.9.1(patch_hash=48f10651313b364525b85ecf86c3c6106702743517271dea8307f8fb4a437edf)
 
-  vitest@5.1.0(@types/node@22.20.5)(vite@8.3.5(@types/node@22.20.5)(jiti@2.7.0)(yaml@2.9.1)):
+  vitest@5.1.0(@types/node@22.20.5)(vite@8.3.5(@types/node@22.20.5)(jiti@2.7.0)(yaml@2.9.1(patch_hash=48f10651313b364525b85ecf86c3c6106702743517271dea8307f8fb4a437edf))):
     dependencies:
       '@types/chai': 5.2.3
-      '@vitest/mocker': 5.1.0(vite@8.3.5(@types/node@22.20.5)(jiti@2.7.0)(yaml@2.9.1))
+      '@vitest/mocker': 5.1.0(vite@8.3.5(@types/node@22.20.5)(jiti@2.7.0)(yaml@2.9.1(patch_hash=48f10651313b364525b85ecf86c3c6106702743517271dea8307f8fb4a437edf)))
       chai: 6.3.0
       es-module-lexer: 2.3.2
       expect-type: 1.4.0
@@ -2557,7 +2579,7 @@ snapshots:
       tinybench: 6.2.3
       tinyexec: 1.3.1
       tinyglobby: 0.2.17
-      vite: 8.3.5(@types/node@22.20.5)(jiti@2.7.0)(yaml@2.9.1)
+      vite: 8.3.5(@types/node@22.20.5)(jiti@2.7.0)(yaml@2.9.1(patch_hash=48f10651313b364525b85ecf86c3c6106702743517271dea8307f8fb4a437edf))
       why-is-node-running: 3.2.1
     optionalDependencies:
       '@types/node': 22.20.5
@@ -2580,7 +2602,7 @@ snapshots:
 
   yallist@5.0.0: {}
 
-  yaml@2.9.1: {}
+  yaml@2.9.1(patch_hash=48f10651313b364525b85ecf86c3c6106702743517271dea8307f8fb4a437edf): {}
 
   zod-to-json-schema@3.25.2(zod@4.6.7):
     dependencies:

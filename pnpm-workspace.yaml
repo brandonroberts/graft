@@ -3,5 +3,7 @@ packages:
   - packages/adapters/*
   - examples/*
 patchedDependencies:
-  pacote: .grafts/pacote-esm-named-exports/variants/v18.patch
+  pacote: .grafts/pacote-esm/variants/v22.patch
+  semver: .grafts/semver-esm/variants/v7.patch
+  yaml: .grafts/yaml-esm/variants/v2.patch
 ignorePatchFailures: false
