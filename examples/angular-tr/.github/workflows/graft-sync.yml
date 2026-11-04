@@ -1,0 +1,35 @@
+# Keeps the Turkish translation current with angular/angular.
+# Finds the next upstream release (`graft outdated`), rebases the translation onto it, runs the
+# page check, and opens a PR: a normal one when everything still holds, otherwise a draft PR with
+# git's merge and conflict markers in just the files that need translating.
+name: Graft sync
+
+on:
+  workflow_dispatch:
+  # schedule: [{ cron: '17 6 * * 1' }]   # weekly, once you trust it
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4      # a shallow checkout is enough
+      - uses: actions/setup-node@v4
+        with: { node-version: 24 }
+      - uses: brandonroberts/graft/packages/action@main
+        # env:
+        #   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}   # only with agent-command
+        with:
+          # Graft runs from npm; nothing is added to the repo's package.json, nothing installed.
+          graft-command: npx -y @graftsync/cli@0.1.0
+          install-command: 'true'
+          # Optional: let an agent translate the conflicted files before the PR opens (it gets the
+          # report, the graft-sync skill, and .agent/skills/tr-contributor for terminology).
+          # agent-command: >-
+          #   claude -p "$(cat "$GRAFT_PROMPT_FILE")
+          #   Follow .agent/skills/tr-contributor/SKILL.md for terminology and style."
+          #   --allowedTools "Read,Edit,Write,Bash(npx -y @graftsync/cli@0.1.0:*)"

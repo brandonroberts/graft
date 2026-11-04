@@ -310,7 +310,7 @@ oracle:
 - **Finding new versions.** `graft outdated` offers the newest upstream release tag, or with `fork.track` the branch tip as `<version>+<commit>`.
 - **Automated.** The [GitHub Action](packages/action) does all of this: it adopts green results into a PR, and for conflicts either runs your agent on the merged branch (then re-verifies) or opens a draft PR with the markers.
 
-Checked against the real [angular-tr](https://github.com/erkamyaman/angular-tr) (the Turkish angular.dev translation: 525 files over upstream, including 461 pages). The checks below ran on a local, history-free copy of its trees:
+A ready-to-use setup for it, with its translation oracle and workflow, is in [`examples/angular-tr`](examples/angular-tr). Checked against the real [angular-tr](https://github.com/erkamyaman/angular-tr) (the Turkish angular.dev translation: 525 files over upstream, including 461 pages). The checks below ran on a local, history-free copy of its trees:
 - **At its own base,** `sync` materialized a tree identical to the fork's branch (text, a binary image, an executable bit).
 - **Onto `v22.3.0-next.3`** (also given as the commit `22.3.0-next.3+<sha>`), 2,833 hunks were checked. The 7 files that miss are exactly the ones `git apply --3way` conflicts on, and the prepared `-agent` branch has conflict markers in just those 7. One is a page the fork rewrote whole, where upstream appended a section right after it. The agent is handed a 364-line diff of what upstream changed in the 10 translated files it touched; the full upstream diff for that range is about 51,000 changed lines.
 - **Upstream English that rebases cleanly** into a translated page (a 63-line addition to `i18n/deploy.md`) is left to the oracle, the project's untranslated-page check.

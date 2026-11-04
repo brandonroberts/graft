@@ -111,7 +111,14 @@ export function renderPrBody({ candidate, report, agentBody, outcome }) {
       lines.push('', '</details>', '');
     }
   }
-  lines.push('---', '_Opened by the [Graft](https://github.com/brandonroberts/graft) GitHub Action. Graft verified this change with each graft\'s oracle; review the variant diffs before merging._');
+  lines.push(
+    '---',
+    candidate.standalone
+      ? (outcome === 'green'
+        ? "_Opened by the [Graft](https://github.com/brandonroberts/graft) GitHub Action. This branch is the fork's change rebased onto the new upstream, and the graft's oracle passed on it; review the diff before merging._"
+        : "_Opened by the [Graft](https://github.com/brandonroberts/graft) GitHub Action. This branch holds git's merge of the fork's change onto the new upstream; finish it before merging._")
+      : "_Opened by the [Graft](https://github.com/brandonroberts/graft) GitHub Action. Graft verified this change with each graft's oracle; review the variant diffs before merging._",
+  );
   return lines.join('\n');
 }
 

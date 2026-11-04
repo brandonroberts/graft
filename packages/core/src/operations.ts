@@ -186,11 +186,23 @@ export async function recordVariant(
   }
 }
 
-export function summarizeMisses(report: AnchorReport): string {
-  const parts = [
-    ...report.errors,
-    ...report.anchors.filter((a) => !a.matched).map((a) => `anchor "${a.name}" missed in ${a.file}${a.error ? ` (${a.error})` : ''}`),
-  ];
+/** One line for a report: errors, then missed anchors grouped by file (long lists are cut). */
+export function summarizeMisses(report: AnchorReport, maxFiles = 10): string {
+  const missed = report.anchors.filter((a) => !a.matched);
+  const byFile = new Map<string, typeof missed>();
+  for (const a of missed) byFile.set(a.file, [...(byFile.get(a.file) ?? []), a]);
+  const files = [...byFile].map(([file, anchors]) => {
+    const why = [...new Set(anchors.map((a) => a.error).filter(Boolean))].join(', ');
+    const names = anchors.map((a) => (a.name.startsWith(`${file}#`) ? a.name.slice(file.length) : `"${a.name}"`)).join(' ');
+    return `${file} ${names}${why ? ` (${why})` : ''}`;
+  });
+  const parts = [...report.errors];
+  if (missed.length === 1) parts.push(`anchor "${missed[0]!.name}" missed in ${missed[0]!.file}${missed[0]!.error ? ` (${missed[0]!.error})` : ''}`);
+  else if (missed.length) {
+    const shown = files.slice(0, maxFiles).join('; ');
+    const more = files.length > maxFiles ? `; and ${files.length - maxFiles} more file(s)` : '';
+    parts.push(`${missed.length} anchors missed in ${files.length} file(s): ${shown}${more}`);
+  }
   return parts.join('; ') || 'ok';
 }
 
