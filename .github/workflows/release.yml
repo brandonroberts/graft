@@ -59,7 +59,10 @@ jobs:
             echo "::notice::$tag already exists"
             exit 0
           fi
-          if [ "$(npm view "@graftsync/cli@$version" version 2>/dev/null)" != "$version" ]; then
+          # Just published by this run: tag it. npm stages new publishes, so the registry may not
+          # show the version for minutes yet. Otherwise (a re-run to backfill a tag), require it.
+          if [ "${{ steps.changesets.outputs.published }}" != "true" ] &&
+             [ "$(npm view "@graftsync/cli@$version" version 2>/dev/null)" != "$version" ]; then
             echo "::notice::@graftsync/cli@$version is not on npm (yet); not tagging"
             exit 0
           fi
