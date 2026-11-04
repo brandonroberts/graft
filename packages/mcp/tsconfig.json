@@ -13,6 +13,9 @@
     },
     {
       "path": "../core"
+    },
+    {
+      "path": "../adapters/patch"
     }
   ]
 }

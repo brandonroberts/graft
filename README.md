@@ -117,6 +117,37 @@ graft replay <id> [--range R]         # static checks across every published ver
 
 Every command takes `--json` and `--root`.
 
+## Agents: MCP server and skill
+
+`graft-mcp` (from `@graft/mcp`) is a stdio MCP server over the same core operations as the CLI. It gives an agent context, verification and bookkeeping. The agent writes variant files with its own editing tools.
+
+| Tool | Purpose |
+|---|---|
+| `list_grafts` | All grafts with status, rootstock and installed versions, and anchor health |
+| `read_graft` | The full intent file, variants with resolved paths, and the variant selected for the installed version |
+| `check_anchors` | Anchor report for a graft at a version (pristine upstream contents) |
+| `scope_diff` | Upstream diff between two versions, narrowed to the graft's anchors |
+| `apply_cached` | Apply existing variants to a version; modified files are written for inspection |
+| `run_oracle` | Run the oracle in every mode; pass/fail and output per mode |
+| `record_variant` | Register a new variant for a range. Never edits existing variants; can require anchors to match first |
+| `update_status` | Set status and verified, and append History |
+| `sync` | The deterministic first pass (with `install`), returning the report |
+
+```json
+{ "mcpServers": { "graft": { "command": "npx", "args": ["graft-mcp", "--root", "."] } } }
+```
+
+The [skill](packages/skill/SKILL.md) (`graft-sync`) teaches any agent the loop and its rules:
+- run the deterministic first pass first;
+- read the intent before changing anything;
+- never edit an existing variant;
+- treat the Invariants as the contract and the oracle as the only proof;
+- never weaken the oracle;
+- know when to stop and mark `conflicted`;
+- write the PR description in the given format.
+
+This repo uses both on itself: [`.mcp.json`](.mcp.json) registers the server, and [`.claude/skills/graft-sync`](.claude/skills/graft-sync/SKILL.md) links the skill.
+
 ## Mechanisms
 
 ### `patch` (pnpm)
@@ -173,8 +204,8 @@ What the dogfood run found:
 | [`@graft/spec`](packages/spec) | ✅ implemented | `graft.md` schema (zod), parser and validator, comment-preserving editor, starter template. |
 | [`@graft/core`](packages/core) | ✅ implemented | See the list below. |
 | [`@graft/cli`](packages/cli) | ✅ implemented | `graft` command for humans and CI. |
-| `@graft/mcp` | 🚧 scaffold only | MCP server exposing the core operations as agent tools. |
-| `packages/skill` | 📝 planned | `SKILL.md` teaching agents the sync loop. |
+| [`@graft/mcp`](packages/mcp) | ✅ implemented | MCP server (`graft-mcp`) exposing the core operations as agent tools. |
+| [`@graft/skill`](packages/skill) | ✅ implemented | [`SKILL.md`](packages/skill/SKILL.md) teaching agents the sync loop. |
 | `packages/action` | 📝 planned | GitHub Action: poll npm dist-tags, run sync, open PRs or hand off to an agent. |
 | [`@graft/adapter-patch`](packages/adapters/patch) | ✅ implemented | First mechanism: pnpm `patchedDependencies`. |
 
@@ -228,7 +259,7 @@ pnpm graft status
 - **M0 — Spec and skeleton:** schema, parser, validator, adapter interface, `graft init/add/status`. *(Done.)*
 - **M1 — First mechanism adapter, with a design partner.** Capture one real modification as a graft, with an oracle driven by its invariants. *(The `patch` adapter is done and dogfooded on pacote, semver and yaml; an external design partner is still to come.)*
 - **M2 — Deterministic first pass in CI:** `graft check/diff/sync/verify`, reports, and a GitHub Action that opens PRs when everything passes. *(The CLI and reports are done; the Action is pending.)*
-- **M3 — Agent path:** MCP server, skill file, and the action's hand-off to an agent. Evaluated by replaying historical prereleases.
+- **M3 — Agent path:** MCP server, skill file, and the action's hand-off to an agent. Evaluated by replaying historical prereleases. *(The MCP server and skill are done; the Action hand-off is pending.)*
 - **M4 — Second, unrelated mechanism,** to prove the abstraction generalizes. Spec v1 is frozen only after this.
 
 The original design brief is in [`docs/handoff.md`](docs/handoff.md). Since that brief was written, the Vite transform adapter and the `@graft/vite` runtime plugin it describes have been taken out of scope.

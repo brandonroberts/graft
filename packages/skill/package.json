@@ -1,0 +1,13 @@
+{
+  "name": "@graft/skill",
+  "version": "0.1.0",
+  "description": "Agent skill (SKILL.md) teaching coding agents the graft sync loop.",
+  "license": "MIT",
+  "files": [
+    "SKILL.md"
+  ],
+  "exports": {
+    "./SKILL.md": "./SKILL.md",
+    "./package.json": "./package.json"
+  }
+}

@@ -98,6 +98,9 @@ importers:
 
   packages/mcp:
     dependencies:
+      '@graft/adapter-patch':
+        specifier: workspace:*
+        version: link:../adapters/patch
       '@graft/core':
         specifier: workspace:*
         version: link:../core
