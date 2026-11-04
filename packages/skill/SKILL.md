@@ -37,56 +37,61 @@ Body sections, all required — read them before touching anything:
 
 ## Tools
 
-Use the `graft` MCP server if it is connected; otherwise the `graft` CLI. They are the same
-operations.
+Everything goes through the `graft` CLI (`npx graft …`, `pnpm exec graft …`, or however the
+project runs it). Every command takes `--json` for machine-readable output and `--root` for
+the project root. Exit codes: `0` ok, `1` something needs attention, `2` tooling error.
 
-| Step | MCP tool | CLI |
-|---|---|---|
-| Overview | `list_grafts` | `graft status` |
-| Deterministic first pass | `sync` | `graft sync [--version X] [--install]` |
-| Read intent + variants | `read_graft` | open `.grafts/<id>/graft.md` |
-| Anchor report | `check_anchors` | `graft check <id> --version X` |
-| What moved upstream | `scope_diff` | `graft diff <id> [from] [to]` |
-| Try existing variants | `apply_cached` | — |
-| Wire the package manager to the selected variants + reinstall | `apply_to_project` | `graft apply` |
-| Prove it | `run_oracle` | `graft verify <id>` |
-| Register a new variant | `record_variant` | — |
-| Status + History | `update_status` | — |
+| Step | Command |
+|---|---|
+| Overview | `graft status` |
+| Deterministic first pass | `graft sync [--version X] [--install]` |
+| Read intent + variants (and which variant the installed version selects) | `graft show <id>` |
+| Anchor report | `graft check <id> [--version X]` |
+| What moved upstream | `graft diff <id> [from] [to]` |
+| Apply a variant to pristine upstream, for inspection | `graft preview <id> [--version X] [--out dir]` |
+| Register a new variant | `graft variant add <id> --range R --module ./variants/… --verify-version X --note "…"` |
+| Wire the package manager to the selected variants + reinstall | `graft apply` |
+| Prove it | `graft verify <id>` |
+| Status, verified version, History | `graft mark <id> [--status S] [--verified X] [--history "…"]` |
+| Where a variant fits across published versions | `graft replay <id> [--range R]` |
 
 Reports from `sync` land in `.grafts/.report/` (`sync.md`, `sync.json`, and per graft
 `diff.patch` and `applied/`).
 
 ## The loop
 
-1. **Run the deterministic first pass first.** `sync` (or `graft sync --version X --install`).
+1. **Run the deterministic first pass first.** `graft sync --version X --install`.
    Never re-derive what already passes. Green grafts are done — `sync` already bumped
    `verified` and wrote History. Only grafts marked `needs-agent` are yours.
 2. **Gather context for each `needs-agent` graft**, in this order:
-   `read_graft` → the reasons in the sync report → `check_anchors` at the target version →
-   `scope_diff` from `verified` to the target → the failing oracle output, if the oracle ran.
+   `graft show <id>` → the reasons in the sync report → `graft check <id> --version <target>` →
+   `graft diff <id>` (from `verified` to the target) → the failing oracle output, if the oracle ran.
 3. **Locate the new equivalent code by behavior.** Use *Where to look* and *Anchors*, then
    the scoped diff. If a target file was removed or renamed, search the new version's
    published files for the behavior (the pristine copy is under `.grafts/.cache/upstream/`). Upstream
    renames and moves are normal; the behavior is what you are re-finding.
 4. **Write a new variant for the new range** with your own editing tools, inside the graft's
    directory (e.g. `variants/v5.patch`). See *Mechanisms* below.
-5. **Iterate until anchors match:** `check_anchors` with the target version after every edit.
-   It is fast and checks pristine upstream contents.
-6. **Register it:** `record_variant` with `range`, `module`, `verifyVersion` (the target
-   version), and a `note` saying what moved upstream and how the variant differs. Older
-   open-ended ranges are narrowed automatically; existing variant files are never touched.
-7. **Prove it:** re-run `sync` for the target version with `install: true`
-   (`graft sync --version X --install`). With anchors now matching, it wires the package
-   manager to the new variant, installs the target, and runs the oracle in every mode; on
-   green it sets `verified` and status `applied`. (Or install yourself, `run_oracle`, then
-   `update_status` with `status: applied` and `verified: <target>`.)
+5. **Iterate until the patch applies cleanly** to the pristine target, which `sync`/`check`
+   cached under `.grafts/.cache/upstream/<pkg>@<target>/`. For example, run
+   `git apply --check <variant>` inside that directory. Registration (next step) is the final
+   anchor check.
+6. **Register it:** `graft variant add <id> --range '>=<target>' --module ./variants/<file>
+   --verify-version <target> --note "<what moved upstream and how the variant differs>"`. It
+   refuses (and rolls back) if the anchors don't match at the target. Older open-ended ranges
+   are narrowed automatically; existing variant files are never touched. Then
+   `graft check <id> --version <target>` should be clean.
+7. **Prove it:** re-run `graft sync --version <target> --install`. With anchors now matching,
+   it wires the package manager to the new variant, installs the target, and runs the oracle
+   in every mode; on green it sets `verified` and status `applied`. (Or install yourself, run
+   `graft verify <id>`, then `graft mark <id> --status applied --verified <target>`.)
 8. **Finish:** open a PR (see below).
 
 ## Adding a new graft
 
 When asked to capture a modification as a graft (new, or migrating an existing patch):
 
-1. **Scaffold:** `graft init --agent` (once; it also registers this MCP server and skill), then `graft add <id> --package <pkg> --target <file>`.
+1. **Scaffold:** `graft init --agent` (once; it also installs this skill), then `graft add <id> --package <pkg> --target <file>`.
    This creates `graft.md`, an empty variant stub (which fails loudly until written), and an
    oracle stub that exits 1.
 2. **Write the intent first,** with the person who owns the modification if you can: *Why*,
@@ -96,19 +101,19 @@ When asked to capture a modification as a graft (new, or migrating an existing p
    printed directory, then run `pnpm patch-commit <dir> --patches-dir <tmp>`. Move the generated
    file onto the scaffolded `variants/v<major>.patch`. `pnpm patch-commit` may also write a
    version-pinned entry to `package.json`; the next step replaces it.
-4. **Apply it:** `apply_to_project` / `graft apply`. This points the package manager at the
+4. **Apply it:** `graft apply`. This points the package manager at the
    variant, reinstalls, and re-checks anchors.
 5. **Write the oracle** so it fails before the modification and passes after. Check that it
    fails without the graft. An oracle that can't fail proves nothing. Test the Invariants,
    plus at least one pre-existing behavior the graft must not break.
-6. **Prove it:** `run_oracle` / `graft verify <id>`, then `graft sync` (green).
+6. **Prove it:** `graft verify <id>`, then `graft sync` (green).
 7. **Find the variant's real range:** `graft replay <id>` checks every published version.
    Record what you learn in *History*.
 
 ## Rules
 
 - **Never edit an existing variant.** Older version ranges keep their variants and tests.
-  Write a new file for the new range. `record_variant` refuses to re-register a file.
+  Write a new file for the new range. `graft variant add` refuses to re-register a file.
 - **The Invariants are the contract and the oracle is the only proof.** Anchors matching or a
   clean apply is not success; a passing oracle is.
 - **Never weaken the oracle** to get green: don't skip, loosen, or delete checks, and don't
@@ -126,12 +131,12 @@ When asked to capture a modification as a graft (new, or migrating an existing p
 - Start the new variant at the target version. For a prerelease target, use the `-0` floor so
   prereleases select it: `>=5.0.0-0`.
 - Leave it open-ended (`>=5.0.0-0`) unless you know where it stops applying.
-- Older open-ended ranges get capped below the new floor by `record_variant`
+- Older open-ended ranges get capped below the new floor by `graft variant add`
   (`>=4.0.0` → `>=4.0.0 <5.0.0-0`).
 
 ## Mechanisms
 
-### `patch` (pnpm, bun, npm/yarn via patch-package)
+### `patch` (any package manager)
 
 - A variant is a git-style patch (`diff --git a/<file> b/<file>`, paths relative to the
   package root). Every hunk is an anchor: its context and removed lines must appear exactly
@@ -142,7 +147,7 @@ When asked to capture a modification as a graft (new, or migrating an existing p
   (npm 12+), or `bun patch <pkg>` then `bun patch --commit node_modules/<pkg>`. Move the generated file into the graft's
   `variants/`. For npm, diff a pristine copy (under `.grafts/.cache/upstream/`) against your
   modified copy, using package-relative paths.
-- Don't hand-edit the package manager's patch configuration. `graft apply` / `apply_to_project`
+- Don't hand-edit the package manager's patch configuration. `graft apply`
   wires the selected variant: pnpm `patchedDependencies`, npm 12+ `patchedDependencies` (name-only
   key), bun's version-pinned key, or (npm < 12, yarn and others) Graft's built-in applier,
   `graft apply --installed` in `postinstall`. The
@@ -151,7 +156,7 @@ When asked to capture a modification as a graft (new, or migrating an existing p
   tarball under `.grafts/.vendor/` and points overrides and the root dependency at it. Commit
   that tarball; never edit it by hand. `graft check` rebuilds it and reports a stale one.
   `graft sync --install` rewires it for the new version before installing. At the installed
-  version, `check_anchors` reports any configuration that would apply something else or fail
+  version, `graft check` reports any configuration that would apply something else or fail
   silently, and any patched file in `node_modules` that doesn't match pristine upstream + the
   variant.
 - Keep hunk context away from lines that change every release (`"version"` in package.json).
@@ -165,7 +170,7 @@ When asked to capture a modification as a graft (new, or migrating an existing p
 
 ## When to stop: `conflicted`
 
-Stop and mark the graft `conflicted` (via `update_status`, with a History entry) when:
+Stop and mark the graft `conflicted` (`graft mark <id> --status conflicted --history "…"`) when:
 
 - the behavior the graft modifies no longer exists upstream, or upstream changed it in a way
   that makes an invariant impossible or contradictory;
@@ -174,9 +179,9 @@ Stop and mark the graft `conflicted` (via `update_status`, with a History entry)
   `upstreamed`. Graft detects the common case for you: when the variant no longer applies
   but upstream already contains its change (for patches, the reverse patch applies cleanly),
   sync reports the graft as **likely upstreamed** (`likelyUpstreamed: true`, and
-  `anchors.upstreamed.evidence` from `check_anchors`). Then don't write a new variant:
-  confirm the invariants hold on pristine upstream, and recommend (or, if asked, apply via
-  `update_status`) the `upstreamed` status with a History entry citing the version.
+  `upstreamed.evidence` from `graft check --json`). Then don't write a new variant:
+  confirm the invariants hold on pristine upstream, and recommend (or, if asked, apply with
+  `graft mark <id> --status upstreamed --history "…"`) the `upstreamed` status with a History entry citing the version.
 
 Name the failing invariant, what moved upstream, and what you tried. Open a **draft** PR with
 the same information. Don't leave a half-working variant registered: if you recorded one that
@@ -185,7 +190,7 @@ doesn't pass, say so explicitly in History and the PR.
 ## Running inside the Graft GitHub Action
 
 When the action invokes you, `GRAFT_PROMPT_FILE` holds your task, and the environment points
-at everything else: `GRAFT_SKILL_PATH` (this file), `GRAFT_MCP_CONFIG` (the graft MCP server),
+at everything else: `GRAFT_SKILL_PATH` (this file), `GRAFT_COMMAND` (how to run the CLI),
 `GRAFT_REPORT_MD` / `GRAFT_REPORT_JSON` (the sync report), `GRAFT_PACKAGE`,
 `GRAFT_TARGET_VERSION`, and `GRAFT_BRANCH` (already checked out).
 

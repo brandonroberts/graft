@@ -122,7 +122,7 @@ prereleases.
 ### 4.2 Adding variants
 
 Existing variant modules MUST NOT be edited. A change for a new upstream range is a new
-module, registered with a new `variants` entry. When registering (`record_variant` in MCP,
+module, registered with a new `variants` entry. When registering (`graft variant add` in the CLI,
 `recordVariant` in core), the tooling:
 
 - refuses a range that isn't a valid semver range, a module outside the graft directory, a
@@ -134,6 +134,7 @@ module, registered with a new `variants` entry. When registering (`record_varian
   refused;
 - calls the adapter's `validateVariant`, if any;
 - appends a History entry;
+- refuses a verify version outside the new range (it would check a different variant);
 - when asked to verify at a version, checks anchors there and rolls `graft.md` back if any
   miss.
 

@@ -155,7 +155,7 @@ describe('detecting an upstreamed graft', () => {
     expect(g.reasons[0]).toMatch(/upstream lib@2\.0\.0 already contains this graft's change; confirm and set status: upstreamed/);
     const md = await readFile(result.reportFiles!.markdown, 'utf8');
     expect(md).toContain('likely upstreamed');
-    expect(md).toMatch(/Next: .*`update_status`.*`upstreamed`/);
+    expect(md).toMatch(/Next: .*`graft mark add-c --status upstreamed/);
     expect(await readFile(path.join(project.root, '.grafts/add-c/graft.md'), 'utf8')).not.toContain('status: upstreamed');
   });
 

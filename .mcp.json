@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "graft": {
-      "command": "node",
-      "args": ["packages/mcp/dist/bin.js", "--root", "."]
-    }
-  }
-}

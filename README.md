@@ -14,15 +14,15 @@ Graft does not ship its own agent or call an LLM, and there is no hosted service
 
 The format and tooling contract are specified in [`docs/spec.md`](docs/spec.md) (draft v1).
 
-> **Status: early development.** The spec, core, `patch` mechanism and `graft` CLI work. Graft keeps its own CommonJS dependencies converted to native ESM through its own sync loop ([dogfood](#dogfood-validation)). The MCP server, skill and GitHub Action are built. See [Roadmap](#roadmap).
+> **Status: early development.** The spec, core, `patch` mechanism and `graft` CLI work. Graft keeps its own CommonJS dependencies converted to native ESM through its own sync loop ([dogfood](#dogfood-validation)). The agent skill and GitHub Action are built. See [Roadmap](#roadmap).
 
 ## Quick start
 
 The flow below has been tested end to end on a real project (`ms`, adding a `fortnight` unit) with pnpm, bun and npm. The packages aren't on npm yet; until they are, install `@graftsync/cli` from packed tarballs. With bun, make the patch with `bun patch ms` / `bun patch --commit`. With npm or yarn, make it any way you like, for example by diffing a pristine copy against your edit. Graft's built-in applier applies it from `postinstall` (`graft apply` sets that up), so no extra dependency is needed.
 
 ```sh
-pnpm add -D @graftsync/cli @graftsync/mcp
-pnpm exec graft init --agent                                      # .grafts/, plus the MCP server and skill for agents
+pnpm add -D @graftsync/cli
+pnpm exec graft init --agent                                      # .grafts/, plus the skill for agents
 pnpm exec graft add ms-fortnight --package ms --target index.js   # graft.md + variant stub + oracle stub
 pnpm patch ms@2.1.2                                               # edit the printed directory
 pnpm patch-commit <dir> --patches-dir .grafts/tmp                 # then move the .patch onto variants/v2.patch
@@ -139,26 +139,16 @@ graft replay <id> [--range R]         # static checks across every published ver
 
 Every command takes `--json` and `--root`.
 
-## Agents: MCP server and skill
+## Agents: CLI and skill
 
-`graft-mcp` (from `@graftsync/mcp`) is a stdio MCP server over the same core operations as the CLI. It gives an agent context, verification and bookkeeping. The agent writes variant files with its own editing tools.
+Agents drive Graft through the same `graft` CLI people use. Every command takes `--json` for structured output, and exit codes are `0` ok, `1` needs attention, `2` tooling error. These cover what an agent needs beyond `status`, `check`, `diff`, `apply`, `verify` and `sync`:
 
-| Tool | Purpose |
+| Command | Purpose |
 |---|---|
-| `list_grafts` | All grafts with status, rootstock and installed versions, and anchor health |
-| `read_graft` | The full intent file, variants with resolved paths, and the variant selected for the installed version |
-| `check_anchors` | Anchor report for a graft at a version (pristine upstream contents) |
-| `scope_diff` | Upstream diff between two versions, narrowed to the graft's anchors |
-| `apply_cached` | Apply existing variants to a version; modified files are written for inspection |
-| `apply_to_project` | Point the package manager at each graft's selected variant, reinstall, and re-check anchors |
-| `run_oracle` | Run the oracle in every mode; pass/fail and output per mode |
-| `record_variant` | Register a new variant for a range. Never edits existing variants; can require anchors to match first |
-| `update_status` | Set status and verified, and append History |
-| `sync` | The deterministic first pass (with `install`), returning the report |
-
-```json
-{ "mcpServers": { "graft": { "command": "npx", "args": ["graft-mcp", "--root", "."] } } }
-```
+| `graft show <id>` | The intent (all body sections), variants with resolved paths, and the variant selected for the installed version |
+| `graft preview <id> [--version X] [--out dir]` | Apply a graft's variant to pristine upstream and write the modified files for inspection; installs nothing |
+| `graft variant add <id> --range R --module M [--verify-version X] [--note "…"]` | Register a new variant. Never edits existing variants. Narrows overlapping open-ended ranges (`--no-narrow` refuses instead). With `--verify-version`, rolls back unless every anchor matches there (the version must be inside the new range) |
+| `graft mark <id> [--status S] [--verified X] [--history "…"]` | Set status and `verified`, and append a History entry |
 
 The [skill](packages/skill/SKILL.md) (`graft-sync`) teaches any agent the loop and its rules:
 - run the deterministic first pass first;
@@ -169,35 +159,11 @@ The [skill](packages/skill/SKILL.md) (`graft-sync`) teaches any agent the loop a
 - know when to stop and mark `conflicted`;
 - write the PR description in the given format.
 
-To set both up in a project, run **`graft init --agent`**. It:
-- registers the server as `graft` in `.mcp.json` (`npx --no-install graft-mcp --root .`), merged with any servers already there. An existing `graft` entry is kept, since it may carry custom `env` such as proxy settings, and an `.mcp.json` that isn't valid JSON is never overwritten;
-- installs the skill at `.claude/skills/graft-sync/SKILL.md`, from the `@graftsync/skill` package. Re-running updates the skill when Graft's version changes;
-- notes if `@graftsync/cli` or `@graftsync/mcp` isn't a dependency yet.
+To set it up in a project, run **`graft init --agent`**. It installs the skill at `.claude/skills/graft-sync/SKILL.md` from the `@graftsync/skill` package (re-running updates it when Graft ships a new version), and notes if `@graftsync/cli` isn't a dependency yet. For agents that don't read that location, point them at the file.
 
-For agents that don't read `.mcp.json`, point them at the same command and skill file.
+The CLI runs in the agent's shell, so it inherits the usual proxy settings (`HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY`, and `NODE_EXTRA_CA_CERTS` for a proxy that re-signs TLS) for its registry fetches.
 
-**Behind a proxy.** MCP clients start stdio servers with only a small, safe set of environment variables (such as `PATH` and `HOME`), not your shell's full environment. Proxy settings therefore don't reach `graft-mcp`, and its registry fetches (pristine upstream contents, published versions) fail. Add them to the `env` block of the `graft` entry in `.mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "graft": {
-      "command": "npx",
-      "args": ["--no-install", "graft-mcp", "--root", "."],
-      "env": {
-        "HTTPS_PROXY": "http://proxy.example.com:8080",
-        "HTTP_PROXY": "http://proxy.example.com:8080",
-        "NO_PROXY": "localhost,127.0.0.1",
-        "NODE_EXTRA_CA_CERTS": "/path/to/corporate-ca.pem"
-      }
-    }
-  }
-}
-```
-
-`NODE_EXTRA_CA_CERTS` is only needed when the proxy re-signs TLS with its own CA. Re-running `graft init --agent` keeps an existing `graft` entry, so this `env` survives.
-
-This repo uses both on itself: [`.mcp.json`](.mcp.json) registers the server, and [`.claude/skills/graft-sync`](.claude/skills/graft-sync/SKILL.md) links the skill.
+This repo uses it on itself: [`.claude/skills/graft-sync`](.claude/skills/graft-sync/SKILL.md) links the skill.
 
 ## GitHub Action
 
@@ -205,7 +171,7 @@ This repo uses both on itself: [`.mcp.json`](.mcp.json) registers the server, an
 1. Poll each rootstock package's npm dist-tags.
 2. Run `graft sync --install` on a branch per package@version.
 3. If green, open a PR.
-4. If a graft needs an agent, run your `agent-command` (with the prompt, skill, MCP config and report), then re-run `sync` on the agent's work. Green opens a PR; still failing opens a draft PR. With no agent, or nothing to commit, it opens an issue with the report.
+4. If a graft needs an agent, run your `agent-command` (with the prompt, skill and report; the agent uses the `graft` CLI), then re-run `sync` on the agent's work. Green opens a PR; still failing opens a draft PR. With no agent, or nothing to commit, it opens an issue with the report.
 
 ```yaml
       - uses: brandonroberts/graft/packages/action@main
@@ -319,7 +285,6 @@ What the dogfood run found:
 | [`@graftsync/spec`](packages/spec) | ✅ implemented | `graft.md` schema (zod), parser and validator, comment-preserving editor, starter template. |
 | [`@graftsync/core`](packages/core) | ✅ implemented | See the list below. |
 | [`@graftsync/cli`](packages/cli) | ✅ implemented | `graft` command for humans and CI. |
-| [`@graftsync/mcp`](packages/mcp) | ✅ implemented | MCP server (`graft-mcp`) exposing the core operations as agent tools. |
 | [`@graftsync/skill`](packages/skill) | ✅ implemented | [`SKILL.md`](packages/skill/SKILL.md) teaching agents the sync loop. |
 | [`packages/action`](packages/action) | ✅ implemented | GitHub Action: poll npm dist-tags, run sync, open PRs, and hand failures to your agent. |
 | [`@graftsync/adapter-patch`](packages/adapters/patch) | ✅ implemented | First mechanism: pnpm `patchedDependencies`. |
@@ -333,7 +298,7 @@ What the dogfood run found:
 - `recordVariant`, which narrows ranges and never edits existing variants,
 - status, `sync`, `init`/`add` scaffolding, `outdated`, and `replay`.
 
-All logic lives in `core` and the adapters. The CLI and MCP server are thin front-ends over the same functions and behave identically.
+All logic lives in `core` and the adapters. The CLI is a thin front-end over those functions; the GitHub Action and agents drive Graft through it.
 
 ### Writing a mechanism adapter
 
@@ -386,7 +351,7 @@ The packages start at 0.1.0, which is not on npm yet, so the first manual run wi
 - **M0 — Spec and skeleton:** schema, parser, validator, adapter interface, `graft init/add/status`. *(Done.)*
 - **M1 — First mechanism adapter, with a design partner.** Capture one real modification as a graft, with an oracle driven by its invariants. *(The `patch` adapter is done and dogfooded on pacote, semver and yaml; an external design partner is still to come.)*
 - **M2 — Deterministic first pass in CI:** `graft check/diff/sync/verify`, reports, and a GitHub Action that opens PRs when everything passes. *(Done.)*
-- **M3 — Agent path:** MCP server, skill file, and the action's hand-off to an agent. Evaluated by replaying historical prereleases. *(The MCP server, skill and Action hand-off are done; the historical-prerelease eval is pending.)*
+- **M3 — Agent path:** agent-facing CLI commands, skill file, and the action's hand-off to an agent. Evaluated by replaying historical prereleases. *(The CLI commands, skill and Action hand-off are done; the historical-prerelease eval is pending. The brief's MCP server was built and then removed: agents use the CLI.)*
 - **M4 — Second, unrelated mechanism,** to prove the abstraction generalizes. Spec v1 is frozen only after this.
 
 The original design brief is in [`docs/handoff.md`](docs/handoff.md). Since that brief was written, the Vite transform adapter and the `@graft/vite` runtime plugin it describes have been taken out of scope.

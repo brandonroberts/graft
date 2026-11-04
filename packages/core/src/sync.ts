@@ -485,7 +485,7 @@ export function renderSyncMarkdown(report: SyncReport, root: string = report.roo
     if (g.diffPath) lines.push(`Scoped upstream diff: \`${rel(g.diffPath)}\``, '');
     if (g.outcome === 'needs-agent' && g.likelyUpstreamed) {
       lines.push(
-        `Next: upstream ${g.package}@${g.to} appears to already contain this graft's change. Confirm it (the invariants hold on pristine upstream, e.g. run the oracle without the graft), then use \`update_status\` to set \`.grafts/${g.id}/graft.md\` to \`upstreamed\` with a History entry. Do not write a new variant.`,
+        `Next: upstream ${g.package}@${g.to} appears to already contain this graft's change. Confirm it (the invariants hold on pristine upstream, e.g. run the oracle without the graft), then run \`graft mark ${g.id} --status upstreamed --history "…"\` to set \`.grafts/${g.id}/graft.md\` to \`upstreamed\` with a History entry. Do not write a new variant.`,
         '',
       );
     } else if (g.outcome === 'needs-agent') {

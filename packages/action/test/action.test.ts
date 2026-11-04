@@ -98,7 +98,7 @@ describe('graft GitHub Action', () => {
 
   it('hands off to the agent, re-verifies its work, and uses its PR description', async () => {
     const t = setup({ outdated: [entry('lib', '2.0.0')], sync: { lib: 'needs-agent' } });
-    const agent = `test -f "$GRAFT_PROMPT_FILE" && test -f "$GRAFT_MCP_CONFIG" && test -f "$GRAFT_SKILL_PATH" && grep -q "Do NOT commit" "$GRAFT_PROMPT_FILE" && touch .agent-fixed && printf '## Graft sync: lib 1.0.0 → 2.0.0\\nAgent wrote a v2 variant.' > "$GRAFT_PR_BODY_FILE"`;
+    const agent = `test -f "$GRAFT_PROMPT_FILE" && test -n "$GRAFT_COMMAND" && test -f "$GRAFT_SKILL_PATH" && grep -q "Do NOT commit" "$GRAFT_PROMPT_FILE" && touch .agent-fixed && printf '## Graft sync: lib 1.0.0 → 2.0.0\\nAgent wrote a v2 variant.' > "$GRAFT_PR_BODY_FILE"`;
     const { results } = await t.run({ 'agent-command': agent });
     expect(results[0]).toMatchObject({ outcome: 'pr', agent: true, agentExitCode: 0, syncExitCode: 0 });
     expect(t.calls().match(/graft sync/g)).toHaveLength(2); // before and after the agent

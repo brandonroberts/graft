@@ -21,7 +21,6 @@ export function parseInputs(raw = {}) {
     check,
     sync: bool('sync', true),
     graftCommand: str('graft-command', 'npx --no-install graft'),
-    mcpCommand: str('mcp-command', 'npx --no-install graft-mcp'),
     agentCommand: str('agent-command'),
     installCommand: str('install-command'),
     tags: list('tags'),
@@ -125,12 +124,12 @@ The deterministic first pass could not re-verify these grafts: ${needs.join(', '
 
 Follow the graft-sync skill: ${files.skill}
 The sync report is at ${files.reportMarkdown} (JSON: ${files.reportJson}); scoped upstream diffs are under .grafts/.report/<id>/diff.patch.
-The graft MCP server is configured in ${files.mcpConfig}; the CLI is \`${files.graftCommand}\`.
+Drive Graft with its CLI, \`${files.graftCommand}\` (also in $GRAFT_COMMAND; every command takes --json): \`check\`, \`diff\`, \`show\`, \`preview\`, \`variant add\`, \`apply\`, \`verify\`, \`sync\`, \`mark\`.
 
 You are running inside the Graft GitHub Action on branch ${files.branch}:
 - Do NOT commit, push, or open a pull request; the action does that after re-verifying your work.
-- Make the grafts pass for ${candidate.package}@${candidate.version} by adding new variants (never edit existing ones), registering them, and proving them with the oracle (\`${files.graftCommand} sync --version ${candidate.version} --package ${candidate.package} --install\`).
-- If an invariant cannot be satisfied, mark the graft conflicted with a History entry instead of forcing a pass.
+- Make the grafts pass for ${candidate.package}@${candidate.version} by adding new variants (never edit existing ones), registering them with \`variant add --verify-version ${candidate.version}\`, and proving them with the oracle (\`${files.graftCommand} sync --version ${candidate.version} --package ${candidate.package} --install\`).
+- If an invariant cannot be satisfied, mark the graft conflicted (\`mark <id> --status conflicted --history "…"\`) instead of forcing a pass.
 - Write the pull request description (the skill's format) to ${files.prBody}.
 `;
 }
@@ -236,21 +235,18 @@ export async function runAction(options, deps) {
           skill,
           reportJson: path.join(cwd, '.grafts/.report/sync.json'),
           reportMarkdown: path.join(cwd, '.grafts/.report/sync.md'),
-          mcpConfig: path.join(deps.tmpDir, 'graft-mcp.json'),
           prBody: path.join(deps.tmpDir, `pr-body-${slug(candidate.package)}.md`),
           prompt: path.join(deps.tmpDir, `prompt-${slug(candidate.package)}.md`),
           graftCommand: options.graftCommand,
           branch,
         };
-        const [mcpCmd, ...mcpArgs] = options.mcpCommand.split(/\s+/);
-        await writeFile(files.mcpConfig, JSON.stringify({ mcpServers: { graft: { command: mcpCmd, args: [...mcpArgs, '--root', cwd] } } }, null, 2));
         await writeFile(files.prompt, renderAgentPrompt({ candidate, report, files }));
         log(`graft: handing ${candidate.package}@${candidate.version} to the agent`);
         const agent = await run(options.agentCommand, {
           env: {
             GRAFT_PROMPT_FILE: files.prompt,
             GRAFT_SKILL_PATH: files.skill,
-            GRAFT_MCP_CONFIG: files.mcpConfig,
+            GRAFT_COMMAND: options.graftCommand,
             GRAFT_REPORT_JSON: files.reportJson,
             GRAFT_REPORT_MD: files.reportMarkdown,
             GRAFT_PR_BODY_FILE: files.prBody,

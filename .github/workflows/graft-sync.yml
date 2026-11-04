@@ -32,6 +32,5 @@ jobs:
         with:
           # Built in place in this monorepo; consumers use the default `npx --no-install graft`.
           graft-command: node packages/cli/dist/bin.js
-          mcp-command: node packages/mcp/dist/bin.js
           install-command: pnpm install --frozen-lockfile
           # To hand failing grafts to an agent, set agent-command (see packages/action/README.md).

@@ -117,6 +117,14 @@ export async function recordVariant(
   if (!semver.validRange(input.range, opts)) {
     throw new GraftError(`"${input.range}" is not a valid semver range`, 'variant/invalid-range');
   }
+  // Verifying at a version outside the new range would check whichever *other* variant covers
+  // that version, and pass without ever looking at the new one.
+  if (options.verifyVersion && !semver.satisfies(options.verifyVersion, input.range, opts)) {
+    throw new GraftError(
+      `verify version ${options.verifyVersion} is not in the new variant's range "${input.range}"; verify at a version the variant covers`,
+      'variant/verify-out-of-range',
+    );
+  }
   const modulePath = path.resolve(graft.dir, input.module);
   if (!modulePath.startsWith(graft.dir + path.sep)) {
     throw new GraftError(`variant module must live inside ${graft.dir}`, 'variant/outside-graft');
