@@ -18,7 +18,7 @@ The format and tooling contract are specified in [`docs/spec.md`](docs/spec.md) 
 
 ## Quick start
 
-The flow below has been tested end to end on a real project (`ms`, adding a `fortnight` unit) with pnpm, bun and npm. The packages aren't on npm yet; until they are, install `@graftsync/cli` from packed tarballs. With bun, make the patch with `bun patch ms` / `bun patch --commit`. With npm or yarn, make it any way you like, for example by diffing a pristine copy against your edit. Graft's built-in applier applies it from `postinstall` (`graft apply` sets that up), so no extra dependency is needed.
+The flow below has been tested end to end on a real project (`ms`, adding a `fortnight` unit) with pnpm, bun and npm. With bun, make the patch with `bun patch ms` / `bun patch --commit`. With npm or yarn, make it any way you like, for example by diffing a pristine copy against your edit. Graft's built-in applier applies it from `postinstall` (`graft apply` sets that up), so no extra dependency is needed.
 
 ```sh
 pnpm add -D @graftsync/cli
@@ -33,6 +33,48 @@ pnpm exec graft sync                                              # green
 pnpm exec graft replay ms-fortnight                               # which published versions the variant fits
 pnpm exec graft sync --version 2.1.3 --install                    # a real upgrade: install, verify, bump
 ```
+
+### Or hand it to your coding agent
+
+Paste this into Claude Code, Codex, Cursor or any agent that can run shell commands in your repo. Fill in the first line.
+
+````text
+I modify <upstream package, or "this repository, a fork of <upstream repo URL>"> so that <what the
+change does and why>. Set up Graft (https://github.com/brandonroberts/graft) so this modification
+keeps working, and keeps being re-verified, when upstream releases new versions.
+
+1. Run `npx -y @graftsync/cli@latest init --agent`, then read the graft-sync skill it installs.
+   Use that same CLI (`npx -y @graftsync/cli@latest …`) for every graft command below.
+2. Find the modification as it exists today: a patch file, an edited dependency, commits on a
+   fork. If it doesn't exist yet, make it. Tell me what you found before changing anything.
+3. Scaffold the graft:
+   - a dependency: `graft add <id> --package <pkg> --target <files>`, then turn the change into
+     the variant with the package manager's own patch flow (`pnpm patch`, `bun patch`, …), or a
+     diff of a pristine copy against the edited one;
+   - a fork whose code is installed as a dependency: `graft add <id> --package <pkg> --mechanism fork`,
+     and fill in the `fork:` block and the `{ ref, base }` variant;
+   - a fork that is the product itself, with this checkout as the fork:
+     `graft add <id> --package <name> --mechanism fork --in-place --version <upstream version it is based on>`.
+4. Write graft.md's body: Why, Invariants (observable behaviors, one per bullet), Where to look
+   (described by behavior, not file paths), Anchors, History.
+5. Write the oracle: a command that checks exactly the Invariants. Prove it: it must fail
+   without the modification and pass with it. Never weaken it to get a pass.
+6. Run `graft apply` (except for a fork that is the product), then `graft verify <id>`, then
+   `graft sync`, until it is green. `graft replay <id>` shows which published versions the
+   variant already fits.
+7. Don't commit. Summarize what you set up, and show me the oracle failing without the change
+   and passing with it.
+````
+
+When upstream releases, `graft sync` re-verifies without an agent. When it reports `needs-agent`, hand the agent this (the [GitHub Action](packages/action) does it for you with `agent-command`):
+
+````text
+`graft sync` reports that a graft needs an agent. Read .grafts/.report/sync.md, then follow the
+graft-sync skill to make every graft green again for the new upstream version: add new variants
+(never edit existing ones), keep the oracle as strict as it is, and prove the result with
+`graft sync`. If an invariant can no longer hold, mark the graft conflicted instead of forcing a
+pass. Don't commit; summarize what changed and why.
+````
 
 ## Concepts
 
