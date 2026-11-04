@@ -155,9 +155,13 @@ When asked to capture a modification as a graft (new, or migrating an existing p
   silently, and any patched file in `node_modules` that doesn't match pristine upstream + the
   variant.
 - Keep hunk context away from lines that change every release (`"version"` in package.json).
-- If the graft's *Where to look* or History names a generator for its variants (e.g.
-  `tools/cjs-to-esm/make-variant.mjs`), regenerate the variant with it against the new
-  version, then review the result rather than hand-patching the old one.
+- If the graft's variants are generated, give it a `generator: { command }` in its
+  frontmatter (`{version}` and `{out}` are substituted; e.g.
+  `node tools/cjs-to-esm/make-variant.mjs semver {version} {out}`). `graft sync` then
+  regenerates and registers a variant itself when the old one misses, and keeps it only if
+  the oracle passes. If sync still hands the graft to you, its reasons say what the generator
+  did; the rejected output is under `.grafts/.report/<id>/regenerated/`. Fix the generator
+  or review that output rather than hand-patching the old variant.
 
 ## When to stop: `conflicted`
 

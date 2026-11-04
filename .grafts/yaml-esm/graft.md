@@ -13,6 +13,8 @@ variants:
 oracle:
   command: node .grafts/yaml-esm/oracle.mjs
   modes: [esm, cjs]
+generator:
+  command: node tools/cjs-to-esm/make-variant.mjs yaml {version} {out}
 status: applied
 ---
 
@@ -50,7 +52,9 @@ field in package.json.
   between `"files"` and `"main"`, so its context never includes `"version"`.
 - Per file under `dist/`: that file's `require` lines (TypeScript emits them all at the
   top) and its `exports.X = …` block at the end. Both come from the TypeScript compiler,
-  so they only change when yaml's module graph changes.
+  so they only change when yaml's module graph changes. When they do, `graft sync` reruns
+  the `generator` (the converter) for the new version and keeps the result only if the
+  oracle passes.
 
 ## History
 
@@ -61,3 +65,6 @@ field in package.json.
   It ships as native ESM (`"type": "module"`, rebuilt `dist/`), so upstream has absorbed
   this graft for 3.x, and the v2 variant correctly misses there. Once 3.0 is stable and
   adopted, a human should mark this graft `upstreamed`. Status unchanged until then.
+- 2026-11-04: Added `generator:`, so `graft sync` regenerates the variant with the converter
+  when a release misses. For 3.x the converter refuses (already `"type": "module"`), so
+  those releases still go to an agent.

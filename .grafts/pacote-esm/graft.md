@@ -13,6 +13,8 @@ variants:
 oracle:
   command: node .grafts/pacote-esm/oracle.mjs
   modes: [esm, cjs]
+generator:
+  command: node tools/cjs-to-esm/make-variant.mjs pacote {version} {out}
 status: applied
 ---
 
@@ -56,6 +58,8 @@ The package's version is read with `require('../package.json')` in `lib/registry
 - Per file: its `require` lines and its `module.exports = …` statement. In `bin/index.js`,
   `require.main` is rewritten to a check of `process.argv[1]` against
   `import.meta.filename`, anchored on the `if (module === require.main)` line.
+- When a release misses, `graft sync` reruns the `generator` (the converter) for the new
+  version and keeps the result only if the oracle passes.
 
 ## History
 
@@ -66,3 +70,5 @@ The package's version is read with `require('../package.json')` in `lib/registry
   Replaying the full conversion across 20.0.0 to 22.0.0, it applies to 22.0.0 and 22.0.1.
   21.x misses the `lib/dir.js` hunks, because 22.0.0 rewrote the directory fetcher (it now
   requires an Arborist constructor).
+- 2026-11-04: Added `generator:`, so `graft sync` regenerates the variant with the converter
+  when a release misses and verifies it with the oracle before handing off to an agent.

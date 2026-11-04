@@ -13,6 +13,8 @@ variants:
 oracle:
   command: node .grafts/semver-esm/oracle.mjs
   modes: [esm, cjs]
+generator:
+  command: node tools/cjs-to-esm/make-variant.mjs semver {version} {out}
 status: applied
 ---
 
@@ -56,8 +58,9 @@ bottom of their files, after defining the class, to break a load-order cycle.
   with imports, prepends the `module`/`exports` shim, and appends the export block. Each
   file's hunks are anchored on that file's `require` lines and its final
   `module.exports = …` statement. These are the parts of semver's files that change least.
-  A file whose requires change upstream misses, and the sync loop hands it to an agent
-  (regenerate with the converter, then review).
+  A file whose requires change upstream misses. `graft sync` then reruns the `generator`
+  (the converter) for the new version and keeps the result only if the oracle passes;
+  otherwise it hands the graft to an agent.
 
 ## History
 
@@ -66,3 +69,5 @@ bottom of their files, after defining the class, to break a load-order cycle.
   `internal/trim-comparator-whitespace.js` and changed `classes/range.js`'s requires, so
   7.8.0 to 7.8.5 miss 4 or 5 of 85 hunks. Expect most semver releases to go to the agent path
   (regenerate with the converter, then review).
+- 2026-11-04: Added `generator:`, so `graft sync` regenerates the variant with the converter
+  when a release misses and verifies it with the oracle before handing off to an agent.

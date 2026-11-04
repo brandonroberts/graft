@@ -256,6 +256,7 @@ const syncCmd = defineCommand({
     print(args.json, report, () => {
       for (const g of report.grafts) {
         console.log(`${g.outcome === 'green' ? '✓' : g.outcome === 'skipped' ? '-' : '✗'} ${g.id}  ${g.from} → ${g.to ?? '?'}  ${g.outcome}${g.likelyUpstreamed ? ' (likely upstreamed)' : ''}`);
+        if (g.regenerated) console.log(`    ${g.regenerated.rolledBack ? 'rolled back regenerated' : 'regenerated'} variant ${g.regenerated.module} with \`${g.regenerated.command}\``);
         for (const r of g.reasons) console.log(`    ${r}`);
       }
       if (report.reportFiles) console.log(`report: ${path.relative(process.cwd(), report.reportFiles.markdown)}`);
