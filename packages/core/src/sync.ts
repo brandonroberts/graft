@@ -28,6 +28,12 @@ export interface SyncGraftResult {
   diffPath?: string;
   /** True when graft.md was updated (verified bumped / status set to applied). */
   updated?: boolean;
+  /**
+   * True when the target version already contains this graft's change (see
+   * `AnchorReport.upstreamed`). The outcome stays `needs-agent`: a human confirms and sets
+   * `status: upstreamed`.
+   */
+  likelyUpstreamed?: boolean;
 }
 
 export interface SyncTarget {
@@ -226,6 +232,12 @@ async function staticCheck(project: Project, graft: Graft, version: string): Pro
   if (result.variant) {
     result.anchors = await adapter.checkAnchors(ctx, version);
     if (!result.anchors.ok) result.reasons.push(`anchors: ${summarizeMisses(result.anchors)}`);
+    if (result.anchors.upstreamed) {
+      result.likelyUpstreamed = true;
+      result.reasons.unshift(
+        `upstream ${fm.rootstock.package}@${version} already contains this graft's change; confirm and set status: upstreamed (${result.anchors.upstreamed.evidence.join('; ')})`,
+      );
+    }
   }
 
   if (result.variant && result.anchors?.ok) {
@@ -300,10 +312,12 @@ export function renderSyncMarkdown(report: SyncReport, root: string = report.roo
     lines.push('');
   }
   lines.push('| Graft | Package | Verified → Target | Outcome |', '|---|---|---|---|');
-  for (const g of report.grafts) lines.push(`| ${g.id} | ${g.package} | ${g.from} → ${g.to ?? '?'} | ${ICON[g.outcome]} ${g.outcome} |`);
+  for (const g of report.grafts) {
+    lines.push(`| ${g.id} | ${g.package} | ${g.from} → ${g.to ?? '?'} | ${ICON[g.outcome]} ${g.outcome}${g.likelyUpstreamed ? ' (likely upstreamed)' : ''} |`);
+  }
   lines.push('');
   for (const g of report.grafts.filter((g) => g.outcome === 'needs-agent' || g.outcome === 'error')) {
-    lines.push(`## ${g.id} — ${g.outcome}`, '');
+    lines.push(`## ${g.id} — ${g.outcome}${g.likelyUpstreamed ? ' (likely upstreamed)' : ''}`, '');
     for (const r of g.reasons) lines.push(`- ${r}`);
     lines.push('');
     if (g.variant) lines.push(`Selected variant: \`${g.variant.module}\` (\`${g.variant.range}\`)`, '');
@@ -317,7 +331,12 @@ export function renderSyncMarkdown(report: SyncReport, root: string = report.roo
       lines.push(`Oracle output (${m.mode}, exit ${m.exitCode}):`, '', '```', m.output.trim().slice(-4000), '```', '');
     }
     if (g.diffPath) lines.push(`Scoped upstream diff: \`${rel(g.diffPath)}\``, '');
-    if (g.outcome === 'needs-agent') {
+    if (g.outcome === 'needs-agent' && g.likelyUpstreamed) {
+      lines.push(
+        `Next: upstream ${g.package}@${g.to} appears to already contain this graft's change. Confirm it (the invariants hold on pristine upstream, e.g. run the oracle without the graft), then use \`update_status\` to set \`.grafts/${g.id}/graft.md\` to \`upstreamed\` with a History entry. Do not write a new variant.`,
+        '',
+      );
+    } else if (g.outcome === 'needs-agent') {
       lines.push(
         `Next: follow the graft sync skill — read \`.grafts/${g.id}/graft.md\`, write a new variant for ${g.package}@${g.to}, and verify with the oracle.`,
         '',

@@ -55,6 +55,12 @@ export interface AnchorReport {
   /** Problems not tied to a single anchor (missing variant, missing target, load error). */
   errors: string[];
   ok: boolean;
+  /**
+   * Set when the variant does not apply to this version but upstream already contains its
+   * change (e.g. the reverse patch applies cleanly). `ok` stays false: a human confirms and
+   * sets `status: upstreamed`.
+   */
+  upstreamed?: { evidence: string[] };
 }
 
 export interface AppliedFile {

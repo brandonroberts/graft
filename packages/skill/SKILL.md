@@ -167,7 +167,12 @@ Stop and mark the graft `conflicted` (via `update_status`, with a History entry)
   that makes an invariant impossible or contradictory;
 - you cannot make the oracle pass in every mode without weakening it;
 - upstream now does what the graft did — say so; a human decides whether to mark it
-  `upstreamed`.
+  `upstreamed`. Graft detects the common case for you: when the variant no longer applies
+  but upstream already contains its change (for patches, the reverse patch applies cleanly),
+  sync reports the graft as **likely upstreamed** (`likelyUpstreamed: true`, and
+  `anchors.upstreamed.evidence` from `check_anchors`). Then don't write a new variant:
+  confirm the invariants hold on pristine upstream, and recommend (or, if asked, apply via
+  `update_status`) the `upstreamed` status with a History entry citing the version.
 
 Name the failing invariant, what moved upstream, and what you tried. Open a **draft** PR with
 the same information. Don't leave a half-working variant registered: if you recorded one that

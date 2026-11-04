@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { applyPatch, reversePatch } from 'diff';
 import {
   GraftError,
   renderPatch,
@@ -81,6 +82,30 @@ function hunkAnchors(patch: FilePatch, content: string | undefined): AnchorResul
   });
 }
 
+/**
+ * Evidence that `dir` (pristine upstream) already contains every change of `patches`, or
+ * undefined if any file patch is not fully absorbed: modified files must take the reverse patch
+ * with no fuzz, created files must exist with identical content, deleted files must be gone.
+ */
+async function upstreamedEvidence(dir: string, patches: FilePatch[]): Promise<string[] | undefined> {
+  const evidence: string[] = [];
+  for (const p of patches) {
+    if (p.oldFile === null) {
+      const content = await readIn(dir, p.newFile!);
+      if (content === undefined || content !== applyPatch('', p.raw, { fuzzFactor: 0 })) return undefined;
+      evidence.push(`${p.newFile} already exists with the content this graft creates`);
+    } else if (p.newFile === null) {
+      if ((await readIn(dir, p.oldFile)) !== undefined) return undefined;
+      evidence.push(`${p.oldFile}, which this graft deletes, is already gone`);
+    } else {
+      const content = await readIn(dir, p.newFile);
+      if (content === undefined || !p.hunks.length || applyPatch(content, reversePatch(p.raw), { fuzzFactor: 0 }) === false) return undefined;
+      evidence.push(`${p.newFile}: all ${p.hunks.length} hunk(s) already present (the reverse patch applies with no fuzz)`);
+    }
+  }
+  return evidence.length ? evidence : undefined;
+}
+
 export function createPatchAdapter(): MechanismAdapter {
   return {
     name: MECHANISM,
@@ -111,6 +136,11 @@ export function createPatchAdapter(): MechanismAdapter {
         if (content !== undefined && p.oldFile && hunkAnchors(p, content).every((a) => a.matched) && applyFilePatch(content, p) === false) {
           report.errors.push(`${patchTarget(p)}: hunks match individually but the patch does not apply as a whole`);
         }
+      }
+      // A variant that no longer fits may simply be upstream's own change now: detect absorption.
+      if (!report.anchors.every((a) => a.matched)) {
+        const evidence = await upstreamedEvidence(dir, patches);
+        if (evidence) report.upstreamed = { evidence };
       }
       const installed = await project.upstream.installed(pkg);
       if (installed?.version === version) {

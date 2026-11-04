@@ -118,6 +118,79 @@ describe('sync with the patch adapter', () => {
   });
 });
 
+describe('detecting an upstreamed graft', () => {
+  const PATCHED = `const a = 1\nconst b = 2\nconst c = 3\nmodule.exports = { a, b }\n`;
+  const TWO_HUNKS = `diff --git a/index.js b/index.js
+--- a/index.js
++++ b/index.js
+@@ -1,3 +1,4 @@
+ const a = 1
+ const b = 2
++const c = 3
+ module.exports = { a, b }
+@@ -5,3 +6,4 @@
+ function f() {}
+ function g() {}
++function h() {}
+ module.exports.f = f
+`;
+
+  async function withV2(content: string, patch?: string) {
+    const fx = await fixture('1.0.0');
+    if (patch) await writeFile(path.join(fx.root, '.grafts/add-c/variants/v1.patch'), patch);
+    await writeFile(path.join(fx.root, 'upstream', '2.0.0', 'index.js'), content);
+    return fx;
+  }
+
+  it('flags a graft whose change upstream already contains', async () => {
+    const { project, graft } = await withV2(PATCHED);
+    const report = await patchAdapter.checkAnchors(project.context(graft), '2.0.0');
+    expect(report.ok).toBe(false);
+    expect(report.upstreamed?.evidence.join('\n')).toMatch(/index\.js: all 1 hunk/);
+
+    const result = await sync(project, { version: '2.0.0' });
+    const g = result.grafts[0]!;
+    expect(g).toMatchObject({ outcome: 'needs-agent', likelyUpstreamed: true });
+    expect(g.reasons[0]).toMatch(/upstream lib@2\.0\.0 already contains this graft's change; confirm and set status: upstreamed/);
+    const md = await readFile(result.reportFiles!.markdown, 'utf8');
+    expect(md).toContain('likely upstreamed');
+    expect(md).toMatch(/Next: .*`update_status`.*`upstreamed`/);
+    expect(await readFile(path.join(project.root, '.grafts/add-c/graft.md'), 'utf8')).not.toContain('status: upstreamed');
+  });
+
+  it('flags a created file that upstream now ships with identical content', async () => {
+    const created = `diff --git a/extra.js b/extra.js
+new file mode 100644
+--- /dev/null
++++ b/extra.js
+@@ -0,0 +1 @@
++module.exports = 42
+`;
+    const { project, graft, root } = await withV2(V3, created);
+    await writeFile(path.join(root, 'upstream', '2.0.0', 'extra.js'), 'module.exports = 42\n');
+    const report = await patchAdapter.checkAnchors(project.context(graft), '2.0.0');
+    expect(report.upstreamed?.evidence[0]).toMatch(/extra\.js already exists/);
+    await writeFile(path.join(root, 'upstream', '2.0.0', 'extra.js'), 'module.exports = 43\n');
+    expect((await patchAdapter.checkAnchors(project.context(graft), '2.0.0')).upstreamed).toBeUndefined();
+  });
+
+  it('does not flag partial absorption (only some hunks upstream)', async () => {
+    const tail = `function f() {}\nfunction g() {}\nmodule.exports.f = f\n`;
+    const { project, graft } = await withV2(PATCHED + tail, TWO_HUNKS);
+    const report = await patchAdapter.checkAnchors(project.context(graft), '2.0.0');
+    expect(report.ok).toBe(false);
+    expect(report.upstreamed).toBeUndefined();
+    const result = await sync(project, { version: '2.0.0', writeReport: false });
+    expect(result.grafts[0]).toMatchObject({ outcome: 'needs-agent' });
+    expect(result.grafts[0]?.likelyUpstreamed).toBeUndefined();
+  });
+
+  it('does not flag a version that simply moved the anchors', async () => {
+    const { project, graft } = await fixture('1.0.0');
+    expect((await patchAdapter.checkAnchors(project.context(graft), '2.0.0')).upstreamed).toBeUndefined();
+  });
+});
+
 describe('onboarding a new graft (found by testing against a real project)', () => {
   it('scaffolds a .patch variant for the patch mechanism, which fails loudly until written', async () => {
     const { project, root } = await fixture('1.0.0');

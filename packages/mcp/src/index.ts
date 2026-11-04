@@ -93,7 +93,7 @@ export function createGraftServer(options: GraftServerOptions = {}): McpServer {
       const status = await projectStatus(project);
       const grafts = status.grafts.map((g) => ({
         ...g,
-        anchors: includeAnchors === false ? undefined : g.anchors && { ok: g.anchors.ok, variant: g.anchors.variant?.module ?? null, missed: g.anchors.anchors.filter((a) => !a.matched).map((a) => a.name), errors: g.anchors.errors },
+        anchors: includeAnchors === false ? undefined : g.anchors && { ok: g.anchors.ok, variant: g.anchors.variant?.module ?? null, missed: g.anchors.anchors.filter((a) => !a.matched).map((a) => a.name), errors: g.anchors.errors, upstreamed: g.anchors.upstreamed },
       }));
       return ok({ root: project.root, grafts, invalid: status.invalid }, `${grafts.length} graft(s), ${status.invalid.length} invalid`);
     }),
@@ -142,7 +142,12 @@ export function createGraftServer(options: GraftServerOptions = {}): McpServer {
     tool(async (project, { id, version }: { id: string; version?: string }) => {
       const report = await checkAnchors(project, id, version);
       const missed = report.anchors.filter((a) => !a.matched).length;
-      return ok(report, report.ok ? `all ${report.anchors.length} anchors match ${report.package}@${report.version}` : `${missed} anchor(s) missed, ${report.errors.length} error(s)`);
+      return ok(
+        report,
+        report.ok
+          ? `all ${report.anchors.length} anchors match ${report.package}@${report.version}`
+          : `${missed} anchor(s) missed, ${report.errors.length} error(s)${report.upstreamed ? `; likely upstreamed: ${report.package}@${report.version} already contains this graft's change — confirm and set status: upstreamed` : ''}`,
+      );
     }),
   );
 
@@ -275,12 +280,12 @@ export function createGraftServer(options: GraftServerOptions = {}): McpServer {
         ...report,
         grafts: report.grafts.map((g) => ({
           ...g,
-          anchors: g.anchors && { ok: g.anchors.ok, missed: g.anchors.anchors.filter((a) => !a.matched), errors: g.anchors.errors },
+          anchors: g.anchors && { ok: g.anchors.ok, missed: g.anchors.anchors.filter((a) => !a.matched), errors: g.anchors.errors, upstreamed: g.anchors.upstreamed },
           apply: g.apply && { ok: g.apply.ok, errors: g.apply.errors, files: g.apply.files.filter((f) => f.error) },
           oracle: g.oracle && { passed: g.oracle.passed, modes: g.oracle.modes.map((m) => ({ mode: m.mode, passed: m.passed, exitCode: m.exitCode, output: m.passed ? undefined : m.output.slice(-4_000) })) },
         })),
       };
-      return ok(slim, `exit ${report.exitCode}: ${report.grafts.map((g) => `${g.id}=${g.outcome}`).join(', ') || 'no grafts'}`);
+      return ok(slim, `exit ${report.exitCode}: ${report.grafts.map((g) => `${g.id}=${g.outcome}${g.likelyUpstreamed ? ' (likely upstreamed)' : ''}`).join(', ') || 'no grafts'}`);
     }),
   );
 

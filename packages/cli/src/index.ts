@@ -61,6 +61,10 @@ function printAnchors(report: AnchorReport): void {
     console.log(`  ${a.matched ? '✓' : '✗'} ${a.name} ${a.file}${where}${a.description ? ` — ${a.description}` : ''}${a.error ? ` (${a.error})` : ''}`);
   }
   for (const e of report.errors) console.log(`  ✗ ${e}`);
+  if (report.upstreamed) {
+    console.log(`  ⇡ likely upstreamed: ${report.package}@${report.version} already contains this graft's change; confirm and set status: upstreamed`);
+    for (const e of report.upstreamed.evidence) console.log(`    ${e}`);
+  }
 }
 
 const init = defineCommand({
@@ -140,7 +144,7 @@ const status = defineCommand({
     print(args.json, result, () => {
       if (!result.grafts.length && !result.invalid.length) console.log('no grafts (run `graft add`)');
       for (const g of result.grafts) {
-        const health = g.error ? `✗ ${g.error}` : !g.anchors ? (g.installed ? '—' : 'not installed') : g.anchors.ok ? '✓ anchors ok' : '✗ anchors miss';
+        const health = g.error ? `✗ ${g.error}` : !g.anchors ? (g.installed ? '—' : 'not installed') : g.anchors.ok ? '✓ anchors ok' : g.anchors.upstreamed ? '✗ anchors miss (likely upstreamed)' : '✗ anchors miss';
         console.log(`${g.id}  ${g.package}  verified ${g.verified}  installed ${g.installed ?? '—'}  ${g.status}  ${health}`);
         if (g.anchors && !g.anchors.ok) printAnchors(g.anchors);
       }
@@ -251,7 +255,7 @@ const syncCmd = defineCommand({
     });
     print(args.json, report, () => {
       for (const g of report.grafts) {
-        console.log(`${g.outcome === 'green' ? '✓' : g.outcome === 'skipped' ? '-' : '✗'} ${g.id}  ${g.from} → ${g.to ?? '?'}  ${g.outcome}`);
+        console.log(`${g.outcome === 'green' ? '✓' : g.outcome === 'skipped' ? '-' : '✗'} ${g.id}  ${g.from} → ${g.to ?? '?'}  ${g.outcome}${g.likelyUpstreamed ? ' (likely upstreamed)' : ''}`);
         for (const r of g.reasons) console.log(`    ${r}`);
       }
       if (report.reportFiles) console.log(`report: ${path.relative(process.cwd(), report.reportFiles.markdown)}`);
