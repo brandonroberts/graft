@@ -12,7 +12,7 @@ Coding agents can do that fix. What's missing is something to start them, a reco
 
 Graft does not ship its own agent or call an LLM, and there is no hosted service.
 
-> **Status: early development.** The spec, core, `patch` mechanism and `graft` CLI work. Graft keeps its own CommonJS dependencies converted to native ESM through its own sync loop ([dogfood](#dogfood-validation)). The MCP server, skill file and GitHub Action are not built yet. See [Roadmap](#roadmap).
+> **Status: early development.** The spec, core, `patch` mechanism and `graft` CLI work. Graft keeps its own CommonJS dependencies converted to native ESM through its own sync loop ([dogfood](#dogfood-validation)). The MCP server, skill and GitHub Action are built. See [Roadmap](#roadmap).
 
 ## Concepts
 
@@ -148,6 +148,22 @@ The [skill](packages/skill/SKILL.md) (`graft-sync`) teaches any agent the loop a
 
 This repo uses both on itself: [`.mcp.json`](.mcp.json) registers the server, and [`.claude/skills/graft-sync`](.claude/skills/graft-sync/SKILL.md) links the skill.
 
+## GitHub Action
+
+[`packages/action`](packages/action) runs the loop on a schedule:
+1. Poll each rootstock package's npm dist-tags.
+2. Run `graft sync --install` on a branch per package@version.
+3. If green, open a PR.
+4. If a graft needs an agent, run your `agent-command` (with the prompt, skill, MCP config and report), then re-run `sync` on the agent's work. Green opens a PR; still failing opens a draft PR. With no agent, or nothing to commit, it opens an issue with the report.
+
+```yaml
+      - uses: brandonroberts/graft/packages/action@main
+        with:
+          agent-command: ''   # optional: any agent CLI; see packages/action/README.md
+```
+
+This repo runs it on itself weekly ([`.github/workflows/graft-sync.yml`](.github/workflows/graft-sync.yml)). Its first real (dry) run found yaml **3.0.0-2** on `next`. That release is native ESM, so the `yaml-esm` patch correctly no longer applies, because upstream has absorbed the graft. The action routes that to a human through an issue.
+
 ## Mechanisms
 
 ### `patch` (pnpm)
@@ -206,7 +222,7 @@ What the dogfood run found:
 | [`@graftsync/cli`](packages/cli) | ✅ implemented | `graft` command for humans and CI. |
 | [`@graftsync/mcp`](packages/mcp) | ✅ implemented | MCP server (`graft-mcp`) exposing the core operations as agent tools. |
 | [`@graftsync/skill`](packages/skill) | ✅ implemented | [`SKILL.md`](packages/skill/SKILL.md) teaching agents the sync loop. |
-| `packages/action` | 📝 planned | GitHub Action: poll npm dist-tags, run sync, open PRs or hand off to an agent. |
+| [`packages/action`](packages/action) | ✅ implemented | GitHub Action: poll npm dist-tags, run sync, open PRs, and hand failures to your agent. |
 | [`@graftsync/adapter-patch`](packages/adapters/patch) | ✅ implemented | First mechanism: pnpm `patchedDependencies`. |
 
 `@graftsync/core` contains:
@@ -258,8 +274,8 @@ pnpm graft status
 
 - **M0 — Spec and skeleton:** schema, parser, validator, adapter interface, `graft init/add/status`. *(Done.)*
 - **M1 — First mechanism adapter, with a design partner.** Capture one real modification as a graft, with an oracle driven by its invariants. *(The `patch` adapter is done and dogfooded on pacote, semver and yaml; an external design partner is still to come.)*
-- **M2 — Deterministic first pass in CI:** `graft check/diff/sync/verify`, reports, and a GitHub Action that opens PRs when everything passes. *(The CLI and reports are done; the Action is pending.)*
-- **M3 — Agent path:** MCP server, skill file, and the action's hand-off to an agent. Evaluated by replaying historical prereleases. *(The MCP server and skill are done; the Action hand-off is pending.)*
+- **M2 — Deterministic first pass in CI:** `graft check/diff/sync/verify`, reports, and a GitHub Action that opens PRs when everything passes. *(Done.)*
+- **M3 — Agent path:** MCP server, skill file, and the action's hand-off to an agent. Evaluated by replaying historical prereleases. *(The MCP server, skill and Action hand-off are done; the historical-prerelease eval is pending.)*
 - **M4 — Second, unrelated mechanism,** to prove the abstraction generalizes. Spec v1 is frozen only after this.
 
 The original design brief is in [`docs/handoff.md`](docs/handoff.md). Since that brief was written, the Vite transform adapter and the `@graft/vite` runtime plugin it describes have been taken out of scope.

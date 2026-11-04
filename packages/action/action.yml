@@ -1,0 +1,79 @@
+name: Graft sync
+description: Keep local modifications to upstream npm packages in sync. Polls dist-tags, re-verifies grafts, opens PRs, and hands failures to your agent.
+author: Graft
+branding:
+  icon: git-merge
+  color: green
+
+inputs:
+  github-token:
+    description: Token used by `gh` to open pull requests and issues. Needs contents:write, pull-requests:write and issues:write.
+    default: ${{ github.token }}
+  working-directory:
+    description: Project root (the directory containing .grafts/).
+    default: .
+  graft-command:
+    description: How to run the graft CLI in the project.
+    default: npx --no-install graft
+  mcp-command:
+    description: How to start the graft MCP server; written into the MCP config handed to the agent.
+    default: npx --no-install graft-mcp
+  tags:
+    description: Comma-separated npm dist-tags to consider (default latest,next,rc,beta,canary; prereleases preferred).
+    default: ''
+  packages:
+    description: Comma-separated rootstock packages to consider (default all).
+    default: ''
+  agent-command:
+    description: >
+      Shell command that runs your coding agent when grafts need one (sync exit 1). It receives
+      GRAFT_PROMPT_FILE, GRAFT_SKILL_PATH, GRAFT_MCP_CONFIG, GRAFT_REPORT_JSON, GRAFT_REPORT_MD,
+      GRAFT_PR_BODY_FILE, GRAFT_PACKAGE, GRAFT_TARGET_VERSION and GRAFT_BRANCH. The action re-runs
+      graft sync afterwards; the agent's word is never trusted. Empty: no agent.
+    default: ''
+  on-needs-agent:
+    description: >
+      What to do when grafts still need attention (after the agent, if any). "report": open a draft PR
+      if there are changes to propose, otherwise an issue with the sync report (once per package@version).
+      "skip": only record it in the job summary.
+    default: report
+  install-command:
+    description: Reinstall command used to reset node_modules between packages (default detected from the lockfile).
+    default: ''
+  base-branch:
+    description: Branch to open PRs against (default the checked-out branch).
+    default: ''
+  branch-prefix:
+    description: Prefix for sync branches.
+    default: graft/sync-
+  labels:
+    description: Comma-separated labels to add to PRs (they must already exist).
+    default: ''
+  commit-author:
+    description: Commit author, as "Name <email>".
+    default: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
+  skill-path:
+    description: Path to the graft-sync SKILL.md handed to the agent (default the copy shipped with this action).
+    default: ''
+  dry-run:
+    description: Run sync but do not push or open PRs.
+    default: 'false'
+
+outputs:
+  results:
+    description: JSON array with one entry per rootstock package (outcome, versions, PR URL, reasons).
+    value: ${{ steps.graft.outputs.results }}
+  pull-requests:
+    description: JSON array of opened PR URLs.
+    value: ${{ steps.graft.outputs.pull-requests }}
+
+runs:
+  using: composite
+  steps:
+    - id: graft
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        GRAFT_INPUTS: ${{ toJSON(inputs) }}
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: node "$GITHUB_ACTION_PATH/src/run.mjs"

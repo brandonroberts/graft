@@ -57,3 +57,7 @@ field in package.json.
 - 2026-11-04: Graft created against yaml@2.9.1 (75 files converted). Replaying the variant
   across 2.0.0 to 2.9.0, it applies unchanged to 2.8.0 through 2.9.1. 2.7.x and earlier miss
   4 to 52 of 150 hunks as yaml's module graph changed.
+- 2026-11-04: The GitHub Action's first real run found yaml@3.0.0-2 on the `next` dist-tag.
+  It ships as native ESM (`"type": "module"`, rebuilt `dist/`), so upstream has absorbed
+  this graft for 3.x, and the v2 variant correctly misses there. Once 3.0 is stable and
+  adopted, a human should mark this graft `upstreamed`. Status unchanged until then.

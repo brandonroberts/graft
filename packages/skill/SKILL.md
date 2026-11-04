@@ -136,6 +136,17 @@ Name the failing invariant, what moved upstream, and what you tried. Open a **dr
 the same information. Don't leave a half-working variant registered: if you recorded one that
 doesn't pass, say so explicitly in History and the PR.
 
+## Running inside the Graft GitHub Action
+
+When the action invokes you, `GRAFT_PROMPT_FILE` holds your task, and the environment points
+at everything else: `GRAFT_SKILL_PATH` (this file), `GRAFT_MCP_CONFIG` (the graft MCP server),
+`GRAFT_REPORT_MD` / `GRAFT_REPORT_JSON` (the sync report), `GRAFT_PACKAGE`,
+`GRAFT_TARGET_VERSION`, and `GRAFT_BRANCH` (already checked out).
+
+- Do **not** commit, push, or open a pull request. The action re-runs `graft sync` on your
+  work and opens the PR itself: a normal PR only if the oracle passes, otherwise a draft.
+- Write the PR description (format below) to `GRAFT_PR_BODY_FILE`.
+
 ## PR description
 
 ```markdown
