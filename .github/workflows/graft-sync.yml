@@ -5,9 +5,8 @@
 # Requires: Settings → Actions → General → "Allow GitHub Actions to create and approve pull requests".
 name: Graft sync
 
+# Manual trigger only: run it from the Actions tab (or `gh workflow run graft-sync.yml`).
 on:
-  schedule:
-    - cron: '23 7 * * 1' # Mondays 07:23 UTC
   workflow_dispatch:
 
 permissions:

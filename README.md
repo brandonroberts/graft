@@ -162,7 +162,7 @@ This repo uses both on itself: [`.mcp.json`](.mcp.json) registers the server, an
           agent-command: ''   # optional: any agent CLI; see packages/action/README.md
 ```
 
-This repo runs it on itself weekly ([`.github/workflows/graft-sync.yml`](.github/workflows/graft-sync.yml)). Its first real (dry) run found yaml **3.0.0-2** on `next`. That release is native ESM, so the `yaml-esm` patch correctly no longer applies, because upstream has absorbed the graft. The action routes that to a human through an issue.
+This repo runs it on itself, triggered manually ([`.github/workflows/graft-sync.yml`](.github/workflows/graft-sync.yml)). Its first real (dry) run found yaml **3.0.0-2** on `next`. That release is native ESM, so the `yaml-esm` patch correctly no longer applies, because upstream has absorbed the graft. The action routes that to a human through an issue.
 
 ## Mechanisms
 
