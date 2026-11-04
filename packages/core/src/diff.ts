@@ -85,7 +85,7 @@ export function renderPatch(files: ScopedFileDiff[], labels: { from: string; to:
       out.push(`@@ -${h.oldStart},${h.oldLines} +${h.newStart},${h.newLines} @@${note}`, ...h.lines);
     }
     if (f.candidates?.length) {
-      out.push(`# candidate files in ${labels.to} mentioning anchor symbols:`, ...f.candidates.map((c) => `#   ${c}`));
+      out.push(`# candidate files in ${labels.to} that contain the removed target's patched code (best match first):`, ...f.candidates.map((c) => `#   ${c}`));
     }
   }
   return out.join('\n') + (out.length ? '\n' : '');
@@ -113,6 +113,72 @@ export async function findFilesMentioning(dir: string, symbols: string[], limit 
   };
   await walk('');
   return hits;
+}
+
+const KEYWORDS = new Set(
+  'this that from with true false null undefined const function return export import default async await else case break continue throw catch finally typeof instanceof void delete while switch class extends super static yield require module exports Object Array String Number Boolean Promise prototype length push call apply bind then value'.split(' '),
+);
+
+/**
+ * Distinctive text in some source lines, for finding where removed code moved: trimmed lines
+ * worth matching (not blank, not bare punctuation like `}` or `});`, at least 8 characters, and
+ * containing an identifier) and identifiers of 4+ characters that are not common keywords.
+ */
+export function distinctiveText(lines: string[]): { lines: string[]; identifiers: string[] } {
+  const keptLines = new Set<string>();
+  const identifiers = new Set<string>();
+  for (const raw of lines) {
+    const line = raw.trim();
+    const ids = (line.match(/[A-Za-z_$][\w$]{3,}/g) ?? []).filter((id) => !KEYWORDS.has(id));
+    for (const id of ids) identifiers.add(id);
+    if (line.length >= 8 && /[A-Za-z_$][\w$]{2,}/.test(line)) keptLines.add(line);
+  }
+  // Longer lines are more distinctive; check them first.
+  return { lines: [...keptLines].sort((a, b) => b.length - a.length), identifiers: [...identifiers] };
+}
+
+export interface RankFilesOptions {
+  /** Trimmed lines to look for (each counts once per file). */
+  lines: string[];
+  /** Identifiers to look for; break ties between files matching the same number of lines. */
+  identifiers?: string[];
+  /** Maximum files returned. Default 10. */
+  limit?: number;
+  /** File name pattern to scan. Default: JavaScript (.js/.cjs/.mjs). */
+  include?: RegExp;
+  /** Paths (relative to `dir`) to skip. */
+  exclude?: string[];
+}
+
+/**
+ * Rank files under `dir` (excluding node_modules and dot-directories) by how many of `lines`
+ * they contain, then by how many identifiers. Files matching nothing are left out.
+ */
+export async function rankFilesByContent(dir: string, options: RankFilesOptions): Promise<string[]> {
+  const wantedLines = options.lines.filter((l) => l.trim().length > 0);
+  const wantedIds = (options.identifiers ?? []).filter((s) => s.length >= 4);
+  if (!wantedLines.length && !wantedIds.length) return [];
+  const include = options.include ?? CODE_EXT;
+  const exclude = new Set(options.exclude ?? []);
+  const scored: { file: string; lines: number; ids: number }[] = [];
+  const walk = async (rel: string): Promise<void> => {
+    const entries = await readdir(path.join(dir, rel), { withFileTypes: true }).catch(() => []);
+    for (const e of entries) {
+      const child = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) {
+        if (e.name !== 'node_modules' && !e.name.startsWith('.')) await walk(child);
+      } else if (include.test(e.name) && !exclude.has(child)) {
+        const text = await readFile(path.join(dir, child), 'utf8').catch(() => '');
+        if (!text) continue;
+        const lines = wantedLines.filter((l) => text.includes(l)).length;
+        const ids = wantedIds.filter((s) => text.includes(s)).length;
+        if (lines || ids) scored.push({ file: child, lines, ids });
+      }
+    }
+  };
+  await walk('');
+  scored.sort((a, b) => b.lines - a.lines || b.ids - a.ids || (a.file < b.file ? -1 : a.file > b.file ? 1 : 0));
+  return scored.slice(0, options.limit ?? 10).map((s) => s.file);
 }
 
 /** 1-based line and column of a UTF-16 offset. */

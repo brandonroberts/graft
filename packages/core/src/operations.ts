@@ -60,7 +60,7 @@ export interface UpdateStatusInput {
 }
 
 export async function updateGraft(project: Project, id: string, input: UpdateStatusInput): Promise<Graft> {
-  const graft = await project.get(id);
+  const graft = await project.get(id, { allowConflicts: true });
   if (input.status && !GRAFT_STATUSES.includes(input.status)) {
     throw new GraftError(`invalid status "${input.status}" (expected ${GRAFT_STATUSES.join(' | ')})`, 'status/invalid');
   }
@@ -72,7 +72,7 @@ export async function updateGraft(project: Project, id: string, input: UpdateSta
     if (input.verified) doc.setVerified(input.verified);
     if (input.history) doc.appendHistory(input.history);
   });
-  return project.get(id);
+  return project.get(id, { allowConflicts: true });
 }
 
 /** Append `<extra>` to every comparator set of `range` (handles `||` unions). */
