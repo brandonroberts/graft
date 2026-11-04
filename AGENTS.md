@@ -85,8 +85,10 @@ Keep these in step with the code, in the same commit:
 
 - **Commit messages:** an imperative subject (an optional `area:` prefix is fine), then a body saying *what* and *why*, and what was verified. Reference issues (`Closes #N`). Never put model names or IDs in commits, code or docs.
 - **Commit trailers:** follow the attribution instructions you're given.
-- **Changes land on `main`** (the maintainer's preference), with CI green.
-- **Never push** tags, other people's forks or upstream repositories unless asked. Graft itself never pushes on a user's behalf.
+- **Don't push automatically.** Commit locally and stop. Push only when the person you're working for explicitly asks, and only to the branch they name.
+  - Contributors work on a branch and open a pull request. Only the maintainer lands changes on `main`, and CI must be green first.
+  - Never push to `main`, tags, other people's forks or upstream repositories unless the maintainer asks.
+  - Graft itself never pushes on a user's behalf either.
 - **Releases (Changesets):** all `@graftsync/*` packages share one version.
   1. Add `.changeset/*.md`. While in 0.x, `minor` means breaking and `patch` means everything else.
   2. Run `pnpm version-packages`. Check the generated CHANGELOGs for nested bullets.
