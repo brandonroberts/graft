@@ -1,6 +1,6 @@
 {
   "name": "@graftsync/skill",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Agent skill (SKILL.md) teaching coding agents the graft sync loop.",
   "license": "MIT",
   "repository": {
