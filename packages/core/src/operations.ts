@@ -6,7 +6,7 @@ import { GRAFT_STATUSES, GraftDocumentEditor, type GraftStatus } from '@graftsyn
 import { GraftError } from './errors.js';
 import type { Project } from './project.js';
 import { reinstall } from './install.js';
-import type { InstalledApplyReport, AnchorReport, ApplyOptions, ApplyResult, Graft, ScopedDiff, VariantInput } from './types.js';
+import type { GraftUpdate, InstalledApplyReport, AnchorReport, ApplyOptions, ApplyResult, Graft, ScopedDiff, VariantInput } from './types.js';
 
 /** Resolve a version argument, defaulting to the installed version of the graft's rootstock. */
 export async function resolveVersion(project: Project, graft: Graft, version?: string): Promise<string> {
@@ -51,12 +51,8 @@ async function editGraft(graft: Graft, edit: (doc: GraftDocumentEditor) => void)
   return original;
 }
 
-export interface UpdateStatusInput {
+export interface UpdateStatusInput extends GraftUpdate {
   status?: GraftStatus;
-  /** Set rootstock.verified. */
-  verified?: string;
-  /** Appended to `## History`. */
-  history?: string;
 }
 
 export async function updateGraft(project: Project, id: string, input: UpdateStatusInput): Promise<Graft> {

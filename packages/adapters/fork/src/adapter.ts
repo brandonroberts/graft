@@ -27,13 +27,16 @@ import {
   renderPatch,
   runCommand,
   scopeFileDiff,
+  updateGraft,
   type AnchorReport,
   type AnchorResult,
   type ApplyResult,
   type Graft,
   type GraftContext,
+  type AgentStart,
+  type GraftUpdate,
   type MechanismAdapter,
-  type Project,
+  Project,
   type ResolvedVariant,
   type ScopedDiff,
   type ScopedFileDiff,
@@ -56,19 +59,28 @@ import {
   type TarballBuilder,
   type VendorContext,
 } from '@graftsync/adapter-patch';
-import { binaryChanges, blobId, checkout, commitTo, diff, ensureRepo, mergeToBranch, modeChanges, readBlob, replaceSubtree, resolveForkRef, resolveTag, resolveUpstreamRef, showFile } from './git.js';
+import { binaryChanges, blobId, checkout, commitTo, diff, ensureRepo, git, mergeToBranch, modeChanges, readBlob, replaceSubtree, upstreamTags, resolveForkRef, resolveTag, resolveUpstreamRef, showFile } from './git.js';
 
 export const MECHANISM = 'fork';
 
 export interface ForkVariant {
-  /** Fork branch, fork tag, or commit holding the modification. */
+  /**
+   * Fork branch, fork tag, or commit holding the modification; or `@worktree`: the project's own
+   * checkout, uncommitted changes included (repo mode, with the graft living in the fork).
+   */
   ref: string;
   /**
    * Upstream version whose tag the modification's commits are based on. In repo mode
-   * (`fork.install: none`) it may also be any upstream commit, tag or branch.
+   * (`fork.install: none`) it may also be any upstream commit, tag or branch, or `@verified`:
+   * the graft's `rootstock.verified` (a version or `version+commit`).
    */
   base: string;
 }
+
+/** Variant ref: the project's checkout, working tree included (the graft lives in the fork). */
+export const WORKTREE = '@worktree';
+/** Variant base: the upstream at `rootstock.verified`. */
+export const VERIFIED = '@verified';
 
 function forkConfig(graft: Graft): ForkConfig {
   const cfg = graft.frontmatter.fork;
@@ -129,6 +141,60 @@ async function graftFiles(project: Project): Promise<{ rel: string; abs: string;
   return out;
 }
 
+/**
+ * `@worktree`: commit the project's working tree (tracked and new files, minus `.grafts/` and
+ * ignored files) as an unreferenced snapshot on top of HEAD, without touching the index or
+ * HEAD, and fetch it into the cache clone.
+ */
+async function snapshotWorktree(project: Project, graft: Graft, dir: string): Promise<string> {
+  if (!graftLivesInFork(project, graft)) {
+    throw new GraftError(`graft "${graft.id}": "${WORKTREE}" needs the graft to live in the fork (fork.repo: ".")`, 'variant/invalid');
+  }
+  const root = project.root;
+  const tmp = await mkdtemp(path.join(os.tmpdir(), 'graft-snapshot-'));
+  const env = { GIT_INDEX_FILE: path.join(tmp, 'index') };
+  try {
+    const head = (await git(root, ['rev-parse', '--verify', '--quiet', 'HEAD'], { allowFail: true })).stdout.trim();
+    if (head) await git(root, ['read-tree', head], { env });
+    await git(root, ['add', '-A', '--', '.', ':(top,exclude).grafts'], { env });
+    const tree = (await git(root, ['write-tree'], { env })).stdout.trim();
+    const commit = (
+      await git(root, ['-c', 'user.name=graft', '-c', 'user.email=graft@localhost', 'commit-tree', tree, ...(head ? ['-p', head] : []), '-m', 'graft: working tree snapshot'])
+    ).stdout.trim();
+    const ref = `refs/graft/worktree/${graft.id}`;
+    await git(root, ['update-ref', ref, commit]);
+    await git(dir, ['fetch', '--quiet', '--force', 'fork', `+${ref}:refs/graft-worktree/${graft.id}`]);
+    return commit;
+  } finally {
+    await rm(tmp, { recursive: true, force: true });
+  }
+}
+
+/** True when the variant selected for `version` is relative to `rootstock.verified` in the graft's own fork. */
+async function relativeToVerified(project: Project, graft: Graft, version: string): Promise<boolean> {
+  if (!isStandalone(graft) || !graftLivesInFork(project, graft)) return false;
+  const ref = project.selectVariant(graft, version);
+  return !!ref && (await loadVariant(graft, ref).catch(() => undefined))?.base === VERIFIED;
+}
+
+/**
+ * The project's graft files with `update` applied to `graft`'s graft.md, in a scratch copy (the
+ * project itself is untouched). The caller disposes the copy.
+ */
+async function updatedGraftFiles(project: Project, graft: Graft, adapter: MechanismAdapter, update: GraftUpdate | undefined) {
+  if (!update) return { files: await graftFiles(project), dispose: async () => {} };
+  const tmp = await mkdtemp(path.join(os.tmpdir(), 'graft-copy-'));
+  const rel = path.relative(project.root, project.graftsDir);
+  for (const f of await graftFiles(project)) {
+    const dest = path.join(tmp, rel, f.rel);
+    await mkdir(path.dirname(dest), { recursive: true });
+    await cp(f.abs, dest);
+  }
+  const copy = await Project.open({ root: tmp, adapters: [adapter] });
+  await updateGraft(copy, graft.id, update);
+  return { files: await graftFiles(copy), dispose: () => rm(tmp, { recursive: true, force: true }) };
+}
+
 async function fetchRepos(project: Project, graft: Graft): Promise<string> {
   const cfg = forkConfig(graft);
   const dir = repoDir(project, graft);
@@ -147,6 +213,9 @@ async function loadVariant(graft: Graft, variant: ResolvedVariant): Promise<Fork
   }
   if (typeof v.ref !== 'string' || !v.ref || v.ref === 'TODO') {
     throw new GraftError(`graft "${graft.id}": ${variant.module} must name the fork ref holding the modification ("ref")`, 'variant/invalid');
+  }
+  if (!standalone && (v.ref === WORKTREE || v.base === VERIFIED)) {
+    throw new GraftError(`graft "${graft.id}": ${variant.module}: "${WORKTREE}" and "${VERIFIED}" are for repo mode (fork.install: none)`, 'variant/invalid');
   }
   if (typeof v.base !== 'string' || !v.base || v.base === 'TODO' || (!standalone && !semver.valid(v.base))) {
     throw new GraftError(
@@ -199,6 +268,10 @@ interface ForkChange {
 /** The upstream commit a variant's base names: a version's tag, or (repo mode) any upstream ref. */
 async function baseRevision(dir: string, graft: Graft, base: string): Promise<{ rev: string; label: string }> {
   const cfg = forkConfig(graft);
+  if (base === VERIFIED) {
+    const verified = graft.frontmatter.rootstock.verified;
+    return { rev: await upstreamRev(dir, cfg, verified), label: `${targetLabel(cfg, verified)} (verified)` };
+  }
   if (semver.valid(base) && (!isStandalone(graft) || (await resolveTag(dir, tagFor(cfg, base))))) {
     return { rev: await upstreamRev(dir, cfg, base), label: tagFor(cfg, base) };
   }
@@ -213,7 +286,7 @@ async function forkChange(project: Project, graft: Graft, ref: ResolvedVariant):
   const variant = await loadVariant(graft, ref);
   const dir = await fetchRepos(project, graft);
   const base = await baseRevision(dir, graft, variant.base);
-  const refRev = await resolveForkRef(dir, variant.ref);
+  const refRev = variant.ref === WORKTREE ? await snapshotWorktree(project, graft, dir) : await resolveForkRef(dir, variant.ref);
   if (!refRev) throw new GraftError(`graft "${graft.id}": fork ref "${variant.ref}" not found in ${cfg.repo}`, 'fork/no-ref');
   const binaryFiles = new Set(await binaryChanges(dir, base.rev, refRev, cfg.dir));
   const patches = parsePatchFile(await diff(dir, base.rev, refRev, cfg.dir)).filter(
@@ -342,7 +415,7 @@ function hunkAnchors(patch: FilePatch, content: string | undefined): AnchorResul
 }
 
 export function createForkAdapter(): MechanismAdapter {
-  return {
+  const adapter: MechanismAdapter = {
     name: MECHANISM,
     variantExtension: '.json',
     exclusivePerPackage: true,
@@ -518,21 +591,35 @@ export function createForkAdapter(): MechanismAdapter {
         throw err;
       }
       const cache = path.relative(project.root, repoDir(project, graft)) || '.';
-      return { dir: tree.pkgDir, result: `branch \`${branch}\` in ${cache} (\`git fetch ${cache} ${branch}\`)`, dispose: tree.dispose };
+      return {
+        dir: tree.pkgDir,
+        result: `branch \`${branch}\` in ${cache} (\`git fetch ${cache} ${branch}\`)`,
+        fetch: { repo: cache, ref: branch },
+        dispose: tree.dispose,
+      };
     },
 
-    async afterVerified(ctx: GraftContext, version: string) {
+    async recordsInResult(ctx: GraftContext, version: string) {
+      return relativeToVerified(ctx.project, ctx.graft, version);
+    },
+
+    async afterVerified(ctx: GraftContext, version: string, update?: GraftUpdate) {
       // Repo mode with the graft living in the fork: the result carries the graft's own files
-      // (with the just-recorded verification), so adopting it doesn't drop or revert them.
+      // (with the verification recorded), so adopting it keeps them, and keeps them true.
       const { project, graft } = ctx;
       if (!isStandalone(graft) || !graftLivesInFork(project, graft)) return;
       const dir = repoDir(project, graft);
       const branch = resultBranch(graft, version);
       if (!(await resolveForkRef(dir, `refs/heads/${branch}`))) return;
-      await replaceSubtree(dir, branch, path.relative(project.root, project.graftsDir).split(path.sep).join('/'), await graftFiles(project));
+      const copy = await updatedGraftFiles(project, graft, adapter, update);
+      try {
+        await replaceSubtree(dir, branch, path.relative(project.root, project.graftsDir).split(path.sep).join('/'), copy.files);
+      } finally {
+        await copy.dispose();
+      }
     },
 
-    async prepareAgent(ctx: GraftContext, version: string) {
+    async prepareAgent(ctx: GraftContext, version: string): Promise<AgentStart | undefined> {
       const { project, graft } = ctx;
       const variant = project.selectVariant(graft, version) ?? project.selectVariant(graft, graft.frontmatter.rootstock.verified);
       if (!variant) return undefined;
@@ -542,7 +629,7 @@ export function createForkAdapter(): MechanismAdapter {
       const base = await baseRevision(dir, graft, change.variant.base);
       const branch = `${resultBranch(graft, version)}-agent`;
       const label = targetLabel(forkConfig(graft), version);
-      const conflicted = await mergeToBranch(
+      const conflicts = await mergeToBranch(
         dir,
         base.rev,
         target,
@@ -550,11 +637,50 @@ export function createForkAdapter(): MechanismAdapter {
         branch,
         `${graft.id}: ${change.variant.ref} (on ${change.baseTag}) merged onto ${label} for an agent\n\nPrepared by graft; not pushed.`,
       );
+      if (await relativeToVerified(project, graft, version)) {
+        // The branch is the fork at the new upstream: its graft.md says so (status conflicted until
+        // the agent resolves it), so `graft sync` on it verifies the agent's work in place.
+        const copy = await updatedGraftFiles(project, graft, adapter, {
+          verified: version,
+          status: conflicts.length ? 'conflicted' : graft.frontmatter.status,
+          history: `Merged onto ${label} by \`graft sync\`${conflicts.length ? `; conflicts to resolve in ${conflicts.join(', ')}` : ''}.`,
+        });
+        try {
+          await replaceSubtree(dir, branch, path.relative(project.root, project.graftsDir).split(path.sep).join('/'), copy.files);
+        } finally {
+          await copy.dispose();
+        }
+      }
       const cache = path.relative(project.root, dir) || '.';
       const where = `branch \`${branch}\` in ${cache} (\`git fetch ${cache} ${branch}\`): git's merge of the fork's change onto ${label}`;
-      return conflicted.length
-        ? `${where}, with conflict markers in ${conflicted.length} file(s): ${conflicted.join(', ')}`
-        : `${where}; it merges without conflicts, so check the oracle output and the anchors that missed`;
+      return {
+        repo: cache,
+        ref: branch,
+        conflicts,
+        description: conflicts.length
+          ? `${where}, with conflict markers in ${conflicts.length} file(s): ${conflicts.join(', ')}`
+          : `${where}; it merges without conflicts, so check the oracle output and the anchors that missed`,
+      };
+    },
+
+    async newerVersion(ctx: GraftContext) {
+      const { project, graft } = ctx;
+      if (!isStandalone(graft)) return undefined;
+      const cfg = forkConfig(graft);
+      const dir = await fetchRepos(project, graft);
+      const verified = graft.frontmatter.rootstock.verified;
+      const verifiedRev = await upstreamRev(dir, cfg, verified).catch(() => undefined);
+      if (cfg.track) {
+        // Follow a branch: its tip, labelled with the version in its package.json (else the newest tag).
+        const tip = await resolveUpstreamRef(dir, cfg.track);
+        if (!tip || tip === verifiedRev) return undefined;
+        let version = semver.valid(JSON.parse((await showFile(dir, tip, inPkg(cfg, 'package.json')).catch(() => undefined)) ?? '{}').version ?? '');
+        version ??= (await upstreamTags(dir, cfg.tag)).at(-1) ?? semver.parse(verified)!.version;
+        return { version: `${version}+${tip.slice(0, 12)}`, tag: `branch ${cfg.track}` };
+      }
+      const newer = (await upstreamTags(dir, cfg.tag)).filter((v) => semver.gt(v, verified));
+      const version = newer.at(-1);
+      return version ? { version, tag: tagFor(cfg, version) } : undefined;
     },
 
     async beforeInstall(ctx: GraftContext, version: string) {
@@ -581,6 +707,7 @@ export function createForkAdapter(): MechanismAdapter {
       return { fork: { repo: 'TODO: git URL of your fork', upstream: 'TODO: git URL of the upstream repo', tag: 'v{version}' } };
     },
   };
+  return adapter;
 }
 
 export const forkAdapter = createForkAdapter();

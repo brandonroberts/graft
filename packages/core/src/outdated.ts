@@ -11,6 +11,8 @@ export interface OutdatedEntry {
   distTags: Record<string, string>;
   /** Highest dist-tagged version (among `tags`) newer than every graft's verified version, if any. */
   candidate?: { version: string; tag: string };
+  /** A standalone graft (one entry per graft): the candidate comes from its mechanism, not npm. */
+  standalone?: boolean;
 }
 
 export interface OutdatedOptions {
@@ -51,6 +53,11 @@ export async function outdated(project: Project, options: OutdatedOptions = {}):
       distTags,
       candidate,
     });
+  }
+  // Standalone grafts: their mechanism knows where upstream versions come from (e.g. git tags).
+  for (const g of grafts.filter((g) => ACTIVE_STATUSES.includes(g.frontmatter.status) && project.isStandalone(g))) {
+    const candidate = await project.adapterFor(g).newerVersion?.(project.context(g));
+    entries.push({ package: g.frontmatter.rootstock.package, grafts: [g.id], verified: g.frontmatter.rootstock.verified, distTags: {}, candidate, standalone: true });
   }
   return entries;
 }

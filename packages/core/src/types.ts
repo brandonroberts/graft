@@ -169,12 +169,38 @@ export interface InstalledApplyReport {
   warnings: string[];
 }
 
+/** A change to graft.md bookkeeping (see `updateGraft`). */
+export interface GraftUpdate {
+  status?: 'applied' | 'conflicted' | 'upstreamed' | 'obsolete';
+  /** Set rootstock.verified. */
+  verified?: string;
+  /** Appended to `## History`. */
+  history?: string;
+}
+
+/** A git ref someone can fetch (e.g. a branch in the cache clone). */
+export interface FetchableRef {
+  /** Repository path, relative to the project root. */
+  repo: string;
+  ref: string;
+}
+
+/** Where an agent should start on a graft that needs one (see `MechanismAdapter.prepareAgent`). */
+export interface AgentStart extends Partial<FetchableRef> {
+  /** One sentence for the report. */
+  description: string;
+  /** Files left with conflict markers, if any. */
+  conflicts?: string[];
+}
+
 /** Where a standalone graft's oracle runs (see `MechanismAdapter.workspace`). */
 export interface Workspace {
   /** Directory holding the upstream source with the graft applied. */
   dir: string;
   /** How to get the result afterwards (e.g. a git ref kept in the cache clone). */
   result?: string;
+  /** The same, as a ref to fetch. */
+  fetch?: FetchableRef;
   dispose(): Promise<void>;
 }
 
@@ -216,16 +242,28 @@ export interface MechanismAdapter {
    */
   workspace?(ctx: GraftContext, version: string): Promise<Workspace>;
   /**
-   * Called by `sync` after a green result was recorded in graft.md (not on dry runs), e.g. to
-   * carry the updated graft files into a standalone graft's materialized result.
+   * True when a green sync at `version` must be recorded in the materialized result instead of
+   * the project's graft.md (e.g. a fork whose variant is relative to `rootstock.verified`: the
+   * checkout only moves to `version` once the result is adopted). `sync` then leaves graft.md
+   * alone and passes the update to `afterVerified`.
    */
-  afterVerified?(ctx: GraftContext, version: string): Promise<void>;
+  recordsInResult?(ctx: GraftContext, version: string): Promise<boolean>;
+  /**
+   * Called by `sync` after a green result (not on dry runs), e.g. to carry the graft files into a
+   * standalone graft's materialized result. `update` is set when `recordsInResult` said so: the
+   * graft.md change to apply there.
+   */
+  afterVerified?(ctx: GraftContext, version: string, update?: GraftUpdate): Promise<void>;
   /**
    * Called by `sync` when a graft needs an agent at `version`: prepare a starting point (e.g. a
-   * branch with the change merged and conflict markers left in place). Returns a sentence for
-   * the report, or undefined.
+   * branch with the change merged and conflict markers left in place).
    */
-  prepareAgent?(ctx: GraftContext, version: string): Promise<string | undefined>;
+  prepareAgent?(ctx: GraftContext, version: string): Promise<AgentStart | undefined>;
+  /**
+   * For standalone grafts (which have no npm dist-tags): the newest upstream version to sync to,
+   * if newer than `rootstock.verified`. `tag` says where it came from (a tag, a branch).
+   */
+  newerVersion?(ctx: GraftContext): Promise<{ version: string; tag: string } | undefined>;
   /** Validate a new variant module before it is registered. Throw to reject. */
   validateVariant?(ctx: GraftContext, variant: ResolvedVariant): Promise<void>;
   /**

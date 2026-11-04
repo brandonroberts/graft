@@ -114,6 +114,38 @@ describe('graft GitHub Action', () => {
     expect(t.calls().split('\n').find((l) => l.includes('"pr","create"'))).toContain('--draft');
   });
 
+  const repoEntry = (version: string) => ({ package: 'docs', grafts: ['tr'], verified: '1.0.0', distTags: {}, candidate: { version, tag: `v${version}` }, standalone: true });
+
+  it('repo mode: adopts Graft\'s rebased result into the PR branch, with no install', async () => {
+    const t = setup({ outdated: [repoEntry('1.1.0')], sync: { tr: 'repo-green' } });
+    const { results, failed } = await t.run({ 'install-command': 'echo REINSTALL >> "$FAKE_LOG"' });
+    expect(failed).toBe(false);
+    expect(results[0]).toMatchObject({ outcome: 'pr', branch: 'graft/sync-docs-1.1.0' });
+    expect(t.calls()).toMatch(/graft sync --json --version 1\.1\.0 --id tr\n/);
+    expect(t.calls()).not.toContain('REINSTALL');
+    expect(t.git('show', 'origin/graft/sync-docs-1.1.0:content/page.md')).toBe('çevrildi 1.1.0\n');
+    expect(t.git('show', 'origin/graft/sync-docs-1.1.0:.grafts/tr/graft.md')).toContain('verified: 1.1.0');
+    expect(t.calls()).toContain('this branch is the fork rebased onto it');
+  });
+
+  it('repo mode: without an agent, opens a draft PR holding git\'s merge with conflict markers', async () => {
+    const t = setup({ outdated: [repoEntry('2.0.0')], sync: { tr: 'repo-conflict' } });
+    const { results } = await t.run();
+    expect(results[0]).toMatchObject({ outcome: 'draft-pr' });
+    expect(t.git('show', 'origin/graft/sync-docs-2.0.0:content/page.md')).toContain('<<<<<<<');
+    expect(t.git('show', 'origin/graft/sync-docs-2.0.0:.grafts/tr/graft.md')).toContain('status: conflicted');
+    expect(t.calls()).toContain('Conflict markers to resolve on this branch: `content/page.md`');
+  });
+
+  it('repo mode: the agent resolves the markers in place, Graft re-verifies, and the PR carries the result', async () => {
+    const t = setup({ outdated: [repoEntry('2.0.0')], sync: { tr: 'repo-conflict' } });
+    const agent = `grep -q "These files still have conflict markers: content/page.md" "$GRAFT_PROMPT_FILE" && grep -q "verifies the working tree in place" "$GRAFT_PROMPT_FILE" && printf 'Yeni Türkçe.\\n' > content/page.md`;
+    const { results } = await t.run({ 'agent-command': agent });
+    expect(results[0]).toMatchObject({ outcome: 'pr', agent: true, agentExitCode: 0, syncExitCode: 0 });
+    expect(t.git('show', 'origin/graft/sync-docs-2.0.0:content/page.md')).toBe('Yeni Türkçe.\n');
+    expect(t.git('show', 'origin/graft/sync-docs-2.0.0:.grafts/tr/graft.md')).toContain('status: applied');
+  });
+
   it('skips packages whose sync branch already exists, and isolates tooling errors', async () => {
     const t = setup({ outdated: [entry('bad', '3.0.0'), entry('lib', '1.1.0')], sync: { bad: 'error', lib: 'green' } });
     t.git('push', '-q', 'origin', 'main:graft/sync-lib-1.1.0');

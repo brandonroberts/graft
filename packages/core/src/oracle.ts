@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import type { Graft, Workspace } from './types.js';
+import type { FetchableRef, Graft, Workspace } from './types.js';
 import type { Project } from './project.js';
 
 export interface OracleModeResult {
@@ -20,6 +20,8 @@ export interface OracleResult {
   modes: OracleModeResult[];
   /** For standalone grafts: how to get the materialized result the oracle ran against. */
   workspace?: string;
+  /** The same, as a ref to fetch. */
+  fetch?: FetchableRef;
 }
 
 export interface RunOracleOptions {
@@ -90,6 +92,7 @@ export async function runOracle(project: Project, graft: Graft, options: RunOrac
     passed: results.length > 0 && results.every((r) => r.passed),
     modes: results,
     ...(workspace?.result ? { workspace: workspace.result } : {}),
+    ...(workspace?.fetch ? { fetch: workspace.fetch } : {}),
   };
 }
 

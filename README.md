@@ -288,19 +288,27 @@ Verified end to end against the real `vercel/ms` repository with a local fork (a
 
 Some forks aren't dependencies at all: a translated docs site, a tool run from source. With `install: none`, nothing is packed or installed. `sync` rebases the fork's change onto the target tag in a fresh checkout and runs the oracle *there*, then leaves the result as the local branch `graft/<id>/<version>` in `.grafts/.cache/fork/<id>` for you to fetch. The graft can live in the fork itself (`repo: .`), and `base` may be any upstream commit, because these forks often sit between releases.
 
-- **Commit targets.** `graft sync --version 22.3.0-next.3+57905ca4e6` syncs to that upstream commit. The version part is what variant ranges match; the build metadata names the commit.
-- **The result keeps the graft.** When the graft lives in the fork, the result branch includes `.grafts/` with the new verification, so adopting it is one tree swap: `git fetch .grafts/.cache/fork/<id> graft/<id>/<version> && git read-tree -u --reset FETCH_HEAD && git commit`.
-- **A starting point for the agent.** On `needs-agent`, Graft prepares `graft/<id>/<version>-agent`: git's merge of the change onto the target, with conflict markers only in the files that conflict (the report lists them). Every other file is already merged.
+When the graft lives in the fork itself, use one permanent variant, `{ "ref": "@worktree", "base": "@verified" }`: the change is *this checkout* (uncommitted work included) against *the upstream it last verified*. It never needs a new variant, because the base moves with `verified`:
 
 ```yaml
+rootstock: { package: angular, verified: 22.3.0-next.2+e36a63e20e }   # a release, or release+commit
 mechanism: fork
 fork:
   repo: .                                   # the graft lives in the fork
   upstream: https://github.com/angular/angular.git
   install: none
+  track: main                               # optional: follow main's tip instead of release tags
+variants:
+  - { range: ">=22.0.0-0", module: ./variants/fork.json }   # { "ref": "@worktree", "base": "@verified" }
 oracle:
   command: bash scripts/check-translation.sh   # runs in the rebased checkout ($GRAFT_WORKSPACE)
 ```
+
+- **Commit targets.** `graft sync --version 22.3.0-next.3+57905ca4e6` syncs to that upstream commit. The version part is what variant ranges match; the build metadata names the commit.
+- **The checkout stays true until you adopt.** A green sync records the new `verified` in the result branch, not in your checkout (which is still the fork at its old base). Adopting it is one tree swap: `git fetch .grafts/.cache/fork/<id> graft/<id>/<version> && git read-tree -u --reset FETCH_HEAD && git commit`.
+- **A starting point for the agent.** On `needs-agent`, Graft prepares `graft/<id>/<version>-agent`: git's merge of the change onto the target, with conflict markers only in the files that conflict (the report lists them), and graft.md already at the new version with `status: conflicted`. Check it out, resolve the markers, run `graft sync`: it verifies the branch in place.
+- **Finding new versions.** `graft outdated` offers the newest upstream release tag, or with `fork.track` the branch tip as `<version>+<commit>`.
+- **Automated.** The [GitHub Action](packages/action) does all of this: it adopts green results into a PR, and for conflicts either runs your agent on the merged branch (then re-verifies) or opens a draft PR with the markers.
 
 Checked against the real [angular-tr](https://github.com/erkamyaman/angular-tr) (the Turkish angular.dev translation: 525 files over upstream, including 461 pages). The checks below ran on a local, history-free copy of its trees:
 - **At its own base,** `sync` materialized a tree identical to the fork's branch (text, a binary image, an executable bit).

@@ -170,6 +170,7 @@ Verified against the real `vercel/ms` repo, with a local fork, on npm and pnpm:
 - `base` may be any upstream commit; `fork.repo` may be a local path (`.`); `.grafts/` is excluded; binary files and executable bits carry over.
 - Hunks at the start or end of a file miss when upstream added lines right against them, matching git's merge.
 - Targets can be upstream commits (`X+<sha>`, semver build metadata); a green result carries the fork's own `.grafts/`; a needs-agent sync prepares `graft/<id>/<version>-agent`, git's merge with conflict markers (new hooks `afterVerified` / `prepareAgent`).
+- In place: one permanent variant `{ "ref": "@worktree", "base": "@verified" }`; a green sync records the verification in the result only (`recordsInResult`), and the `-agent` branch's graft.md is at the target (status conflicted), so it verifies in place. `outdated` lists repo-mode grafts from upstream tags or `fork.track` (`newerVersion`). The Action adopts results and agent branches into PRs.
 - On angular-tr's real trees: a byte-identical result at its base, and exactly git's 7 conflicting files onto `v22.3.0-next.3`, with a 364-line scoped diff for the agent.
 
 ## 7. CLI

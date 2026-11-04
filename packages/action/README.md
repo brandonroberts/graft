@@ -1,6 +1,6 @@
 # Graft sync GitHub Action
 
-First runs **`graft check`** on the installed tree, then polls npm dist-tags for each graft's rootstock package. When there's a newer version, it runs
+First runs **`graft check`** on the installed tree, then polls npm dist-tags for each graft's rootstock package (or, for [repo-mode forks](#repo-mode-forks-that-are-the-product), the upstream's git tags or a tracked branch). When there's a newer version, it runs
 Graft's deterministic first pass and then does one of the following:
 
 | `graft sync` result | Action |
@@ -55,6 +55,17 @@ jobs:
 ```
 
 Enable **Settings → Actions → General → Allow GitHub Actions to create and approve pull requests**.
+
+## Repo mode (forks that are the product)
+
+For a `fork` graft with `install: none` that lives in the fork itself (e.g. a translated docs site), the action:
+
+- finds the target with `graft outdated`: the newest upstream release tag, or the tip of `fork.track` as `<version>+<commit>`;
+- runs `graft sync --version <target> --id <graft>` (nothing is installed);
+- **green:** takes Graft's rebased result (`graft/<id>/<version>` in the cache clone) as the whole tree of the PR branch, graft.md included, and opens a PR;
+- **conflicts:** takes Graft's `-agent` branch (git's merge, conflict markers in the listed files, graft.md at the new version). With `agent-command`, the agent resolves the markers in place and the action re-runs `graft sync`; green → PR with Graft's result. Otherwise → a **draft PR** listing the files to resolve.
+
+The project must gitignore `.grafts/.cache/` and `.grafts/.report/`.
 
 ## Handing failures to an agent
 

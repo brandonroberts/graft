@@ -72,6 +72,7 @@ YAML, is an error.
 | `fork.upstream` | non-empty string | yes | — | Git URL of the upstream source repository. |
 | `fork.tag` | string containing `{version}` | no | `v{version}` | Upstream release tag for a version. |
 | `fork.install` | `package` \| `none` | no | `package` | `none`: repo mode — the fork is the product, nothing is installed (§9.2). |
+| `fork.track` | non-empty string | no | — | Repo mode: an upstream branch whose tip `outdated` offers (`<version>+<commit>`). |
 | `fork.dir` | non-empty string | no | repo root | Package directory inside the repositories (monorepos). |
 | `fork.build` | non-empty string | no | — | Command run in the rebased package directory before packing. |
 | `fork.timeout` | positive integer (seconds) | no | 1800 | Build timeout. |
@@ -273,7 +274,9 @@ under the name used in `mechanism`.
 | `applyInstalled?(ctx)` | no | Apply selected variants to installed package copies (from `postinstall`). MUST be idempotent, work offline, and never modify files shared with a package-manager store (write new inodes). |
 | `standalone?(graft)` | no | True when the graft installs nothing into the project. Its current version is `rootstock.verified`, `sync` skips the install step (and defaults to re-verifying `verified`), and the oracle runs in `workspace`. |
 | `workspace?(ctx, version)` | with `standalone` | Materialize the upstream at `version` with the graft applied, in a directory the oracle runs in; returns `{ dir, result?, dispose }`. Throw when it can't be done. |
-| `afterVerified?(ctx, version)` | no | Called by `sync` after a green result is recorded in graft.md (not on dry runs). |
+| `afterVerified?(ctx, version, update?)` | no | Called by `sync` after a green result (not on dry runs); `update` is the graft.md change when `recordsInResult` said to record it in the result. |
+| `recordsInResult?(ctx, version)` | no | True when a green sync at `version` is recorded in the materialized result instead of graft.md; `afterVerified` then receives the update. |
+| `newerVersion?(ctx)` | no | For standalone grafts (no dist-tags): the newest upstream version above `verified`, with where it came from. `outdated` lists one entry per such graft (`standalone: true`). |
 | `prepareAgent?(ctx, version)` | no | Called by `sync` when a graft needs an agent: prepare a starting point and return a sentence for the report (`agentStart`, shown as "Start from"). |
 | `validateVariant?(ctx, variant)` | no | Validate a new variant before it is registered; throw to reject. |
 | `exclusivePerPackage?` | no | When true, at most one active graft with this mechanism may target a package; more is a validation error. |
@@ -346,3 +349,13 @@ a tool run from source), not a dependency:
 - When the graft lives in the fork (`fork.repo` is the project's own checkout), a green
   result also carries the project's `.grafts/` (without `.cache`, `.report` and `.vendor`),
   including the just-recorded verification, so adopting the result keeps the graft files.
+- **In place.** A variant may use `"ref": "@worktree"` (the project's checkout, uncommitted
+  changes included, `.grafts/` excluded; the graft must live in the fork) and
+  `"base": "@verified"` (the upstream at `rootstock.verified`). With `@verified`, a green sync
+  MUST record the new verification only in the result (`recordsInResult`), never in the
+  checkout, which still holds the fork at its old base. The `-agent` branch's graft.md is set
+  to the target version (status `conflicted` while markers remain), so `sync` on it verifies
+  the resolved branch in place.
+- `fork.track` (a branch) makes `outdated` offer that branch's tip as `<version>+<commit>`
+  (the version from its `package.json`, else the newest tag); otherwise it offers the newest
+  release tag above `verified` (`newerVersion`).

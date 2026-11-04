@@ -61,6 +61,11 @@ export const ForkSchema = z.object({
     .min(1)
     .default('v{version}')
     .refine((t) => t.includes('{version}'), { message: 'must contain {version}' }),
+  /**
+   * Repo mode: an upstream branch to follow (e.g. `main`). `graft outdated` then offers its tip as
+   * `<version>+<commit>` instead of the newest release tag.
+   */
+  track: z.string().min(1).optional(),
   /** Package directory inside the repositories (for monorepos). Default: the repo root. */
   dir: z.string().min(1).optional(),
   /**

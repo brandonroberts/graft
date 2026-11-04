@@ -93,7 +93,7 @@ export function renderPrBody({ candidate, report, agentBody, outcome }) {
   } else {
     lines.push(`## Graft sync: ${candidate.package} ${candidate.verified} → ${candidate.version}`, '');
   }
-  lines.push(`Upstream \`${candidate.package}@${candidate.version}\` (dist-tag \`${candidate.tag}\`).`, '');
+  lines.push(candidate.standalone ? `Upstream \`${candidate.package}\` at \`${candidate.version}\` (${candidate.tag}); this branch is the fork rebased onto it.` : `Upstream \`${candidate.package}@${candidate.version}\` (dist-tag \`${candidate.tag}\`).`, '');
   if (outcome === 'needs-agent') {
     lines.push('> [!WARNING]', '> One or more grafts still fail on this version. The details below say which, and why; the graft-sync skill describes how to finish the job.', '');
   }
@@ -105,6 +105,7 @@ export function renderPrBody({ candidate, report, agentBody, outcome }) {
       lines.push(`<details><summary>${g.id}: ${g.outcome}${g.likelyUpstreamed ? ' (likely upstreamed)' : ''}</summary>`, '');
       if (g.likelyUpstreamed) lines.push(`**Likely upstreamed:** \`${g.package}@${g.to}\` already contains this graft's change. Confirm, then set its status to \`upstreamed\`.`, '');
       for (const r of g.reasons ?? []) lines.push(`- ${r}`);
+      if (g.agentStart?.conflicts?.length) lines.push('', `Conflict markers to resolve on this branch: ${g.agentStart.conflicts.map((f) => `\`${f}\``).join(', ')}. Then run \`graft sync --version ${candidate.version}\`; it verifies the branch in place.`);
       const failed = (g.oracle?.modes ?? []).filter((m) => !m.passed);
       for (const m of failed) lines.push('', `Oracle output (${m.mode}):`, '', '```', String(m.output ?? '').trim().slice(-3000), '```');
       lines.push('', '</details>', '');
@@ -112,6 +113,29 @@ export function renderPrBody({ candidate, report, agentBody, outcome }) {
   }
   lines.push('---', '_Opened by the [Graft](https://github.com/brandonroberts/graft) GitHub Action. Graft verified this change with each graft\'s oracle; review the variant diffs before merging._');
   return lines.join('\n');
+}
+
+/** Prompt for a repo-mode graft (the fork is the product): resolve the merged branch in place. */
+export function renderStandaloneAgentPrompt({ candidate, report, files }) {
+  const needs = report.grafts.filter((g) => g.outcome === 'needs-agent');
+  const conflicts = needs.flatMap((g) => g.agentStart?.conflicts ?? []);
+  return `Graft sync needs an agent.
+
+Upstream ${candidate.package} moved to ${candidate.version} (${candidate.tag}); this repository is a fork of it, verified against ${candidate.verified}.
+The working tree on branch ${files.branch} already holds git's merge of the fork's change onto ${candidate.version}, and the graft files say so.
+${conflicts.length ? `These files still have conflict markers: ${conflicts.join(', ')}.` : 'It merged without conflicts, but the oracle failed: read its output in the report.'}
+
+Follow the graft-sync skill: ${files.skill}
+The sync report is at ${files.reportMarkdown} (JSON: ${files.reportJson}); what upstream changed in the files the fork touches is in .grafts/.report/<id>/diff.patch.
+Drive Graft with its CLI, \`${files.graftCommand}\` (also in $GRAFT_COMMAND).
+
+- Resolve every conflict by behavior: keep upstream's new content and re-apply the fork's change to it (the graft's Why / Invariants say what that means here). Remove every marker.
+- Read the oracle output too: upstream changes that merged cleanly can still break an invariant.
+- Prove it with \`${files.graftCommand} sync --version ${candidate.version}\`; it verifies the working tree in place.
+- Do NOT commit, push, or open a pull request; the action does that after re-verifying your work. Do not edit variants.
+- If an invariant cannot be satisfied, mark the graft conflicted (\`mark <id> --status conflicted --history "…"\`) instead of forcing a pass.
+- Write the pull request description to ${files.prBody}.
+`;
 }
 
 /** Prompt handed to the agent command (also exported as GRAFT_PROMPT_FILE). */
@@ -179,7 +203,7 @@ export async function runAction(options, deps) {
   const entries = JSON.parse(outdated.stdout);
   const candidates = entries
     .filter((e) => e.candidate && (!options.packages.length || options.packages.includes(e.package)))
-    .map((e) => ({ package: e.package, version: e.candidate.version, tag: e.candidate.tag, verified: e.verified, grafts: e.grafts }));
+    .map((e) => ({ package: e.package, version: e.candidate.version, tag: e.candidate.tag, verified: e.verified, grafts: e.grafts, standalone: !!e.standalone }));
 
   const results = entries
     .filter((e) => !e.candidate && (!options.packages.length || options.packages.includes(e.package)))
@@ -204,13 +228,30 @@ export async function runAction(options, deps) {
       if (dirty) {
         await git('checkout', '-f', base);
         await git('clean', '-fd');
-        const r = await run(reinstall);
-        if (r.code !== 0) throw new Error(`\`${reinstall}\` failed:\n${r.stderr || r.stdout}`);
+        // A repo-mode graft installs nothing, so there is nothing to reset for it.
+        if (!candidate.standalone) {
+          const r = await run(reinstall);
+          if (r.code !== 0) throw new Error(`\`${reinstall}\` failed:\n${r.stderr || r.stdout}`);
+        }
       }
       dirty = true;
       await git('checkout', '-B', branch, base);
 
-      const syncCmd = `${options.graftCommand} sync --json --version ${quote(candidate.version)} --package ${quote(candidate.package)} --install`;
+      const syncCmd = candidate.standalone
+        ? `${options.graftCommand} sync --json --version ${quote(candidate.version)} --id ${quote(candidate.grafts.join(','))}`
+        : `${options.graftCommand} sync --json --version ${quote(candidate.version)} --package ${quote(candidate.package)} --install`;
+      // Repo mode: Graft leaves its result (or, for an agent, git's merge with conflict markers)
+      // as a branch in its cache clone; the PR branch takes that whole tree.
+      const adopt = async (ref) => {
+        await git('fetch', '--quiet', ref.repo, ref.ref);
+        await git('read-tree', '-u', '--reset', 'FETCH_HEAD');
+      };
+      const adoptFrom = async (report, code) => {
+        if (!candidate.standalone) return;
+        const g = report.grafts.find((x) => x.outcome !== 'skipped');
+        if (code === 0 && g?.oracle?.fetch) await adopt(g.oracle.fetch);
+        else if (code === 1 && g?.agentStart?.ref) await adopt(g.agentStart);
+      };
       const syncOnce = async () => {
         const r = await run(syncCmd);
         let report;
@@ -228,6 +269,7 @@ export async function runAction(options, deps) {
         result.reasons.push(...report.grafts.filter((g) => g.outcome === 'error').flatMap((g) => g.reasons));
         throw new Error(`graft sync reported a tooling error for ${candidate.package}@${candidate.version}`);
       }
+      await adoptFrom(report, code);
 
       let agentBody;
       if (code === 1 && options.agentCommand) {
@@ -240,7 +282,7 @@ export async function runAction(options, deps) {
           graftCommand: options.graftCommand,
           branch,
         };
-        await writeFile(files.prompt, renderAgentPrompt({ candidate, report, files }));
+        await writeFile(files.prompt, (candidate.standalone ? renderStandaloneAgentPrompt : renderAgentPrompt)({ candidate, report, files }));
         log(`graft: handing ${candidate.package}@${candidate.version} to the agent`);
         const agent = await run(options.agentCommand, {
           env: {
@@ -262,6 +304,8 @@ export async function runAction(options, deps) {
         ({ code, report } = await syncOnce());
         result.syncExitCode = code;
         if (code === 2) throw new Error(`graft sync reported a tooling error after the agent ran`);
+        // Green: take Graft's result (it records the verification). Still failing: keep the agent's work.
+        if (code === 0) await adoptFrom(report, code);
         if (existsSync(files.prBody)) agentBody = await readFile(files.prBody, 'utf8');
         result.agent = true;
       }

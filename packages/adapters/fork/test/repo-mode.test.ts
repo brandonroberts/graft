@@ -6,7 +6,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { Project, runOracle, sync } from '@graftsync/core';
+import { outdated, Project, runOracle, sync } from '@graftsync/core';
 import { forkAdapter, resetFetchCache } from '../src/index.js';
 
 const gitIn = (cwd: string, ...args: string[]) =>
@@ -33,7 +33,7 @@ ng build
 const LOGO = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 1, 2, 3, 0, 4]);
 const LOGO_TR = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 9, 9, 9, 0, 4]);
 
-async function setup() {
+async function setup(opts: { inPlace?: boolean; track?: string } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'graft-repo-'));
   const upstream = path.join(root, 'upstream');
   await mkdir(path.join(upstream, 'content'), { recursive: true });
@@ -60,10 +60,13 @@ async function setup() {
   const g = path.join(fork, '.grafts/tr');
   await mkdir(path.join(g, 'variants'), { recursive: true });
   await writeFile(path.join(fork, '.gitignore'), '.grafts/.cache/\n.grafts/.report/\n');
-  await writeFile(path.join(g, 'variants/v1.json'), JSON.stringify({ ref: 'turkish-doc', base }));
+  // inPlace: one permanent variant, "this checkout vs. the upstream it last verified".
+  await writeFile(path.join(g, 'variants/v1.json'), JSON.stringify(opts.inPlace ? { ref: '@worktree', base: '@verified' } : { ref: 'turkish-doc', base }));
+  const verified = opts.inPlace ? `1.0.0+${base.slice(0, 12)}` : '1.0.0';
+  const forkCfg = { repo: '.', upstream: `file://${upstream}`, install: 'none', ...(opts.track ? { track: opts.track } : {}) };
   await writeFile(
     path.join(g, 'graft.md'),
-    `---\nid: tr\nrootstock: { package: docs, verified: 1.0.0 }\nmechanism: fork\nfork: ${JSON.stringify({ repo: '.', upstream: `file://${upstream}`, install: 'none' })}\nvariants:\n  - range: ">=1.0.0"\n    module: ./variants/v1.json\noracle: { command: "! grep -rqw -e the -e The content" }\n---\n## Why\nTurkish docs.\n## Invariants\n- No English prose.\n## Where to look\ncontent/\n## Anchors\nEvery translated paragraph.\n## History\n- created\n`,
+    `---\nid: tr\nrootstock: { package: docs, verified: ${verified} }\nmechanism: fork\nfork: ${JSON.stringify(forkCfg)}\nvariants:\n  - range: ">=1.0.0"\n    module: ./variants/v1.json\noracle: { command: "! grep -rqw -e the -e The content" }\n---\n## Why\nTurkish docs.\n## Invariants\n- No English prose.\n## Where to look\ncontent/\n## Anchors\nEvery translated paragraph.\n## History\n- created\n`,
   );
   gitIn(fork, 'add', '-A');
   gitIn(fork, 'commit', '-q', '-m', 'translate');
@@ -141,7 +144,7 @@ describe('fork repo mode (install: none)', () => {
     expect(g.outcome).toBe('needs-agent');
     expect(g.anchors?.ok).toBe(true); // the change still rebases...
     expect(g.reasons.join('\n')).toMatch(/oracle failed/); // ...but the result is not Turkish
-    expect(g.agentStart).toMatch(/graft\/tr\/1\.1\.0-agent.*merges without conflicts/);
+    expect(g.agentStart?.description).toMatch(/graft\/tr\/1\.1\.0-agent.*merges without conflicts/);
   });
 
   it('hands a conflicting upstream edit to an agent with the scoped upstream diff', async () => {
@@ -153,7 +156,8 @@ describe('fork repo mode (install: none)', () => {
     const patch = await readFile(g.diffPath!, 'utf8');
     expect(patch).toContain('+Templates bind data and events to the view.');
     // The agent starts from git's merge of the translation onto the new tag, markers in place.
-    expect(g.agentStart).toMatch(/graft\/tr\/1\.2\.0-agent.*conflict markers in 1 file\(s\): content\/guide\.md/);
+    expect(g.agentStart?.description).toMatch(/graft\/tr\/1\.2\.0-agent.*conflict markers in 1 file\(s\): content\/guide\.md/);
+    expect(g.agentStart).toMatchObject({ ref: 'graft/tr/1.2.0-agent', conflicts: ['content/guide.md'] });
     const cache = path.join(fork, '.grafts/.cache/fork/tr');
     const merged = gitIn(cache, 'show', 'graft/tr/1.2.0-agent:content/guide.md');
     expect(merged).toContain('<<<<<<<');
@@ -209,5 +213,71 @@ describe('fork repo mode (install: none)', () => {
     const graft = await project.get('tr');
     const r = await forkAdapter.checkAnchors(project.context(graft), '1.0.1');
     expect(r.errors[0]).toMatch(/must give "base", the upstream version the fork/);
+  });
+});
+
+describe('fork repo mode, in place (@worktree / @verified)', () => {
+  const adopt = (fork: string, ref: string) => {
+    gitIn(fork, 'fetch', '-q', '.grafts/.cache/fork/tr', ref);
+    gitIn(fork, 'read-tree', '-u', '--reset', 'FETCH_HEAD');
+    gitIn(fork, 'commit', '-q', '-m', `adopt ${ref}`);
+  };
+
+  it('records a green sync in the result, not the checkout; adopting it moves the fork forward', async () => {
+    const { project, fork } = await setup({ inPlace: true });
+    const before = await readFile(path.join(fork, '.grafts/tr/graft.md'), 'utf8');
+    const report = await sync(project, { version: '1.0.1' });
+    expect(report.exitCode, JSON.stringify(report.grafts)).toBe(0);
+    expect(report.grafts[0]).toMatchObject({ outcome: 'green', recordedInResult: true });
+    expect(report.grafts[0]?.oracle?.fetch).toEqual({ repo: '.grafts/.cache/fork/tr', ref: 'graft/tr/1.0.1' });
+    // The checkout still is the fork at its old base, and says so.
+    expect(await readFile(path.join(fork, '.grafts/tr/graft.md'), 'utf8')).toBe(before);
+    adopt(fork, 'graft/tr/1.0.1');
+    expect(await readFile(path.join(fork, '.grafts/tr/graft.md'), 'utf8')).toMatch(/verified: 1\.0\.1/);
+    expect(await readFile(path.join(fork, 'README.md'), 'utf8')).toBe('upstream 1.0.1\n');
+    // The same permanent variant now describes the adopted fork: re-verifying is green.
+    const again = await sync(await Project.open({ root: fork, adapters: [forkAdapter] }));
+    expect(again.targets[0]?.version).toBe('1.0.1');
+    expect(again.exitCode, JSON.stringify(again.grafts)).toBe(0);
+  });
+
+  it('includes uncommitted work in the change', async () => {
+    const { project, fork, graft } = await setup({ inPlace: true });
+    await writeFile(path.join(fork, 'content/new.md'), '# Yeni sayfa\n');
+    const r = await forkAdapter.checkAnchors(project.context(graft), '1.0.1');
+    expect(r.anchors.map((a) => a.name)).toContain('content/new.md#create');
+  });
+
+  it('a conflict leaves a branch that verifies in place once the agent resolves it', async () => {
+    const { project, fork } = await setup({ inPlace: true });
+    const report = await sync(project, { version: '1.2.0' });
+    expect(report.exitCode).toBe(1);
+    expect(report.grafts[0]?.agentStart).toMatchObject({ ref: 'graft/tr/1.2.0-agent', conflicts: ['content/guide.md'] });
+    adopt(fork, 'graft/tr/1.2.0-agent');
+    const md = await readFile(path.join(fork, '.grafts/tr/graft.md'), 'utf8');
+    expect(md).toMatch(/verified: 1\.2\.0/);
+    expect(md).toMatch(/status: conflicted/);
+    // The "agent": resolve the markers by translating upstream's new sentence.
+    const guide = await readFile(path.join(fork, 'content/guide.md'), 'utf8');
+    await writeFile(path.join(fork, 'content/guide.md'), guide.replace(/<<<<<<<[^]*?>>>>>>>[^\n]*\n/, 'Şablonlar veriyi ve olayları görünüme bağlar.\n'));
+    // Upstream English that merged cleanly (from 1.1.0) is not a conflict, but the oracle sees it.
+    const blocked = await sync(await Project.open({ root: fork, adapters: [forkAdapter] }));
+    expect(blocked.grafts[0]?.reasons.join('\n')).toMatch(/oracle failed/);
+    const deploy = await readFile(path.join(fork, 'content/deploy.md'), 'utf8');
+    await writeFile(path.join(fork, 'content/deploy.md'), deploy.replace('The new flag writes the output to a different folder.', 'Yeni bayrak çıktıyı farklı bir klasöre yazar.'));
+    const fixed = await sync(await Project.open({ root: fork, adapters: [forkAdapter] }));
+    expect(fixed.targets[0]?.version).toBe('1.2.0');
+    expect(fixed.exitCode, JSON.stringify(fixed.grafts)).toBe(0);
+    const cache = path.join(fork, '.grafts/.cache/fork/tr');
+    expect(gitIn(cache, 'show', 'graft/tr/1.2.0:.grafts/tr/graft.md')).toMatch(/status: applied/);
+    expect(gitIn(cache, 'show', 'graft/tr/1.2.0:content/guide.md')).toContain('olayları');
+  });
+
+  it('outdated offers the newest upstream tag, or the tip of a tracked branch', async () => {
+    const tags = await setup({ inPlace: true });
+    expect((await outdated(tags.project)).find((e) => e.standalone)).toMatchObject({ grafts: ['tr'], candidate: { version: '1.2.0', tag: 'v1.2.0' } });
+    const tracked = await setup({ inPlace: true, track: 'main' });
+    const tip = gitIn(tracked.upstream, 'rev-parse', 'main').trim();
+    expect((await outdated(tracked.project))[0]?.candidate).toEqual({ version: `1.2.0+${tip.slice(0, 12)}`, tag: 'branch main' });
   });
 });

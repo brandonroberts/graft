@@ -5,7 +5,11 @@ import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import semver from 'semver';
 import { GraftError } from '@graftsync/core';
+
+const semverValid = (v: string) => semver.valid(v) !== null;
+const semverCompare = (a: string, b: string) => semver.compare(a, b);
 
 export async function git(
   cwd: string,
@@ -202,4 +206,15 @@ export async function replaceSubtree(dir: string, branch: string, prefix: string
   } finally {
     await rm(path.dirname(index), { recursive: true, force: true });
   }
+}
+
+/** Versions of the upstream tags matching `pattern` (e.g. `v{version}`), ascending. */
+export async function upstreamTags(dir: string, pattern: string): Promise<string[]> {
+  const [prefix, suffix] = pattern.split('{version}') as [string, string];
+  const out = (await git(dir, ['for-each-ref', '--format=%(refname:strip=2)', 'refs/tags'])).stdout.split('\n');
+  const versions = out
+    .filter((t) => t.startsWith(prefix) && t.endsWith(suffix) && t.length > prefix.length + suffix.length)
+    .map((t) => t.slice(prefix.length, t.length - suffix.length))
+    .filter((v) => semverValid(v));
+  return versions.sort(semverCompare);
 }

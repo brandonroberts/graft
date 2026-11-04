@@ -8,7 +8,7 @@ import { installPackage, reinstall } from './install.js';
 import { runCommand, runOracle, type OracleResult } from './oracle.js';
 import { recordVariant, summarizeMisses, updateGraft } from './operations.js';
 import type { Project } from './project.js';
-import type { AnchorReport, ApplyResult, Graft, ResolvedVariant } from './types.js';
+import type { AgentStart, AnchorReport, ApplyResult, Graft, GraftUpdate, ResolvedVariant } from './types.js';
 
 export type SyncOutcome = 'green' | 'needs-agent' | 'skipped' | 'error';
 
@@ -43,7 +43,9 @@ export interface SyncGraftResult {
    */
   regenerated?: { module: string; command: string; rolledBack?: boolean };
   /** Where the agent can start (from the mechanism's `prepareAgent`, e.g. a branch with conflict markers). */
-  agentStart?: string;
+  agentStart?: AgentStart;
+  /** True when the verification was recorded in the materialized result, not in graft.md (see `recordsInResult`). */
+  recordedInResult?: boolean;
 }
 
 export interface SyncTarget {
@@ -443,8 +445,12 @@ async function finish(project: Project, graft: Graft, result: SyncGraftResult, o
     await markNeedsAgent(project, graft, result);
     return;
   }
-  if (!options.dryRun && (fm.rootstock.verified !== version || fm.status !== 'applied')) {
-    await updateGraft(project, graft.id, {
+  if (options.dryRun) return;
+  const adapter = project.adapterFor(graft);
+  const ctx = project.context(graft);
+  let update: GraftUpdate | undefined;
+  if (fm.rootstock.verified !== version || fm.status !== 'applied') {
+    update = {
       verified: version,
       status: 'applied',
       history:
@@ -453,10 +459,15 @@ async function finish(project: Project, graft: Graft, result: SyncGraftResult, o
             ? `Verified against ${fm.rootstock.package}@${version} by \`graft sync\` with regenerated variant ${result.regenerated.module}.`
             : `Verified against ${fm.rootstock.package}@${version} by \`graft sync\` (cheap path, variant ${result.variant!.module} unchanged).`
           : `Re-verified against ${fm.rootstock.package}@${version}; status set to applied.`,
-    });
+    };
+  }
+  const inResult = (await adapter.recordsInResult?.(ctx, version)) ?? false;
+  if (update && !inResult) {
+    await updateGraft(project, graft.id, update);
     result.updated = true;
   }
-  if (!options.dryRun) await project.adapterFor(graft).afterVerified?.(project.context(await project.get(graft.id)), version);
+  if (inResult) result.recordedInResult = true;
+  await adapter.afterVerified?.(project.context(inResult ? graft : await project.get(graft.id)), version, inResult ? update : undefined);
 }
 
 async function writeSyncReport(project: Project, report: SyncReport): Promise<{ json: string; markdown: string }> {
@@ -511,7 +522,7 @@ export function renderSyncMarkdown(report: SyncReport, root: string = report.roo
       lines.push(`Oracle output (${m.mode}, exit ${m.exitCode}):`, '', '```', m.output.trim().slice(-4000), '```', '');
     }
     if (g.diffPath) lines.push(`Scoped upstream diff: \`${rel(g.diffPath)}\``, '');
-    if (g.agentStart) lines.push(`Start from: ${g.agentStart}`, '');
+    if (g.agentStart) lines.push(`Start from: ${g.agentStart.description}`, '');
     if (g.outcome === 'needs-agent' && g.likelyUpstreamed) {
       lines.push(
         `Next: upstream ${g.package}@${g.to} appears to already contain this graft's change. Confirm it (the invariants hold on pristine upstream, e.g. run the oracle without the graft), then run \`graft mark ${g.id} --status upstreamed --history "…"\` to set \`.grafts/${g.id}/graft.md\` to \`upstreamed\` with a History entry. Do not write a new variant.`,

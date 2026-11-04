@@ -199,6 +199,11 @@ When asked to capture a modification as a graft (new, or migrating an existing p
   fetch it from there. Never push it unless the user asks.
 - A target can be an upstream commit between releases: `--version 22.3.0-next.3+<sha>` (the
   version part is matched against variant ranges; use upstream's version at that commit).
+- **In place** (variant `{ "ref": "@worktree", "base": "@verified" }`): never write a new
+  variant. A green sync puts the new `verified` only in the result branch; adopt it with
+  `git fetch <repo> <ref> && git read-tree -u --reset FETCH_HEAD`. On the `-agent` branch,
+  graft.md already says the target version (`status: conflicted`): resolve, then
+  `graft sync --version <target>` verifies the working tree as it is.
 - **Start from the prepared branch.** On `needs-agent`, the report's "Start from" line names
   `graft/<id>/<target>-agent` in the cache clone: git's merge of the fork's change onto the
   target, with conflict markers left only in the files it lists. Fetch it into the fork, resolve
