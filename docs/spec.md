@@ -210,6 +210,16 @@ the installed version):
    `needs-agent`. On success, unless it's a dry run, `rootstock.verified` becomes `T`,
    `status` becomes `applied`, and a History entry is appended.
 
+**Generators.** A graft with a `generator` that fails step 1 gets one regeneration attempt: the
+command runs from the project root with `GRAFT_ID`, `GRAFT_DIR`, `GRAFT_PACKAGE`,
+`GRAFT_UPSTREAM_VERSION`, `GRAFT_VARIANT_OUT` and `GRAFT_EXIT_UPSTREAMED` set. If it exits 0 and
+wrote the variant, the variant is registered and the graft re-checked; it is kept only if steps
+1–3 then pass, and rolled back otherwise. If it exits with `GRAFT_EXIT_UPSTREAMED` (`3`), it is
+saying upstream at `T` already does what the graft did (e.g. the package now ships the
+modification itself): nothing is registered, and the graft is reported `needs-agent` and
+*likely upstreamed*, for a human to confirm and set `status: upstreamed`. Any other exit is a
+failure, reported with the command's error message.
+
 When a graft is marked `needs-agent` and `T` differs from `rootstock.verified`, a scoped
 upstream diff from `verified` to `T` is written to `.grafts/.report/<id>/diff.patch` (and
 `diff.json`).

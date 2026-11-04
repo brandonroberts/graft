@@ -261,6 +261,27 @@ describe('sync regenerates generated variants', () => {
     expect(existsSync(path.join(root, '.grafts/add-c/variants/v2.0.0.patch'))).toBe(false);
   });
 
+  it('reports the error message, not the stack trace under it, when the generator throws', async () => {
+    const { project, root } = await generatorFixture({ generator: 'node throws.mjs {out}' });
+    await writeFile(path.join(root, 'throws.mjs'), "throw new TypeError('no CommonJS left to convert');\n");
+    const report = await sync(project, { writeReport: false });
+    const reasons = report.grafts[0]?.reasons.join('\n') ?? '';
+    expect(reasons).toMatch(/failed \(exit 1\): TypeError: no CommonJS left to convert/);
+    expect(reasons).not.toMatch(/Node\.js v|\bat /);
+  });
+
+  it('a generator exiting GRAFT_EXIT_UPSTREAMED marks the graft likely upstreamed', async () => {
+    const { project, root, file, original } = await generatorFixture({ generator: 'node upstreamed.mjs {out}' });
+    await writeFile(path.join(root, 'upstreamed.mjs'), "console.error('lib ships it now');\nprocess.exit(Number(process.env.GRAFT_EXIT_UPSTREAMED));\n");
+    const report = await sync(project, { writeReport: false });
+    const g = report.grafts[0]!;
+    expect(g).toMatchObject({ outcome: 'needs-agent', likelyUpstreamed: true });
+    expect(g.reasons[0]).toMatch(/upstream lib@2\.0\.0 already does what this graft did, says its generator .* \(lib ships it now\); confirm and set status: upstreamed/);
+    expect(renderSyncMarkdown(report)).toContain('likely upstreamed');
+    expect(await readFile(file, 'utf8')).toBe(original);
+    expect(existsSync(path.join(root, '.grafts/add-c/variants/v2.0.0.patch'))).toBe(false);
+  });
+
   it('rolls back a regenerated variant that still does not fit', async () => {
     const { project, root, file, original } = await generatorFixture({ patch: PATCH.replace('const b = 2', 'const zzz = 2') });
     const report = await sync(project, { writeReport: false });

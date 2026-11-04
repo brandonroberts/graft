@@ -34,7 +34,12 @@ async function files(rel = '') {
 }
 
 const manifest = JSON.parse(await readFile(path.join(dir, 'package.json'), 'utf8'));
-if (manifest.type === 'module') throw new Error(`${pkg}@${version} is already "type": "module"`);
+if (manifest.type === 'module') {
+  // Nothing to convert: upstream ships ESM now, so the graft is done. Tell Graft so (exit code
+  // GRAFT_EXIT_UPSTREAMED), rather than failing.
+  console.error(`${pkg}@${version} is already "type": "module": upstream ships native ESM`);
+  process.exit(Number(process.env.GRAFT_EXIT_UPSTREAMED ?? 3));
+}
 
 // Files in a subtree with its own {"type":"module"} package.json are already ESM.
 const all = await files();

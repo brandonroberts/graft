@@ -293,6 +293,25 @@ async function staticCheck(project: Project, graft: Graft, version: string, mark
   return result;
 }
 
+/**
+ * Exit code with which a generator says upstream already does what the graft did (e.g. the
+ * package now ships the modification itself), so no variant is needed. Sync then reports the
+ * graft as likely upstreamed. Also exported to generators as GRAFT_EXIT_UPSTREAMED.
+ */
+export const GENERATOR_EXIT_UPSTREAMED = 3;
+
+/**
+ * The part of a failed command's output worth one line in a report: the last error message
+ * (e.g. `Error: …`), not the stack trace under it; otherwise the last lines that aren't stack.
+ */
+export function errorSummary(output: string): string {
+  const lines = output.split('\n').map((l) => l.trim()).filter(Boolean);
+  const noise = (l: string) => /^at\s/.test(l) || /^Node\.js v\d/.test(l) || /^\^+$/.test(l) || /^throw\b/.test(l) || /^file:\/\/.*:\d+$/.test(l);
+  const errors = lines.filter((l) => /(^|\b)([A-Z]\w*Error|Error|error)(\s*\[[^\]]*\])?:\s/.test(l));
+  if (errors.length) return errors.at(-1)!.replace(/^.*?\b((?:[A-Z]\w*)?Error(\s*\[[^\]]*\])?:\s)/, '$1').slice(0, 500);
+  return lines.filter((l) => !noise(l)).slice(-3).join(' / ').slice(0, 500);
+}
+
 /** Undo a registered regenerated variant. Returns a sentence for the sync report. */
 type Rollback = (installed: boolean) => Promise<string>;
 
@@ -345,13 +364,24 @@ async function tryRegenerate(
       GRAFT_PACKAGE: pkg,
       GRAFT_UPSTREAM_VERSION: version,
       GRAFT_VARIANT_OUT: out,
+      GRAFT_EXIT_UPSTREAMED: String(GENERATOR_EXIT_UPSTREAMED),
     },
     timeoutMs: (generator.timeout ?? 600) * 1000,
     onOutput: options.onOutput,
   });
+  if (!run.timedOut && run.exitCode === GENERATOR_EXIT_UPSTREAMED) {
+    // Not a failure: upstream already does what the graft did. A human confirms and retires it.
+    if (!options.dryRun) await rm(out, { force: true });
+    const said = errorSummary(run.output);
+    failed.likelyUpstreamed = true;
+    failed.reasons.unshift(
+      `upstream ${pkg}@${version} already does what this graft did, says its generator \`${command}\`${said ? ` (${said})` : ''}; confirm and set status: upstreamed`,
+    );
+    return { ok: false };
+  }
   if (!run.passed) {
-    const tail = run.output.trim().split('\n').slice(-3).join(' / ');
-    return fail(`failed (${run.timedOut ? 'timed out' : `exit ${run.exitCode}`})${tail ? `: ${tail}` : ''}`);
+    const summary = errorSummary(run.output);
+    return fail(`failed (${run.timedOut ? 'timed out' : `exit ${run.exitCode}`})${summary ? `: ${summary}` : ''}`);
   }
   if (!existsSync(out)) return fail(`exited 0 but did not write ${module}`);
 
