@@ -14,13 +14,13 @@
     "graft": "graft"
   },
   "devDependencies": {
-    "@graft/cli": "workspace:*",
+    "@graftsync/cli": "workspace:*",
     "@types/node": "^22.20.5",
     "@types/semver": "^7.8.0",
     "acorn": "^8.19.0",
     "typescript": "~7.0.2",
     "vitest": "^5.1.0",
-    "@graft/core": "workspace:*",
+    "@graftsync/core": "workspace:*",
     "diff": "^9.0.0"
   }
 }

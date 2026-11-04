@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { ACTIVE_STATUSES } from '@graft/spec';
+import { ACTIVE_STATUSES } from '@graftsync/spec';
 import { GraftError } from './errors.js';
 import { installPackage } from './install.js';
 import { runOracle, type OracleResult } from './oracle.js';

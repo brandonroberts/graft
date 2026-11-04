@@ -88,7 +88,7 @@ It also warns when `rootstock.verified` isn't covered by any variant. Prerelease
 
 ## The sync loop
 
-1. **Deterministic first pass (`sync` in `@graft/core`).** For each active graft, the tool:
+1. **Deterministic first pass (`sync` in `@graftsync/core`).** For each active graft, the tool:
    1. selects the variant for the target version,
    2. checks its anchors,
    3. applies it,
@@ -119,7 +119,7 @@ Every command takes `--json` and `--root`.
 
 ## Agents: MCP server and skill
 
-`graft-mcp` (from `@graft/mcp`) is a stdio MCP server over the same core operations as the CLI. It gives an agent context, verification and bookkeeping. The agent writes variant files with its own editing tools.
+`graft-mcp` (from `@graftsync/mcp`) is a stdio MCP server over the same core operations as the CLI. It gives an agent context, verification and bookkeeping. The agent writes variant files with its own editing tools.
 
 | Tool | Purpose |
 |---|---|
@@ -195,21 +195,21 @@ What the dogfood run found:
 - **`graft replay` with the ranges widened:** yaml's variant applies unchanged to 2.8.0 through 2.9.1. semver's applies only to 7.8.6, because 7.8.6 added a file and changed `range.js`. pacote's applies to 22.x, because 22.0.0 rewrote `lib/dir.js`. Those releases go to the agent path instead of being silently mis-patched.
 - **Earlier dogfood, against real releases:** `graft sync --install` across pacote versions, and a hand-off to an agent with no install when the patch no longer fit.
 
-`@graft/core` still imports these packages in ways that work without the patches, because published consumers don't have them.
+`@graftsync/core` still imports these packages in ways that work without the patches, because published consumers don't have them.
 
 ## Packages
 
 | Package | State | Purpose |
 |---|---|---|
-| [`@graft/spec`](packages/spec) | ✅ implemented | `graft.md` schema (zod), parser and validator, comment-preserving editor, starter template. |
-| [`@graft/core`](packages/core) | ✅ implemented | See the list below. |
-| [`@graft/cli`](packages/cli) | ✅ implemented | `graft` command for humans and CI. |
-| [`@graft/mcp`](packages/mcp) | ✅ implemented | MCP server (`graft-mcp`) exposing the core operations as agent tools. |
-| [`@graft/skill`](packages/skill) | ✅ implemented | [`SKILL.md`](packages/skill/SKILL.md) teaching agents the sync loop. |
+| [`@graftsync/spec`](packages/spec) | ✅ implemented | `graft.md` schema (zod), parser and validator, comment-preserving editor, starter template. |
+| [`@graftsync/core`](packages/core) | ✅ implemented | See the list below. |
+| [`@graftsync/cli`](packages/cli) | ✅ implemented | `graft` command for humans and CI. |
+| [`@graftsync/mcp`](packages/mcp) | ✅ implemented | MCP server (`graft-mcp`) exposing the core operations as agent tools. |
+| [`@graftsync/skill`](packages/skill) | ✅ implemented | [`SKILL.md`](packages/skill/SKILL.md) teaching agents the sync loop. |
 | `packages/action` | 📝 planned | GitHub Action: poll npm dist-tags, run sync, open PRs or hand off to an agent. |
-| [`@graft/adapter-patch`](packages/adapters/patch) | ✅ implemented | First mechanism: pnpm `patchedDependencies`. |
+| [`@graftsync/adapter-patch`](packages/adapters/patch) | ✅ implemented | First mechanism: pnpm `patchedDependencies`. |
 
-`@graft/core` contains:
+`@graftsync/core` contains:
 
 - the `MechanismAdapter` interface and the project loader,
 - upstream sources: pristine package contents from the npm registry via pacote (cached), or local directories,
@@ -222,7 +222,7 @@ All logic lives in `core` and the adapters. The CLI and MCP server are thin fron
 
 ### Writing a mechanism adapter
 
-A mechanism plugs in by implementing `MechanismAdapter` from `@graft/core`:
+A mechanism plugs in by implementing `MechanismAdapter` from `@graftsync/core`:
 
 ```ts
 interface MechanismAdapter {

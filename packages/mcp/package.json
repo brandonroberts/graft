@@ -1,5 +1,5 @@
 {
-  "name": "@graft/mcp",
+  "name": "@graftsync/mcp",
   "version": "0.1.0",
   "type": "module",
   "license": "MIT",
@@ -21,10 +21,10 @@
     "dist"
   ],
   "dependencies": {
-    "@graft/core": "workspace:*",
-    "@graft/spec": "workspace:*",
+    "@graftsync/core": "workspace:*",
+    "@graftsync/spec": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.32.2",
     "zod": "^4.6.7",
-    "@graft/adapter-patch": "workspace:*"
+    "@graftsync/adapter-patch": "workspace:*"
   }
 }

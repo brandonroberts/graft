@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import semver from 'semver';
-import { GRAFT_ID_PATTERN, renderGraftTemplate } from '@graft/spec';
+import { GRAFT_ID_PATTERN, renderGraftTemplate } from '@graftsync/spec';
 import { GraftError } from './errors.js';
 import { GRAFT_FILE, GRAFTS_DIR, type Project } from './project.js';
 

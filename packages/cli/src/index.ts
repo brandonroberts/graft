@@ -14,8 +14,8 @@ import {
   sync,
   type AnchorReport,
   type MechanismAdapter,
-} from '@graft/core';
-import { patchAdapter } from '@graft/adapter-patch';
+} from '@graftsync/core';
+import { patchAdapter } from '@graftsync/adapter-patch';
 
 /** Mechanisms the CLI knows about. */
 export const defaultAdapters: MechanismAdapter[] = [patchAdapter];

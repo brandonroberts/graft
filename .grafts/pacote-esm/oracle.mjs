@@ -41,7 +41,7 @@ await run('pacote-esm', [
     assert.equal(typeof pacote.tarball.file, 'function');
   }],
   ['deep requires keep working', () => assert.equal(typeof require('pacote/lib/fetcher.js').get, 'function')],
-  ['manifest(file:) works', async () => assert.equal((await pacote.manifest(`file:${local}`)).name, '@graft/spec')],
+  ['manifest(file:) works', async () => assert.equal((await pacote.manifest(`file:${local}`)).name, '@graftsync/spec')],
   ['extract(file:.tgz) writes the package', async () => {
     const dest = path.join(work, 'out');
     const result = await pacote.extract(`file:${tgz}`, dest);
@@ -55,7 +55,7 @@ await run('pacote-esm', [
   }],
   ['the pacote CLI still runs as a program', () => {
     const out = execFileSync(process.execPath, [path.join(dir, 'bin/index.js'), 'manifest', `file:${local}`], { encoding: 'utf8' });
-    assert.match(out, /@graft\/spec/);
+    assert.match(out, /@graftsync\/spec/);
   }],
   ['nothing from pacote loaded as CommonJS', () => `${assertNoCommonJS(formats, dir)} modules, all ESM`],
 ]);

@@ -20,11 +20,11 @@ status: applied
 
 pacote is CommonJS only. Its `module.exports` is also an object of inline arrow functions,
 which Node's CommonJS export detection cannot see, so `import { extract } from 'pacote'`
-is `undefined`. That trap caused a real bug in `@graft/core`. This graft converts pacote
+is `undefined`. That trap caused a real bug in `@graftsync/core`. This graft converts pacote
 itself to native ESM with real named exports. It is part of Graft's dogfood validation
 (see semver-esm). pacote's own dependencies stay CommonJS; they are not part of this graft.
 
-`@graft/core` still uses pacote's default import, because published consumers will not
+`@graftsync/core` still uses pacote's default import, because published consumers will not
 have this patch.
 
 ## Invariants

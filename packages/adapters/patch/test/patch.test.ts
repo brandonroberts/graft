@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { DirectoryUpstreamSource, Project, recordVariant, sync } from '@graft/core';
+import { DirectoryUpstreamSource, Project, recordVariant, sync } from '@graftsync/core';
 import { patchAdapter, pnpmConfigProblems } from '../src/index.js';
 
 const V1 = `const a = 1\nconst b = 2\nmodule.exports = { a, b }\n`;

@@ -1,5 +1,5 @@
 {
-  "name": "@graft/adapter-patch",
+  "name": "@graftsync/adapter-patch",
   "version": "0.1.0",
   "type": "module",
   "license": "MIT",
@@ -18,8 +18,8 @@
     "dist"
   ],
   "dependencies": {
-    "@graft/core": "workspace:*",
-    "@graft/spec": "workspace:*",
+    "@graftsync/core": "workspace:*",
+    "@graftsync/spec": "workspace:*",
     "diff": "^9.0.0",
     "yaml": "^2.9.1"
   }

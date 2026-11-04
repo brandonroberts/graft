@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createJiti } from 'jiti';
-import { parseGraft, selectVariant, type VariantRef } from '@graft/spec';
+import { parseGraft, selectVariant, type VariantRef } from '@graftsync/spec';
 import { GraftError } from './errors.js';
 import type { Graft, GraftContext, InvalidGraft, MechanismAdapter, ResolvedVariant } from './types.js';
 import { NpmUpstreamSource, type UpstreamSource } from './upstream.js';

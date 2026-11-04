@@ -1,5 +1,5 @@
 import semver from 'semver';
-import { ACTIVE_STATUSES } from '@graft/spec';
+import { ACTIVE_STATUSES } from '@graftsync/spec';
 import type { Project } from './project.js';
 
 export interface OutdatedEntry {

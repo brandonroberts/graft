@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import semver from 'semver';
-import { GRAFT_STATUSES, GraftDocumentEditor, type GraftStatus } from '@graft/spec';
+import { GRAFT_STATUSES, GraftDocumentEditor, type GraftStatus } from '@graftsync/spec';
 import { GraftError } from './errors.js';
 import type { Project } from './project.js';
 import type { AnchorReport, ApplyOptions, ApplyResult, Graft, ScopedDiff, VariantInput } from './types.js';

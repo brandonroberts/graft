@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { patchAdapter } from '@graft/adapter-patch';
+import { patchAdapter } from '@graftsync/adapter-patch';
 import {
   applyGraft,
   checkAnchors,
@@ -15,8 +15,8 @@ import {
   sync,
   updateGraft,
   type MechanismAdapter,
-} from '@graft/core';
-import { GRAFT_STATUSES, REQUIRED_SECTIONS } from '@graft/spec';
+} from '@graftsync/core';
+import { GRAFT_STATUSES, REQUIRED_SECTIONS } from '@graftsync/spec';
 
 /** Mechanisms the MCP server knows about (same set as the CLI). */
 export const defaultAdapters: MechanismAdapter[] = [patchAdapter];

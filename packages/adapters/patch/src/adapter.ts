@@ -14,7 +14,7 @@ import {
   type ResolvedVariant,
   type ScopedDiff,
   type ScopedFileDiff,
-} from '@graft/core';
+} from '@graftsync/core';
 import { applyFilePatch, describeHunk, locateHunk, parsePatchFile, patchTarget, type FilePatch } from './patchfile.js';
 import { configurePnpmPatch, pnpmConfigProblems } from './pnpm.js';
 

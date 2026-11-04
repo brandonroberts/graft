@@ -9,7 +9,7 @@
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createTwoFilesPatch } from 'diff';
-import { NpmUpstreamSource } from '@graft/core';
+import { NpmUpstreamSource } from '@graftsync/core';
 import { convertFile, lazyEdges, requireEdges } from './convert.mjs';
 
 const [pkg, version, out] = process.argv.slice(2);

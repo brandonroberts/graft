@@ -1,4 +1,4 @@
-import type { Diagnostic, GraftFrontmatter, Section, VariantRef } from '@graft/spec';
+import type { Diagnostic, GraftFrontmatter, Section, VariantRef } from '@graftsync/spec';
 import type { Project } from './project.js';
 
 /** A graft loaded from `.grafts/<id>/graft.md`. */

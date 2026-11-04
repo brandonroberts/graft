@@ -1,5 +1,5 @@
 {
-  "name": "@graft/cli",
+  "name": "@graftsync/cli",
   "version": "0.1.0",
   "type": "module",
   "license": "MIT",
@@ -21,9 +21,9 @@
     "dist"
   ],
   "dependencies": {
-    "@graft/core": "workspace:*",
-    "@graft/spec": "workspace:*",
+    "@graftsync/core": "workspace:*",
+    "@graftsync/spec": "workspace:*",
     "citty": "^0.2.2",
-    "@graft/adapter-patch": "workspace:*"
+    "@graftsync/adapter-patch": "workspace:*"
   }
 }

@@ -4,8 +4,8 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { DirectoryUpstreamSource, Project } from '@graft/core';
-import { patchAdapter } from '@graft/adapter-patch';
+import { DirectoryUpstreamSource, Project } from '@graftsync/core';
+import { patchAdapter } from '@graftsync/adapter-patch';
 import { createGraftServer } from '../src/index.js';
 
 const V1 = 'const a = 1\nconst b = 2\nmodule.exports = { a, b }\n';
