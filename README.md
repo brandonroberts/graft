@@ -419,7 +419,7 @@ Releases use [Changesets](https://github.com/changesets/changesets). All `@graft
 
 1. With a user-facing change, run `pnpm changeset`, pick a bump, describe the change, and commit the generated `.changeset/*.md` with your PR.
 2. When you want to release, run the **Release** workflow manually from the Actions tab (or `gh workflow run release.yml`). It doesn't run on push. With pending changesets, it opens or updates a "Version packages" PR that bumps versions and writes changelogs (`pnpm version-packages`).
-3. Merge that PR, then run **Release** again. With no changesets pending, it runs `pnpm release` (build, then `changeset publish`), which publishes every version not yet on npm and tags it.
+3. Merge that PR, then run **Release** again. With no changesets pending, it runs `pnpm release` (build, then `changeset publish`), which publishes every version not yet on npm. It then tags the release once, `v<version>` (the `@graftsync/*` packages share one version), and creates its GitHub release from the CLI's changelog. Re-running Release tags a published version that has no tag yet.
 
 Prerequisites (done): the `graftsync` npm organization exists, and an npm token that can publish to it is set as the `NPM_TOKEN` repository secret. Without the secret, the workflow skips the release step.
 
