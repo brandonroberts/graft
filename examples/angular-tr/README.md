@@ -21,6 +21,14 @@ published `@graftsync/cli@0.1.0`. Copy it into the fork's root:
 and, optionally, `graft init --agent --skills-dir .agent/skills` to put the `graft-sync` skill next
 to the repo's own `tr-contributor` skill.
 
+To start from scratch instead, scaffold the same frontmatter and variant from the fork's checkout
+(with an `upstream` remote pointing at angular/angular), then write the body and the oracle:
+
+```bash
+npx -y @graftsync/cli@latest add angular-tr --package angular --mechanism fork --in-place \
+  --version 22.3.0-next.2+e36a63e20e30
+```
+
 ## How it's set up
 
 - **Repo mode, in place.** `fork: { repo: ., upstream: angular/angular, install: none }`: the

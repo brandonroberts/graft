@@ -131,10 +131,31 @@ const add = defineCommand({
     mechanism: { type: 'string', default: 'patch', description: 'Mechanism adapter' },
     target: { type: 'string', description: 'Comma-separated target files in the package' },
     modes: { type: 'string', description: 'Comma-separated oracle modes (default: default)' },
+    'in-place': { type: 'boolean', description: 'fork: the graft lives in the fork itself (repo: ., repo mode, variant { @worktree, @verified })' },
+    'repo-mode': { type: 'boolean', description: 'fork: the fork is the product, nothing is installed (install: none)' },
+    'fork-repo': { type: 'string', description: 'fork: git URL (or path) of the fork' },
+    upstream: { type: 'string', description: "fork: git URL of the upstream repo (in place, default: the checkout's `upstream` remote)" },
+    tag: { type: 'string', description: 'fork: upstream release tag pattern (default: v{version})' },
+    track: { type: 'string', description: 'fork, repo mode: upstream branch whose tip `outdated` offers' },
   },
   run: guarded(async (args) => {
     const project = await open(args.root);
     const split = (s?: string) => s?.split(',').map((x) => x.trim()).filter(Boolean);
+    const options = Object.fromEntries(
+      Object.entries({
+        inPlace: args['in-place'],
+        repoMode: args['repo-mode'],
+        repo: args['fork-repo'],
+        upstream: args.upstream,
+        tag: args.tag,
+        track: args.track,
+      }).filter(([, v]) => v !== undefined && v !== false && v !== ''),
+    ) as Record<string, string | boolean>;
+    const flag: Record<string, string> = { inPlace: '--in-place', repoMode: '--repo-mode', repo: '--fork-repo', upstream: '--upstream', tag: '--tag', track: '--track' };
+    if (Object.keys(options).length && args.mechanism !== 'fork') {
+      const used = Object.keys(options).map((k) => flag[k]);
+      throw new GraftError(`${used.join(', ')} ${used.length > 1 ? 'apply' : 'applies'} only to --mechanism fork`, 'add/options');
+    }
     const files = await addGraft(project, {
       id: args.id,
       package: args.package,
@@ -142,6 +163,7 @@ const add = defineCommand({
       mechanism: args.mechanism,
       targets: split(args.target),
       modes: split(args.modes),
+      options,
     });
     print(args.json, { created: files }, () => files.forEach((f) => console.log(`created ${path.relative(process.cwd(), f)}`)));
     return EXIT.ok;

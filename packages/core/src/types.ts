@@ -169,6 +169,19 @@ export interface InstalledApplyReport {
   warnings: string[];
 }
 
+/** What `graft add` knows when an adapter scaffolds a graft. */
+export interface ScaffoldInput {
+  id: string;
+  package: string;
+  targets?: string[];
+  /** Project root. */
+  root: string;
+  /** Oracle modes chosen for the graft. */
+  modes: string[];
+  /** Mechanism-specific options (e.g. the fork mechanism's `upstream`, `inPlace`). */
+  options: Record<string, string | boolean>;
+}
+
 /** A change to graft.md bookkeeping (see `updateGraft`). */
 export interface GraftUpdate {
   status?: 'applied' | 'conflicted' | 'upstreamed' | 'obsolete';
@@ -275,7 +288,7 @@ export interface MechanismAdapter {
   /** File extension of variant modules, used when scaffolding (e.g. `.patch`). Default `.ts`. */
   variantExtension?: string;
   /** Scaffold a variant module stub. Returns file contents. */
-  variantTemplate?(graft: { id: string; targets?: string[]; package: string }): string;
+  variantTemplate?(graft: ScaffoldInput): string;
   /** Extra frontmatter for a scaffolded graft (e.g. the fork mechanism's `fork:` block). */
-  scaffoldFrontmatter?(graft: { id: string; package: string; version: string }): Record<string, unknown>;
+  scaffoldFrontmatter?(graft: ScaffoldInput & { version: string }): Record<string, unknown>;
 }

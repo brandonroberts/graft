@@ -2,11 +2,11 @@
 // docs site (e.g. erkamyaman/angular-tr). The graft lives in the fork's own checkout, its base
 // is an upstream commit between releases, and the oracle checks for leftover English.
 import { execFileSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { outdated, Project, runOracle, sync } from '@graftsync/core';
+import { addGraft, outdated, Project, runOracle, sync } from '@graftsync/core';
 import { forkAdapter, resetFetchCache } from '../src/index.js';
 
 const gitIn = (cwd: string, ...args: string[]) =>
@@ -279,5 +279,43 @@ describe('fork repo mode, in place (@worktree / @verified)', () => {
     const tracked = await setup({ inPlace: true, track: 'main' });
     const tip = gitIn(tracked.upstream, 'rev-parse', 'main').trim();
     expect((await outdated(tracked.project))[0]?.candidate).toEqual({ version: `1.2.0+${tip.slice(0, 12)}`, tag: 'branch main' });
+  });
+});
+
+describe('graft add for repo mode', () => {
+  it('scaffolds an in-place graft from inside the fork: valid, and green once its oracle is written', async () => {
+    const { fork, upstream, base } = await setup({ inPlace: true });
+    await rm(path.join(fork, '.grafts/tr'), { recursive: true });
+    gitIn(fork, 'remote', 'add', 'upstream', `file://${upstream}`);
+    const project = await Project.open({ root: fork, adapters: [forkAdapter] });
+    const version = `1.0.0+${base.slice(0, 12)}`;
+    await addGraft(project, { id: 'tr2', package: 'docs', version, mechanism: 'fork', options: { inPlace: true } });
+
+    const md = await readFile(path.join(fork, '.grafts/tr2/graft.md'), 'utf8');
+    expect(md).toContain('repo: .');
+    expect(md).toContain(`upstream: file://${upstream}`); // from the checkout's upstream remote
+    expect(md).toContain('install: none');
+    expect(md).toContain('node "$GRAFT_DIR/oracle.mjs"'); // the oracle runs in the rebased checkout
+    expect(md).toContain(`verified: ${version}`);
+    expect(JSON.parse(await readFile(path.join(fork, '.grafts/tr2/variants/v1.json'), 'utf8'))).toEqual({ ref: '@worktree', base: '@verified' });
+    const { invalid } = await project.loadAll();
+    expect(invalid).toEqual([]);
+
+    // The stub oracle fails until written; then the scaffold syncs as is.
+    expect((await sync(project)).exitCode).toBe(1);
+    await writeFile(path.join(fork, '.grafts/tr2/oracle.mjs'), 'process.exit(require("fs").readFileSync("content/guide.md", "utf8").includes("Bileşenler") ? 0 : 1)\n'.replace('require("fs")', '(await import("node:fs"))'));
+    const report = await sync(project);
+    expect(report.exitCode, JSON.stringify(report.grafts)).toBe(0);
+  });
+
+  it('repo mode without in place keeps the fork and variant to fill in', async () => {
+    const { fork } = await setup();
+    const project = await Project.open({ root: fork, adapters: [forkAdapter] });
+    await addGraft(project, { id: 'other', package: 'tool', version: '2.0.0', mechanism: 'fork', options: { repoMode: true, upstream: 'https://example.com/tool.git', track: 'main' } });
+    const md = await readFile(path.join(fork, '.grafts/other/graft.md'), 'utf8');
+    expect(md).toMatch(/repo: "?TODO/);
+    expect(md).toContain('upstream: https://example.com/tool.git');
+    expect(md).toContain('track: main');
+    expect(md).toContain('install: none');
   });
 });

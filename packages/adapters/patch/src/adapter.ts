@@ -308,7 +308,7 @@ export function createPatchAdapter(): MechanismAdapter {
       await loadPatch(ctx.graft, variant);
     },
 
-    variantTemplate({ package: pkg }) {
+    variantTemplate({ package: pkg }: { package: string }) {
       return `# Replace this file with the patch for ${pkg}.
 # Create it with:  pnpm patch ${pkg}   (edit the printed directory)
 #            then: pnpm patch-commit <dir> --patches-dir <this graft>/variants

@@ -131,6 +131,8 @@ Reports go to `.grafts/.report/sync.json` and `sync.md`. Exit codes: `0` all gre
 ```sh
 graft init [--package <pkg>] [--agent] # create .grafts/ (a starter graft; agent setup)
 graft add <id> --package <pkg>        # scaffold graft.md, a variant stub, an oracle stub
+graft add <id> --package <name> --mechanism fork --in-place --version <X[+sha]>
+                                      # a fork that is the product, graft in the fork (repo mode)
 graft apply [<id>]                    # wire the package manager to selected variants, reinstall
 graft status                          # grafts, versions, status, anchor health
 graft check [<id>] [--version X]      # anchor report against installed or X
@@ -287,6 +289,8 @@ Verified end to end against the real `vercel/ms` repository with a local fork (a
 #### Repo mode: the fork is the product
 
 Some forks aren't dependencies at all: a translated docs site, a tool run from source. With `install: none`, nothing is packed or installed. `sync` rebases the fork's change onto the target tag in a fresh checkout and runs the oracle *there*, then leaves the result as the local branch `graft/<id>/<version>` in `.grafts/.cache/fork/<id>` for you to fetch. The graft can live in the fork itself (`repo: .`), and `base` may be any upstream commit, because these forks often sit between releases.
+
+Scaffold it from inside the fork with `graft add <id> --package <name> --mechanism fork --in-place --version <upstream version>`: it writes `repo: .`, `install: none`, the upstream from the checkout's `upstream` git remote (or `--upstream <url>`), an oracle run from the graft directory, and the variant below. `--repo-mode` alone sets `install: none` for a fork kept elsewhere; `--fork-repo`, `--tag` and `--track` fill in the rest.
 
 When the graft lives in the fork itself, use one permanent variant, `{ "ref": "@worktree", "base": "@verified" }`: the change is *this checkout* (uncommitted work included) against *the upstream it last verified*. It never needs a new variant, because the base moves with `verified`:
 

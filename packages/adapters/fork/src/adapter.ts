@@ -13,6 +13,7 @@
 // standalone, and its oracle runs in the rebased checkout, which is kept as the local branch
 // `graft/<id>/<version>` in the cache clone. `base` may then also be any upstream commit or ref,
 // since such forks often sit on a commit between releases.
+import { spawnSync } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
 import { chmod, cp, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -699,12 +700,31 @@ export function createForkAdapter(): MechanismAdapter {
       await forkChange(ctx.project, ctx.graft, variant);
     },
 
-    variantTemplate() {
-      return `${JSON.stringify({ ref: 'TODO', base: 'TODO' }, null, 2)}\n`;
+    variantTemplate({ options }) {
+      // In place, the variant never changes: this checkout against the upstream it last verified.
+      const variant = options.inPlace ? { ref: WORKTREE, base: VERIFIED } : { ref: 'TODO', base: 'TODO' };
+      return `${JSON.stringify(variant, null, 2)}\n`;
     },
 
-    scaffoldFrontmatter() {
-      return { fork: { repo: 'TODO: git URL of your fork', upstream: 'TODO: git URL of the upstream repo', tag: 'v{version}' } };
+    scaffoldFrontmatter({ id, root, modes, options }) {
+      const inPlace = options.inPlace === true;
+      const str = (k: string) => (typeof options[k] === 'string' ? (options[k] as string) : undefined);
+      // In place, the fork is this checkout: its `upstream` git remote (if any) names the upstream.
+      const upstreamRemote = inPlace ? spawnSync('git', ['remote', 'get-url', 'upstream'], { cwd: root, encoding: 'utf8' }) : undefined;
+      const upstream = str('upstream') ?? (upstreamRemote?.status === 0 ? upstreamRemote.stdout.trim() : undefined) ?? 'TODO: git URL of the upstream repo';
+      const fork: Record<string, unknown> = {
+        repo: str('repo') ?? (inPlace ? '.' : 'TODO: git URL of your fork'),
+        upstream,
+        tag: str('tag') ?? 'v{version}',
+      };
+      if (inPlace || options.repoMode === true) fork.install = 'none';
+      if (str('track')) fork.track = str('track');
+      return {
+        fork,
+        // A standalone graft's oracle runs in the rebased checkout, which has no .grafts/: point at
+        // the graft directory instead.
+        ...(fork.install === 'none' ? { oracle: { command: `node "$GRAFT_DIR/oracle.mjs"${modes.length > 1 ? ' {mode}' : ''}`, modes } } : {}),
+      };
     },
   };
   return adapter;

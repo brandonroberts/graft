@@ -199,6 +199,8 @@ When asked to capture a modification as a graft (new, or migrating an existing p
   fetch it from there. Never push it unless the user asks.
 - A target can be an upstream commit between releases: `--version 22.3.0-next.3+<sha>` (the
   version part is matched against variant ranges; use upstream's version at that commit).
+- To create one in a fork that is the product: `graft add <id> --package <name> --mechanism fork
+  --in-place --version <upstream version or version+commit>` from the fork's checkout.
 - **In place** (variant `{ "ref": "@worktree", "base": "@verified" }`): never write a new
   variant. A green sync puts the new `verified` only in the result branch; adopt it with
   `git fetch <repo> <ref> && git read-tree -u --reset FETCH_HEAD`. On the `-agent` branch,

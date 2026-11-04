@@ -133,6 +133,8 @@ export interface AddGraftInput {
   mechanism: string;
   targets?: string[];
   modes?: string[];
+  /** Mechanism-specific scaffolding options, passed to the adapter (e.g. fork: upstream, inPlace). */
+  options?: Record<string, string | boolean>;
 }
 
 /** Scaffold `graft.md`, a variant stub, and an oracle stub for a new graft. */
@@ -163,6 +165,7 @@ export async function addGraft(project: Project, input: AddGraftInput): Promise<
   const variantFile = `./variants/v${major}${project.adapter(input.mechanism)?.variantExtension ?? '.ts'}`;
   const oracleFile = `${GRAFTS_DIR}/${input.id}/oracle.mjs`;
   const modes = input.modes?.length ? input.modes : ['default'];
+  const scaffold = { id: input.id, package: input.package, targets: input.targets, root: project.root, modes, options: input.options ?? {} };
 
   await initProject(project.root);
   await mkdir(path.join(dir, 'variants'), { recursive: true });
@@ -176,13 +179,13 @@ export async function addGraft(project: Project, input: AddGraftInput): Promise<
         ...(input.targets?.length ? { targets: input.targets } : {}),
         variants: [{ range: `>=${major}.0.0-0`, module: variantFile }],
         oracle: { command: `node ${oracleFile}`, modes },
-        ...(adapter.scaffoldFrontmatter?.({ id: input.id, package: input.package, version }) ?? {}),
+        ...(adapter.scaffoldFrontmatter?.({ ...scaffold, version }) ?? {}),
         status: 'applied',
       }),
     ],
     [
       path.join(dir, variantFile),
-      adapter.variantTemplate?.({ id: input.id, targets: input.targets, package: input.package }) ??
+      adapter.variantTemplate?.(scaffold) ??
         `// Variant for ${input.package}. Implement the ${input.mechanism} mechanism here.\nexport default {};\n`,
     ],
     [path.join(project.root, oracleFile), ORACLE_STUB(input.id)],
@@ -195,6 +198,8 @@ const ORACLE_STUB = (id: string) => `// Oracle for graft "${id}".
 // Must exit 0 only if every invariant in .grafts/${id}/graft.md holds.
 // Runs once per mode; the mode is in process.env.GRAFT_MODE (e.g. "dev" or "build").
 // The upstream version under test is in process.env.GRAFT_UPSTREAM_VERSION.
+// A standalone graft (e.g. a fork in repo mode) runs in the materialized upstream with the graft
+// applied (process.env.GRAFT_WORKSPACE); the project itself is at process.env.GRAFT_PROJECT_ROOT.
 
 const mode = process.env.GRAFT_MODE;
 console.error(\`[oracle:${id}] not implemented yet (mode: \${mode})\`);

@@ -281,8 +281,8 @@ under the name used in `mechanism`.
 | `validateVariant?(ctx, variant)` | no | Validate a new variant before it is registered; throw to reject. |
 | `exclusivePerPackage?` | no | When true, at most one active graft with this mechanism may target a package; more is a validation error. |
 | `variantExtension?` | no | File extension for scaffolded variant modules (default `.ts`). |
-| `variantTemplate?(graft)` | no | Contents of a scaffolded variant stub. |
-| `scaffoldFrontmatter?(graft)` | no | Extra frontmatter for a scaffolded graft (e.g. the `fork:` block). |
+| `variantTemplate?(input)` | no | Contents of a scaffolded variant stub. `input` has the graft's id, package, targets, the project root, oracle modes, and mechanism-specific `options` from `graft add`. |
+| `scaffoldFrontmatter?(input)` | no | Extra frontmatter for a scaffolded graft (e.g. the `fork:` block); it may override `oracle` (e.g. a standalone graft's oracle runs from `$GRAFT_DIR`). |
 
 Every adapter MUST follow these rules:
 
