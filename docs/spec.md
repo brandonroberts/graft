@@ -68,9 +68,10 @@ YAML, is an error.
 | `generator` | object | no | — | A command that writes a new variant mechanically; `sync` runs it when no existing variant fits (§6). |
 | `generator.command` | non-empty string containing `{out}` (or using `$GRAFT_VARIANT_OUT`) | yes, with `generator` | — | `{version}` and `{out}` are substituted. |
 | `fork` | object | yes for `mechanism: fork` | — | Where a fork graft's modification lives (§9.2). |
-| `fork.repo` | non-empty string | yes | — | Git URL of the fork. |
+| `fork.repo` | non-empty string | yes | — | Git URL of the fork, or a path relative to the project root (e.g. `.` when the graft lives in the fork). |
 | `fork.upstream` | non-empty string | yes | — | Git URL of the upstream source repository. |
 | `fork.tag` | string containing `{version}` | no | `v{version}` | Upstream release tag for a version. |
+| `fork.install` | `package` \| `none` | no | `package` | `none`: repo mode — the fork is the product, nothing is installed (§9.2). |
 | `fork.dir` | non-empty string | no | repo root | Package directory inside the repositories (monorepos). |
 | `fork.build` | non-empty string | no | — | Command run in the rebased package directory before packing. |
 | `fork.timeout` | positive integer (seconds) | no | 1800 | Build timeout. |
@@ -176,7 +177,12 @@ success.
   | `GRAFT_DIR` | Absolute path of the graft directory. |
   | `GRAFT_MODE` | The current mode. |
   | `GRAFT_PACKAGE` | `rootstock.package`. |
-  | `GRAFT_UPSTREAM_VERSION` | The upstream version under test (by default the installed version; empty if not installed). |
+  | `GRAFT_UPSTREAM_VERSION` | The upstream version under test (by default the current version: the installed one, or `rootstock.verified` for a standalone graft; empty if none). |
+  | `GRAFT_PROJECT_ROOT` | Absolute path of the project root. |
+  | `GRAFT_WORKSPACE` | Standalone grafts only: the materialized upstream with the graft applied, which is also the working directory. |
+
+- The oracle runs in the project root, except for a *standalone* graft (one whose mechanism
+  installs nothing, §9), which runs in the workspace its adapter materializes for the version.
 
 - A mode **passes** when the command exits 0 before the timeout (`oracle.timeout` seconds,
   default 600). On timeout the process receives `SIGTERM` and the mode fails. A command that
@@ -265,6 +271,8 @@ under the name used in `mechanism`.
 | `beforeInstall?(ctx, version)` | no | Point the package manager at the variant for `version` before `sync` installs it. May return `{ install: 'reinstall' }` to request a bare reinstall instead of a targeted install. |
 | `afterInstall?(ctx, version)` | no | Run right after `sync` installs `version`, for mechanisms that apply themselves. |
 | `applyInstalled?(ctx)` | no | Apply selected variants to installed package copies (from `postinstall`). MUST be idempotent, work offline, and never modify files shared with a package-manager store (write new inodes). |
+| `standalone?(graft)` | no | True when the graft installs nothing into the project. Its current version is `rootstock.verified`, `sync` skips the install step (and defaults to re-verifying `verified`), and the oracle runs in `workspace`. |
+| `workspace?(ctx, version)` | with `standalone` | Materialize the upstream at `version` with the graft applied, in a directory the oracle runs in; returns `{ dir, result?, dispose }`. Throw when it can't be done. |
 | `validateVariant?(ctx, variant)` | no | Validate a new variant before it is registered; throw to reject. |
 | `exclusivePerPackage?` | no | When true, at most one active graft with this mechanism may target a package; more is a validation error. |
 | `variantExtension?` | no | File extension for scaffolded variant modules (default `.ts`). |
@@ -311,3 +319,18 @@ on top of an upstream release tag.
   that the installed files equal the tarball's (except `package.json`).
 - When the change doesn't rebase onto a new tag, the graft needs an agent: rebase the fork
   branch onto the new tag in the fork, then register a new variant pointing at it.
+- The diff excludes `.grafts/`. Binary files carry over only where upstream left them as they
+  were at the base (otherwise the anchor `<file>#binary` misses); executable bits carry over.
+- A hunk whose change is the first or last line of the base file (no context on that side)
+  MUST miss when upstream has since added lines right against it, as git's merge would
+  conflict. The scoped diff for an agent is taken from the fork's base, not from `verified`.
+
+**Repo mode** (`fork.install: none`). The fork is the product itself (a translated docs site,
+a tool run from source), not a dependency:
+
+- The graft is standalone (§9): nothing is packed or installed, and the installed-copy checks
+  don't apply. `base` may also be any upstream commit, tag or branch, since such forks often
+  sit on a commit between releases; targets are still versions, resolved through `fork.tag`.
+- `sync` rebases the change onto `tag(version)` in a fresh checkout and runs the oracle there.
+  The result is committed as the local branch `graft/<id>/<version>` in the cache clone
+  (`.grafts/.cache/fork/<id>`), for the user to fetch. The tooling MUST NOT push it.

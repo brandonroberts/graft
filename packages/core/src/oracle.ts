@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import type { Graft } from './types.js';
+import type { Graft, Workspace } from './types.js';
 import type { Project } from './project.js';
 
 export interface OracleModeResult {
@@ -18,6 +18,8 @@ export interface OracleResult {
   version: string | undefined;
   passed: boolean;
   modes: OracleModeResult[];
+  /** For standalone grafts: how to get the materialized result the oracle ran against. */
+  workspace?: string;
 }
 
 export interface RunOracleOptions {
@@ -35,28 +37,60 @@ const DEFAULT_TIMEOUT_S = 600;
 /** Run the graft's oracle once per mode. The oracle is the only proof that a graft holds. */
 export async function runOracle(project: Project, graft: Graft, options: RunOracleOptions = {}): Promise<OracleResult> {
   const { oracle, rootstock } = graft.frontmatter;
-  const version = options.version ?? (await project.installedVersion(rootstock.package));
+  const version = options.version ?? (await project.currentVersion(graft));
   const modes = options.modes?.length ? oracle.modes.filter((m) => options.modes!.includes(m)) : oracle.modes;
-  const results: OracleModeResult[] = [];
-  for (const mode of modes) {
-    const command = oracle.command.replaceAll('{mode}', mode);
-    results.push(
-      await runCommand(command, {
-        cwd: project.root,
-        env: {
-          GRAFT_ID: graft.id,
-          GRAFT_DIR: graft.dir,
-          GRAFT_MODE: mode,
-          GRAFT_PACKAGE: rootstock.package,
-          GRAFT_UPSTREAM_VERSION: version ?? '',
-        },
-        timeoutMs: (oracle.timeout ?? DEFAULT_TIMEOUT_S) * 1000,
-        maxOutput: options.maxOutput ?? 20_000,
-        onOutput: options.onOutput,
-      }).then((r) => ({ mode, command, ...r })),
-    );
+  const adapter = project.adapterFor(graft);
+
+  // A standalone graft installs nothing: its oracle runs in the materialized upstream source.
+  let workspace: Workspace | undefined;
+  if (project.isStandalone(graft)) {
+    const failed = (output: string): OracleResult => ({
+      graft: graft.id,
+      version,
+      passed: false,
+      modes: modes.map((mode) => ({ mode, command: oracle.command.replaceAll('{mode}', mode), passed: false, exitCode: null, output, durationMs: 0, timedOut: false })),
+    });
+    if (!version) return failed(`[graft] no version to run the oracle against\n`);
+    if (!adapter.workspace) return failed(`[graft] mechanism "${adapter.name}" is standalone but provides no workspace\n`);
+    try {
+      workspace = await adapter.workspace(project.context(graft), version);
+    } catch (err) {
+      return failed(`[graft] could not materialize ${rootstock.package}@${version} with the graft applied: ${(err as Error).message}\n`);
+    }
   }
-  return { graft: graft.id, version, passed: results.length > 0 && results.every((r) => r.passed), modes: results };
+
+  const results: OracleModeResult[] = [];
+  try {
+    for (const mode of modes) {
+      const command = oracle.command.replaceAll('{mode}', mode);
+      results.push(
+        await runCommand(command, {
+          cwd: workspace?.dir ?? project.root,
+          env: {
+            GRAFT_ID: graft.id,
+            GRAFT_DIR: graft.dir,
+            GRAFT_MODE: mode,
+            GRAFT_PACKAGE: rootstock.package,
+            GRAFT_UPSTREAM_VERSION: version ?? '',
+            GRAFT_PROJECT_ROOT: project.root,
+            ...(workspace ? { GRAFT_WORKSPACE: workspace.dir } : {}),
+          },
+          timeoutMs: (oracle.timeout ?? DEFAULT_TIMEOUT_S) * 1000,
+          maxOutput: options.maxOutput ?? 20_000,
+          onOutput: options.onOutput,
+        }).then((r) => ({ mode, command, ...r })),
+      );
+    }
+  } finally {
+    await workspace?.dispose();
+  }
+  return {
+    graft: graft.id,
+    version,
+    passed: results.length > 0 && results.every((r) => r.passed),
+    modes: results,
+    ...(workspace?.result ? { workspace: workspace.result } : {}),
+  };
 }
 
 interface CommandResult {

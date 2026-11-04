@@ -222,6 +222,19 @@ export class Project {
     return this.jiti.import<T>(file, { default: true });
   }
 
+  /** True when the graft installs nothing into the project (see `MechanismAdapter.standalone`). */
+  isStandalone(graft: Graft): boolean {
+    return this.adapterFor(graft).standalone?.(graft) ?? false;
+  }
+
+  /**
+   * The upstream version a graft currently applies to: the installed version of its rootstock,
+   * or for standalone grafts (nothing installed) the last verified version.
+   */
+  async currentVersion(graft: Graft): Promise<string | undefined> {
+    return this.isStandalone(graft) ? graft.frontmatter.rootstock.verified : this.installedVersion(graft.frontmatter.rootstock.package);
+  }
+
   async installedVersion(pkg: string): Promise<string | undefined> {
     return (await this.upstream.installed(pkg))?.version;
   }

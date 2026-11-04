@@ -165,6 +165,12 @@ Verified against the real `vercel/ms` repo, with a local fork, on npm and pnpm:
 - fresh installs keep the build;
 - a tampered install is caught.
 
+**Repo mode** (`fork.install: none`, #16) covers forks that are the product (e.g. [angular-tr](https://github.com/erkamyaman/angular-tr), the Turkish angular.dev):
+- The graft is *standalone* (new optional adapter hooks `standalone` / `workspace`): nothing is installed, the current version is `verified`, and `sync` runs the oracle in the rebased checkout, keeping the result as the local branch `graft/<id>/<version>` in the cache clone.
+- `base` may be any upstream commit; `fork.repo` may be a local path (`.`); `.grafts/` is excluded; binary files and executable bits carry over.
+- Hunks at the start or end of a file miss when upstream added lines right against them, matching git's merge.
+- On angular-tr's real trees: a byte-identical result at its base, and exactly git's 7 conflicting files onto `v22.3.0-next.3`, with a 364-line scoped diff for the agent.
+
 ## 7. CLI
 
 | Command | Behavior |
@@ -270,7 +276,8 @@ Graft keeps three of its own CommonJS dependencies converted to native ESM, as r
 - **#3:** first real run of the sync Action. It needs "Allow GitHub Actions to create and approve pull requests".
 - **#4:** real-agent evaluation (needs agent and API credentials). This is the most important unanswered question.
 - **#5:** a design partner.
-- **#6:** freeze spec v1, now that a second mechanism (`fork`, #15) exists. Review whether the adapter interface held up for both.
+- **#6:** freeze spec v1, now that a second mechanism (`fork`, #15, with repo mode #16) exists. Review whether the adapter interface held up for both.
+- **angular-tr as a live test case:** run repo mode on the real fork with its maintainer (their `list-untranslated.sh` plus the docs build as the oracle). Not contacted yet.
 - **Known gaps:**
   - regeneration when the target is already installed under pnpm falls back to an agent;
   - the built-in and patch-package appliers are untested on yarn 2+ with node-modules;

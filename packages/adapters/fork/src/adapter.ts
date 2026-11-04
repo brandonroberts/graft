@@ -7,8 +7,14 @@
 // Graft rebases that diff onto the target tag, runs the optional build, packs the package with
 // `npm pack`, and installs it through the vendored-tarball override (lockfile-recorded, works
 // with every package manager). Graft never pushes to the fork.
+//
+// Repo mode (`fork.install: none`): the fork is the product itself (a translated docs site, a
+// patched tool run from source), not a dependency. Nothing is installed; the graft is
+// standalone, and its oracle runs in the rebased checkout, which is kept as the local branch
+// `graft/<id>/<version>` in the cache clone. `base` may then also be any upstream commit or ref,
+// since such forks often sit on a commit between releases.
 import { existsSync } from 'node:fs';
-import { cp, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { chmod, cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { applyPatch, reversePatch } from 'diff';
@@ -31,6 +37,7 @@ import {
   type ResolvedVariant,
   type ScopedDiff,
   type ScopedFileDiff,
+  type Workspace,
 } from '@graftsync/core';
 import type { ForkConfig } from '@graftsync/spec';
 import {
@@ -49,14 +56,17 @@ import {
   type TarballBuilder,
   type VendorContext,
 } from '@graftsync/adapter-patch';
-import { checkout, diff, ensureRepo, resolveForkRef, resolveTag, showFile } from './git.js';
+import { binaryChanges, blobId, checkout, commitTo, diff, ensureRepo, modeChanges, readBlob, resolveForkRef, resolveTag, resolveUpstreamRef, showFile } from './git.js';
 
 export const MECHANISM = 'fork';
 
 export interface ForkVariant {
   /** Fork branch, fork tag, or commit holding the modification. */
   ref: string;
-  /** Upstream version whose tag the modification's commits are based on. */
+  /**
+   * Upstream version whose tag the modification's commits are based on. In repo mode
+   * (`fork.install: none`) it may also be any upstream commit, tag or branch.
+   */
   base: string;
 }
 
@@ -69,8 +79,22 @@ function forkConfig(graft: Graft): ForkConfig {
 const tagFor = (cfg: ForkConfig, version: string) => cfg.tag.replaceAll('{version}', version);
 const inPkg = (cfg: ForkConfig, file: string) => (cfg.dir ? `${cfg.dir.replace(/\/+$/, '')}/${file}` : file);
 const repoDir = (project: Project, graft: Graft) => path.join(project.cacheDir, 'fork', graft.id);
+const isStandalone = (graft: Graft) => graft.frontmatter.fork?.install === 'none';
+const resultBranch = (graft: Graft, version: string) => `graft/${graft.id}/${version}`;
+
+/** A git URL as is; anything else is a local path, resolved against the project root. */
+const remoteUrl = (project: Project, url: string) =>
+  /^[a-z][a-z0-9+.-]*:\/\//i.test(url) || /^[^/\s]+@[^/\s:]+:/.test(url) ? url : path.resolve(project.root, url);
+
+async function fetchRepos(project: Project, graft: Graft): Promise<string> {
+  const cfg = forkConfig(graft);
+  const dir = repoDir(project, graft);
+  await ensureRepo(dir, remoteUrl(project, cfg.repo), remoteUrl(project, cfg.upstream));
+  return dir;
+}
 
 async function loadVariant(graft: Graft, variant: ResolvedVariant): Promise<ForkVariant> {
+  const standalone = isStandalone(graft);
   if (!existsSync(variant.path)) throw new GraftError(`graft "${graft.id}": variant ${variant.module} not found`, 'variant/not-found');
   let v: Partial<ForkVariant>;
   try {
@@ -81,8 +105,11 @@ async function loadVariant(graft: Graft, variant: ResolvedVariant): Promise<Fork
   if (typeof v.ref !== 'string' || !v.ref || v.ref === 'TODO') {
     throw new GraftError(`graft "${graft.id}": ${variant.module} must name the fork ref holding the modification ("ref")`, 'variant/invalid');
   }
-  if (typeof v.base !== 'string' || !semver.valid(v.base)) {
-    throw new GraftError(`graft "${graft.id}": ${variant.module} must give "base", the upstream version the fork's commits sit on`, 'variant/invalid');
+  if (typeof v.base !== 'string' || !v.base || v.base === 'TODO' || (!standalone && !semver.valid(v.base))) {
+    throw new GraftError(
+      `graft "${graft.id}": ${variant.module} must give "base", the upstream version${standalone ? ' (or commit)' : ''} the fork's commits sit on`,
+      'variant/invalid',
+    );
   }
   return { ref: v.ref, base: v.base };
 }
@@ -100,43 +127,99 @@ async function upstreamRev(dir: string, cfg: ForkConfig, version: string): Promi
   return rev;
 }
 
+/** A binary file the fork changes; it carries over only where upstream left the file as it was at base. */
+interface BinaryChange {
+  file: string;
+  /** Blob at the base (undefined: the fork creates it). */
+  baseOid?: string;
+  /** Blob at the fork ref (undefined: the fork deletes it). */
+  refOid?: string;
+}
+
 interface ForkChange {
   variant: ForkVariant;
   patches: FilePatch[];
+  binaries: BinaryChange[];
+  /** Executable bits the fork sets or clears. */
+  modes: { file: string; executable: boolean }[];
+  refRev: string;
+  /** The base as shown to people: its tag, or the commit/ref given. */
   baseTag: string;
+}
+
+/** The upstream commit a variant's base names: a version's tag, or (repo mode) any upstream ref. */
+async function baseRevision(dir: string, graft: Graft, base: string): Promise<{ rev: string; label: string }> {
+  const cfg = forkConfig(graft);
+  if (semver.valid(base) && (!isStandalone(graft) || (await resolveTag(dir, tagFor(cfg, base))))) {
+    return { rev: await upstreamRev(dir, cfg, base), label: tagFor(cfg, base) };
+  }
+  const rev = await resolveUpstreamRef(dir, base);
+  if (!rev) throw new GraftError(`graft "${graft.id}": base "${base}" is neither a tag nor a commit in ${cfg.upstream}`, 'fork/no-base');
+  return { rev, label: base };
 }
 
 /** The graft's change: the fork's diff from its base tag to its ref, as file patches. */
 async function forkChange(project: Project, graft: Graft, ref: ResolvedVariant): Promise<ForkChange> {
   const cfg = forkConfig(graft);
   const variant = await loadVariant(graft, ref);
-  const dir = repoDir(project, graft);
-  await ensureRepo(dir, cfg.repo, cfg.upstream);
-  const baseRev = await upstreamRev(dir, cfg, variant.base);
+  const dir = await fetchRepos(project, graft);
+  const base = await baseRevision(dir, graft, variant.base);
   const refRev = await resolveForkRef(dir, variant.ref);
   if (!refRev) throw new GraftError(`graft "${graft.id}": fork ref "${variant.ref}" not found in ${cfg.repo}`, 'fork/no-ref');
-  const patches = parsePatchFile(await diff(dir, baseRev, refRev, cfg.dir)).filter((p) => p.hunks.length > 0 || p.oldFile === null || p.newFile === null);
-  if (!patches.length) {
-    throw new GraftError(`graft "${graft.id}": fork ref "${variant.ref}" has no changes on top of ${tagFor(cfg, variant.base)}; a graft must never apply nothing`, 'fork/empty');
+  const binaryFiles = new Set(await binaryChanges(dir, base.rev, refRev, cfg.dir));
+  const patches = parsePatchFile(await diff(dir, base.rev, refRev, cfg.dir)).filter(
+    (p) => !binaryFiles.has(patchTarget(p)) && (p.hunks.length > 0 || p.oldFile === null || p.newFile === null),
+  );
+  const binaries: BinaryChange[] = [];
+  for (const file of binaryFiles) {
+    binaries.push({ file, baseOid: await blobId(dir, base.rev, inPkg(cfg, file)), refOid: await blobId(dir, refRev, inPkg(cfg, file)) });
   }
-  return { variant, patches, baseTag: tagFor(cfg, variant.base) };
+  const modes = await modeChanges(dir, base.rev, refRev, cfg.dir);
+  if (!patches.length && !binaries.length && !modes.length) {
+    throw new GraftError(`graft "${graft.id}": fork ref "${variant.ref}" has no changes on top of ${base.label}; a graft must never apply nothing`, 'fork/empty');
+  }
+  return { variant, patches, binaries, modes, refRev, baseTag: base.label };
 }
 
 /** Rebase the fork's change onto the target tag in a fresh checkout (the caller disposes it). */
 async function materialize(project: Project, graft: Graft, version: string, change: ForkChange) {
   const cfg = forkConfig(graft);
   const dir = repoDir(project, graft);
-  const co = await checkout(dir, await upstreamRev(dir, cfg, version));
+  const targetRev = await upstreamRev(dir, cfg, version);
+  const co = await checkout(dir, targetRev);
   const pkgDir = cfg.dir ? path.join(co.path, cfg.dir) : co.path;
-  const r = await applyToInstalledCopy({ dir: pkgDir, version }, change.patches);
-  if (r.action !== 'patched') {
+  const fail = async (reason: string): Promise<never> => {
     await co.dispose();
     throw new GraftError(
-      `graft "${graft.id}": the fork's change (${change.variant.ref} on ${change.baseTag}) does not rebase onto ${tagFor(cfg, version)}: ${r.reason ?? r.action}`,
+      `graft "${graft.id}": the fork's change (${change.variant.ref} on ${change.baseTag}) does not rebase onto ${tagFor(cfg, version)}: ${reason}`,
       'fork/rebase',
     );
+  };
+  const files: string[] = [];
+  if (change.patches.length) {
+    const r = await applyToInstalledCopy({ dir: pkgDir, version }, change.patches);
+    if (r.action !== 'patched') await fail(r.reason ?? r.action);
+    files.push(...r.files);
   }
-  return { pkgDir, files: r.files, dispose: co.dispose };
+  for (const b of change.binaries) {
+    if ((await blobId(dir, targetRev, inPkg(cfg, b.file))) !== b.baseOid) await fail(`${b.file}: binary file changed upstream since the base`);
+    const dest = path.join(pkgDir, b.file);
+    if (b.refOid) {
+      await mkdir(path.dirname(dest), { recursive: true });
+      await writeFile(dest, await readBlob(dir, change.refRev, inPkg(cfg, b.file)));
+    } else {
+      await rm(dest, { force: true });
+    }
+    files.push(b.file);
+  }
+  for (const m of change.modes) {
+    const file = path.join(pkgDir, m.file);
+    if (!existsSync(file)) continue;
+    const mode = (await stat(file)).mode;
+    await chmod(file, m.executable ? mode | 0o111 : mode & ~0o111);
+    if (!files.includes(m.file)) files.push(m.file);
+  }
+  return { root: co.path, pkgDir, files, dispose: co.dispose };
 }
 
 /** A builder that rebases, builds and packs the fork for `version` into a temp dir. */
@@ -175,6 +258,23 @@ function tarballBuilder(project: Project, graft: Graft, version: string, change:
 
 const vendorContext = (project: Project): VendorContext => ({ graftRoot: project.root, installRoot: manifestRoot(project.root) });
 
+/**
+ * A hunk whose change is the very first or last line of the file at the base (no context on
+ * that side) gives no evidence about lines upstream has since added there: they sit right
+ * against the change (e.g. the fork rewrote a whole page and upstream appended a section).
+ * git's merge treats such touching edits as a conflict; so does this. Returns where the new
+ * lines are, or undefined.
+ */
+function touchesNewUpstreamLines(content: string, hunk: FilePatch['hunks'][number], line: number): 'before' | 'after' | undefined {
+  const body = hunk.lines.filter((l) => l[0] !== '\\');
+  if (!body.some((l) => l[0] !== ' ')) return undefined;
+  if (body[0]![0] !== ' ' && hunk.oldStart <= 1 && line > 1) return 'before';
+  const oldLen = body.filter((l) => l[0] === ' ' || l[0] === '-').length;
+  const total = content.split('\n').length - (content.endsWith('\n') ? 1 : 0);
+  if (body.at(-1)![0] !== ' ' && line + oldLen - 1 < total) return 'after';
+  return undefined;
+}
+
 /** Anchors for one file patch against the target tag's source. */
 function hunkAnchors(patch: FilePatch, content: string | undefined): AnchorResult[] {
   const file = patchTarget(patch);
@@ -186,6 +286,8 @@ function hunkAnchors(patch: FilePatch, content: string | undefined): AnchorResul
     if (content === undefined) return { ...base, matched: false, error: 'file missing upstream' };
     const m = locateHunk(content, hunk);
     if (!m.occurrences) return { ...base, matched: false, error: 'context or removed lines not found' };
+    const edge = touchesNewUpstreamLines(content, hunk, m.line!);
+    if (edge) return { ...base, matched: false, error: `upstream added lines right ${edge} the change`, location: { line: m.line!, column: 1, start: 0, end: 0 } };
     return { ...base, matched: true, location: { line: m.line!, column: 1, start: 0, end: 0 } };
   });
 }
@@ -231,9 +333,22 @@ export function createForkAdapter(): MechanismAdapter {
         else absorbed &&= content !== undefined && applyPatch(content, reversePatch(p.raw), { fuzzFactor: 0 }) !== false;
         if (absorbed) evidence.push(`${file}: upstream ${tagFor(cfg, version)} already contains the fork's change`);
       }
+      for (const b of change.binaries) {
+        const oid = await blobId(repoDir(project, graft), targetRev, inPkg(cfg, b.file));
+        const matched = oid === b.baseOid;
+        report.anchors.push({
+          name: `${b.file}#binary`,
+          file: b.file,
+          description: b.refOid ? (b.baseOid ? `replaces binary ${b.file}` : `creates binary ${b.file}`) : `deletes binary ${b.file}`,
+          matched,
+          ...(matched ? {} : { error: 'binary file changed upstream since the base' }),
+        });
+        absorbed &&= oid === b.refOid;
+        if (oid === b.refOid) evidence.push(`${b.file}: upstream ${tagFor(cfg, version)} already has the fork's version`);
+      }
       if (absorbed && report.anchors.some((a) => !a.matched)) report.upstreamed = { evidence };
 
-      const installed = await project.upstream.installed(pkg);
+      const installed = isStandalone(graft) ? undefined : await project.upstream.installed(pkg);
       if (installed?.version === version && report.anchors.every((a) => a.matched)) {
         const vctx = vendorContext(project);
         report.errors.push(
@@ -263,7 +378,7 @@ export function createForkAdapter(): MechanismAdapter {
     async apply(ctx: GraftContext, options = {}): Promise<ApplyResult> {
       const { project, graft } = ctx;
       const pkg = graft.frontmatter.rootstock.package;
-      const version = options.version ?? (await project.installedVersion(pkg));
+      const version = options.version ?? (await project.currentVersion(graft));
       const result: ApplyResult = { graft: graft.id, version: version ?? '?', variant: null, files: [], errors: [], ok: false };
       if (!version) {
         result.errors.push(`${pkg} is not installed`);
@@ -301,11 +416,17 @@ export function createForkAdapter(): MechanismAdapter {
       const { project, graft } = ctx;
       const cfg = forkConfig(graft);
       const pkg = graft.frontmatter.rootstock.package;
-      const dir = repoDir(project, graft);
-      await ensureRepo(dir, cfg.repo, cfg.upstream);
-      const [fromRev, toRev] = [await upstreamRev(dir, cfg, from), await upstreamRev(dir, cfg, to)];
+      const dir = await fetchRepos(project, graft);
+      const label = (v: string) => `${pkg}@${v} (${tagFor(cfg, v)})`;
       const fromVariant = project.selectVariant(graft, from);
-      const patches = fromVariant ? (await forkChange(project, graft, fromVariant).catch(() => undefined))?.patches ?? [] : [];
+      const fromChange = fromVariant ? await forkChange(project, graft, fromVariant).catch(() => undefined) : undefined;
+      const patches = fromChange?.patches ?? [];
+      // Upstream's changes are diffed from the fork's base, which is what the change's hunks are
+      // relative to (in repo mode often a commit, not the verified version's tag).
+      const fromBase = fromChange ? await baseRevision(dir, graft, fromChange.variant.base) : undefined;
+      const fromRev = fromBase?.rev ?? (await upstreamRev(dir, cfg, from));
+      const fromLabel = fromBase ? `${pkg} fork base (${fromBase.label})` : label(from);
+      const toRev = await upstreamRev(dir, cfg, to);
       const touched = new Set<string>([...(graft.frontmatter.targets ?? []), ...patches.map((p) => p.oldFile).filter((f): f is string => !!f)]);
       const files: ScopedFileDiff[] = [];
       let toTree: Awaited<ReturnType<typeof checkout>> | undefined;
@@ -329,12 +450,31 @@ export function createForkAdapter(): MechanismAdapter {
       } finally {
         await toTree?.dispose();
       }
-      const label = (v: string) => `${pkg}@${v} (${tagFor(cfg, v)})`;
-      return { graft: graft.id, package: pkg, from, to, files, patch: renderPatch(files, { from: label(from), to: label(to) }) };
+      return { graft: graft.id, package: pkg, from, to, files, patch: renderPatch(files, { from: fromLabel, to: label(to) }) };
+    },
+
+    standalone: isStandalone,
+
+    async workspace(ctx: GraftContext, version: string): Promise<Workspace> {
+      const { project, graft } = ctx;
+      const variant = project.selectVariant(graft, version);
+      if (!variant) throw new GraftError(`graft "${graft.id}": no variant covers ${version}`, 'variant/none');
+      const change = await forkChange(project, graft, variant);
+      const tree = await materialize(project, graft, version, change);
+      const branch = resultBranch(graft, version);
+      try {
+        await commitTo(tree.root, branch, `${graft.id}: ${change.variant.ref} (on ${change.baseTag}) rebased onto ${tagFor(forkConfig(graft), version)}\n\nMaterialized by graft; not pushed.`);
+      } catch (err) {
+        await tree.dispose();
+        throw err;
+      }
+      const cache = path.relative(project.root, repoDir(project, graft)) || '.';
+      return { dir: tree.pkgDir, result: `branch \`${branch}\` in ${cache} (\`git fetch ${cache} ${branch}\`)`, dispose: tree.dispose };
     },
 
     async beforeInstall(ctx: GraftContext, version: string) {
       const { project, graft } = ctx;
+      if (isStandalone(graft)) throw new GraftError(`graft "${graft.id}": fork.install is "none"; nothing is installed`, 'fork/standalone');
       const variant = project.selectVariant(graft, version);
       if (!variant) throw new GraftError(`graft "${graft.id}": no variant covers ${version}`, 'variant/none');
       const change = await forkChange(project, graft, variant);

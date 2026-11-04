@@ -49,6 +49,8 @@ export interface SyncTarget {
   version: string;
   installedBefore?: string;
   installCommand?: string;
+  /** True for a standalone graft's target: nothing is installed, the oracle runs in a workspace. */
+  standalone?: boolean;
 }
 
 export interface SyncReport {
@@ -126,11 +128,20 @@ export async function sync(project: Project, options: SyncOptions = {}): Promise
     );
   }
 
+  // Grafts on the same installed package sync together (one install). A standalone graft
+  // installs nothing, so it is its own group, and defaults to re-verifying its verified version.
+  const groups = new Map<string, Graft[]>();
+  for (const g of selected) {
+    const key = project.isStandalone(g) ? `\0${g.id}` : g.frontmatter.rootstock.package;
+    groups.set(key, [...(groups.get(key) ?? []), g]);
+  }
+
   const targets: SyncTarget[] = [];
-  for (const pkg of packages) {
-    const pkgGrafts = selected.filter((g) => g.frontmatter.rootstock.package === pkg);
-    const installedBefore = await project.installedVersion(pkg);
-    const version = options.version ?? installedBefore;
+  for (const pkgGrafts of groups.values()) {
+    const pkg = pkgGrafts[0]!.frontmatter.rootstock.package;
+    const standalone = project.isStandalone(pkgGrafts[0]!);
+    const installedBefore = standalone ? undefined : await project.installedVersion(pkg);
+    const version = options.version ?? (standalone ? pkgGrafts[0]!.frontmatter.rootstock.verified : installedBefore);
     const base = (g: Graft): SyncGraftResult => ({
       id: g.id,
       package: pkg,
@@ -143,7 +154,7 @@ export async function sync(project: Project, options: SyncOptions = {}): Promise
       for (const g of pkgGrafts) results.push({ ...base(g), outcome: 'error', reasons: [`${pkg} is not installed and no --version was given`] });
       continue;
     }
-    const target: SyncTarget = { package: pkg, version, installedBefore };
+    const target: SyncTarget = { package: pkg, version, installedBefore, ...(standalone ? { standalone: true } : {}) };
     targets.push(target);
 
     // Phase 1: static checks (variant, anchors, apply) against the fetched target version.
@@ -171,7 +182,7 @@ export async function sync(project: Project, options: SyncOptions = {}): Promise
 
     // Phase 2: install the target version if needed.
     let installError: string | undefined;
-    if (installedBefore !== version && ready.length) {
+    if (!standalone && installedBefore !== version && ready.length) {
       if (ready.length !== staged.length) {
         for (const s of ready) {
           s.result.outcome = 'skipped';
@@ -453,7 +464,7 @@ export function renderSyncMarkdown(report: SyncReport, root: string = report.roo
   const lines: string[] = ['# Graft sync report', '', `Generated ${report.generatedAt}. Exit code **${report.exitCode}**.`, ''];
   if (report.targets.length) {
     lines.push('| Package | Target | Installed before |', '|---|---|---|');
-    for (const t of report.targets) lines.push(`| ${t.package} | ${t.version} | ${t.installedBefore ?? '—'} |`);
+    for (const t of report.targets) lines.push(`| ${t.package} | ${t.version} | ${t.standalone ? 'n/a (standalone)' : (t.installedBefore ?? '—')} |`);
     lines.push('');
   }
   lines.push('| Graft | Package | Verified → Target | Outcome |', '|---|---|---|---|');
@@ -462,6 +473,12 @@ export function renderSyncMarkdown(report: SyncReport, root: string = report.roo
     lines.push(`| ${g.id} | ${g.package} | ${g.from} → ${g.to ?? '?'} | ${ICON[g.outcome]} ${g.outcome}${g.likelyUpstreamed ? ' (likely upstreamed)' : ''}${regen} |`);
   }
   lines.push('');
+  const results = report.grafts.filter((g) => g.outcome === 'green' && g.oracle?.workspace);
+  if (results.length) {
+    lines.push('Materialized results (Graft never pushes; take them from here):', '');
+    for (const g of results) lines.push(`- ${g.id} @ ${g.to}: ${g.oracle!.workspace}`);
+    lines.push('');
+  }
   const regenerated = report.grafts.filter((g) => g.regenerated && !g.regenerated.rolledBack);
   if (regenerated.length) {
     lines.push('Regenerated variants (review them before merging):', '');

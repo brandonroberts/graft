@@ -169,6 +169,15 @@ export interface InstalledApplyReport {
   warnings: string[];
 }
 
+/** Where a standalone graft's oracle runs (see `MechanismAdapter.workspace`). */
+export interface Workspace {
+  /** Directory holding the upstream source with the graft applied. */
+  dir: string;
+  /** How to get the result afterwards (e.g. a git ref kept in the cache clone). */
+  result?: string;
+  dispose(): Promise<void>;
+}
+
 /** A mechanism (build transform, patch file, vendored copy, fork) that applies grafts. */
 export interface MechanismAdapter {
   name: string;
@@ -195,6 +204,17 @@ export interface MechanismAdapter {
    * with a package-manager store (write new inodes).
    */
   applyInstalled?(ctx: GraftContext): Promise<InstalledApplyReport>;
+  /**
+   * True when the graft installs nothing into the project (e.g. a fork that is the product
+   * itself, not a dependency). Its current version is then `rootstock.verified`, `sync` skips
+   * the install step, and the oracle runs in `workspace(version)` instead of the project root.
+   */
+  standalone?(graft: Graft): boolean;
+  /**
+   * For standalone grafts: materialize the graft applied to `version` (e.g. the fork's change
+   * rebased onto the upstream tag) in a directory the oracle runs in. Throw when it can't be.
+   */
+  workspace?(ctx: GraftContext, version: string): Promise<Workspace>;
   /** Validate a new variant module before it is registered. Throw to reject. */
   validateVariant?(ctx: GraftContext, variant: ResolvedVariant): Promise<void>;
   /**

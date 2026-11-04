@@ -51,7 +51,7 @@ export const OracleSchema = z.object({
 });
 
 export const ForkSchema = z.object({
-  /** Git URL of the fork that carries the modification as commits. */
+  /** Git URL (or path, relative to the project root) of the fork that carries the modification as commits. */
   repo: z.string().min(1),
   /** Git URL of the upstream source repository the fork tracks. */
   upstream: z.string().min(1),
@@ -63,6 +63,12 @@ export const ForkSchema = z.object({
     .refine((t) => t.includes('{version}'), { message: 'must contain {version}' }),
   /** Package directory inside the repositories (for monorepos). Default: the repo root. */
   dir: z.string().min(1).optional(),
+  /**
+   * How the rebased fork is consumed. `package` (default): built, packed and installed into the
+   * project as a vendored tarball. `none`: the fork is the product itself (e.g. a translated docs
+   * site); nothing is installed and the oracle runs in the rebased checkout.
+   */
+  install: z.enum(['package', 'none']).default('package'),
   /** Command run in the package directory of the rebased source before packing (e.g. `npm ci && npm run build`). */
   build: z.string().min(1).optional(),
   /** Optional timeout for the build, in seconds. */

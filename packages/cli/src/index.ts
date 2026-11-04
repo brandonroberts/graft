@@ -343,7 +343,7 @@ const show = defineCommand({
     const project = await open(args.root);
     const graft = await project.get(args.id);
     const fm = graft.frontmatter;
-    const installed = await project.installedVersion(fm.rootstock.package);
+    const installed = await project.currentVersion(graft);
     const selected = installed ? project.selectVariant(graft, installed) : null;
     const sections = Object.fromEntries(
       REQUIRED_SECTIONS.map((name) => [name, graft.sections.find((x) => x.title.toLowerCase() === name.toLowerCase())?.content ?? null]),

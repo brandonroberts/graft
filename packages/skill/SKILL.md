@@ -189,6 +189,14 @@ When asked to capture a modification as a graft (new, or migrating an existing p
      `graft variant add <id> --range '>=<target>' --module ./variants/v<target>.json
      --verify-version <target>`.
   4. Prove it with `graft sync --version <target> --install`.
+- **Repo mode** (`fork.install: none`): the fork is the product (e.g. a translated docs site),
+  nothing is installed, and the oracle runs in the rebased checkout. The diff in
+  `.grafts/.report/<id>/diff.patch` is what upstream changed since the fork's base in the files
+  the fork touches. A clean rebase is not enough: upstream text that lands next to the change
+  (e.g. a new English paragraph in a translated page) only fails the oracle, so read its
+  output. Same fix steps as above, with `graft sync --version <target>` (no `--install`). A
+  green sync leaves the result as branch `graft/<id>/<target>` in `.grafts/.cache/fork/<id>`;
+  fetch it from there. Never push it unless the user asks.
 
 ## When to stop: `conflicted`
 

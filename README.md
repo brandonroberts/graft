@@ -280,6 +280,25 @@ Verified end to end against the real `vercel/ms` repository with a local fork (a
 - `sync --version 2.1.3 --install`, which rebased the fork from `2.1.2` onto `2.1.3` automatically;
 - a tampered install, which `graft check` caught.
 
+#### Repo mode: the fork is the product
+
+Some forks aren't dependencies at all: a translated docs site, a tool run from source. With `install: none`, nothing is packed or installed. `sync` rebases the fork's change onto the target tag in a fresh checkout and runs the oracle *there*, then leaves the result as the local branch `graft/<id>/<version>` in `.grafts/.cache/fork/<id>` for you to fetch. The graft can live in the fork itself (`repo: .`), and `base` may be any upstream commit, because these forks often sit between releases.
+
+```yaml
+mechanism: fork
+fork:
+  repo: .                                   # the graft lives in the fork
+  upstream: https://github.com/angular/angular.git
+  install: none
+oracle:
+  command: bash scripts/check-translation.sh   # runs in the rebased checkout ($GRAFT_WORKSPACE)
+```
+
+Checked against the real [angular-tr](https://github.com/erkamyaman/angular-tr) (the Turkish angular.dev translation: 525 files over upstream, including 461 pages). The checks below ran on a local, history-free copy of its trees:
+- **At its own base,** `sync` materialized a tree identical to the fork's branch (text, a binary image, an executable bit).
+- **Onto `v22.3.0-next.3`,** 2,833 hunks were checked. The 7 files that miss are exactly the ones `git apply --3way` conflicts on. One is a page the fork rewrote whole, where upstream appended a section right after it. The agent is handed a 364-line diff of what upstream changed in the 10 translated files it touched; the full upstream diff for that range is about 51,000 changed lines.
+- **Upstream English that rebases cleanly** into a translated page (a 63-line addition to `i18n/deploy.md`) is left to the oracle, the project's untranslated-page check.
+
 ## Dogfood validation
 
 Graft validates itself on its own CommonJS dependencies. Three grafts convert **pacote**, **semver** and **yaml** to native ESM in this repo, so no CommonJS loads from those packages. Each is a whole-package `patch` variant. Graft's own build, tests and CLI run on the converted packages.
@@ -326,7 +345,7 @@ What the dogfood run found:
 | [`@graftsync/skill`](packages/skill) | ✅ implemented | [`SKILL.md`](packages/skill/SKILL.md) teaching agents the sync loop. |
 | [`packages/action`](packages/action) | ✅ implemented | GitHub Action: poll npm dist-tags, run sync, open PRs, and hand failures to your agent. |
 | [`@graftsync/adapter-patch`](packages/adapters/patch) | ✅ implemented | The `patch` mechanism and its appliers (pnpm, npm, bun, yarn, built-in, patch-package, vendor). |
-| [`@graftsync/adapter-fork`](packages/adapters/fork) | ✅ implemented | The `fork` mechanism: commits on a fork, rebased, built and packed per upstream version. |
+| [`@graftsync/adapter-fork`](packages/adapters/fork) | ✅ implemented | The `fork` mechanism: commits on a fork, rebased, built and packed per upstream version, or (repo mode) rebased and verified in place. |
 
 `@graftsync/core` contains:
 

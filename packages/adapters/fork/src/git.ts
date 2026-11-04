@@ -63,6 +63,15 @@ export async function resolveForkRef(dir: string, ref: string): Promise<string |
   return undefined;
 }
 
+/** Resolve any upstream ref (tag, branch, or commit) to a commit, or undefined. */
+export async function resolveUpstreamRef(dir: string, ref: string): Promise<string | undefined> {
+  for (const candidate of [`refs/tags/${ref}`, `refs/remotes/upstream/${ref}`, ref]) {
+    const r = await git(dir, ['rev-parse', '--verify', '--quiet', `${candidate}^{commit}`], { allowFail: true });
+    if (r.ok && r.stdout.trim()) return r.stdout.trim();
+  }
+  return undefined;
+}
+
 /** Resolve an upstream tag to a commit, or undefined. */
 export async function resolveTag(dir: string, tag: string): Promise<string | undefined> {
   const r = await git(dir, ['rev-parse', '--verify', '--quiet', `refs/tags/${tag}^{commit}`], { allowFail: true });
@@ -77,9 +86,19 @@ export async function showFile(dir: string, rev: string, file: string): Promise<
 
 /** Unified diff between two commits, limited to `sub` and with paths relative to it. */
 export async function diff(dir: string, from: string, to: string, sub?: string): Promise<string> {
-  const args = ['diff', '--no-color', '--no-ext-diff', '--no-renames', '--full-index', from, to];
+  // `.grafts/` is excluded: a fork may carry its own graft definitions (repo mode).
+  const args = ['diff', '--no-color', '--no-ext-diff', '--no-renames', '--full-index', from, to, '--', '.', ':(top,exclude).grafts'];
   if (sub) args.splice(1, 0, `--relative=${sub}`);
   return (await git(dir, args)).stdout;
+}
+
+/** Commit everything in worktree `wt` on top of its HEAD and point `branch` (in the cache clone) at it. */
+export async function commitTo(wt: string, branch: string, message: string): Promise<string> {
+  await git(wt, ['add', '-A']);
+  await git(wt, ['-c', 'user.name=graft', '-c', 'user.email=graft@localhost', '-c', 'commit.gpgsign=false', 'commit', '--quiet', '--no-verify', '--allow-empty', '-m', message]);
+  const sha = (await git(wt, ['rev-parse', 'HEAD'])).stdout.trim();
+  await git(wt, ['branch', '--force', branch, sha]);
+  return sha;
 }
 
 /** Check out `rev` into a fresh temporary directory (a detached worktree). */
@@ -95,4 +114,46 @@ export async function checkout(dir: string, rev: string): Promise<{ path: string
       await git(dir, ['worktree', 'prune'], { allowFail: true });
     },
   };
+}
+
+/** Files whose change between two commits is binary (no text hunks), limited to `sub`. */
+export async function binaryChanges(dir: string, from: string, to: string, sub?: string): Promise<string[]> {
+  const args = ['diff', '--numstat', '--no-renames', '-z', from, to, '--', '.', ':(top,exclude).grafts'];
+  if (sub) args.splice(1, 0, `--relative=${sub}`);
+  const out = (await git(dir, args)).stdout;
+  return out
+    .split('\0')
+    .filter((entry) => entry.startsWith('-\t-\t'))
+    .map((entry) => entry.slice(4));
+}
+
+/** Object id of `file` at `rev`, or undefined when it doesn't exist there. */
+export async function blobId(dir: string, rev: string, file: string): Promise<string | undefined> {
+  const r = await git(dir, ['rev-parse', '--verify', '--quiet', `${rev}:${file}`], { allowFail: true });
+  return r.ok && r.stdout.trim() ? r.stdout.trim() : undefined;
+}
+
+/** Raw bytes of `file` at `rev`. */
+export async function readBlob(dir: string, rev: string, file: string): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    execFile('git', ['show', `${rev}:${file}`], { cwd: dir, encoding: 'buffer', maxBuffer: 512 * 1024 * 1024 }, (err, stdout) => {
+      if (err) reject(new GraftError(`git show ${rev}:${file} failed: ${err.message}`, 'fork/git'));
+      else resolve(stdout);
+    });
+  });
+}
+
+/** Files whose executable bit the fork sets or clears (including files it creates executable). */
+export async function modeChanges(dir: string, from: string, to: string, sub?: string): Promise<{ file: string; executable: boolean }[]> {
+  const args = ['diff', '--raw', '--no-renames', '-z', from, to, '--', '.', ':(top,exclude).grafts'];
+  if (sub) args.splice(1, 0, `--relative=${sub}`);
+  const parts = (await git(dir, args)).stdout.split('\0');
+  const out: { file: string; executable: boolean }[] = [];
+  for (let i = 0; i + 1 < parts.length; i += 2) {
+    const [oldMode, newMode, , , status] = parts[i]!.replace(/^:/, '').split(' ');
+    const file = parts[i + 1]!;
+    if (status === 'D' || !newMode || !/^100(644|755)$/.test(newMode)) continue;
+    if (newMode !== oldMode && (status !== 'A' || newMode === '100755')) out.push({ file, executable: newMode === '100755' });
+  }
+  return out;
 }

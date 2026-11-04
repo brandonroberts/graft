@@ -26,7 +26,8 @@ export async function outdated(project: Project, options: OutdatedOptions = {}):
   const tags = options.tags?.length ? options.tags : DEFAULT_TAGS;
   const { grafts } = await project.loadAll();
   const byPackage = new Map<string, typeof grafts>();
-  for (const g of grafts.filter((g) => ACTIVE_STATUSES.includes(g.frontmatter.status))) {
+  // Standalone grafts track a source repository, not an npm package with dist-tags.
+  for (const g of grafts.filter((g) => ACTIVE_STATUSES.includes(g.frontmatter.status) && !project.isStandalone(g))) {
     const list = byPackage.get(g.frontmatter.rootstock.package) ?? [];
     list.push(g);
     byPackage.set(g.frontmatter.rootstock.package, list);

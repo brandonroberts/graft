@@ -14,7 +14,7 @@ export async function resolveVersion(project: Project, graft: Graft, version?: s
     if (!semver.valid(version)) throw new GraftError(`"${version}" is not a valid semver version`, 'version/invalid');
     return version;
   }
-  const installed = await project.installedVersion(graft.frontmatter.rootstock.package);
+  const installed = await project.currentVersion(graft);
   if (!installed) {
     throw new GraftError(
       `${graft.frontmatter.rootstock.package} is not installed; pass an explicit version`,
@@ -225,7 +225,7 @@ export async function projectStatus(project: Project): Promise<{
       mechanism: fm.mechanism,
       status: fm.status,
       verified: fm.rootstock.verified,
-      installed: await project.installedVersion(fm.rootstock.package),
+      installed: await project.currentVersion(graft),
     };
     if (entry.installed && (fm.status === 'applied' || fm.status === 'conflicted')) {
       try {
