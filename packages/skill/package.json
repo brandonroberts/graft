@@ -3,11 +3,30 @@
   "version": "0.1.0",
   "description": "Agent skill (SKILL.md) teaching coding agents the graft sync loop.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/brandonroberts/graft.git",
+    "directory": "packages/skill"
+  },
+  "homepage": "https://github.com/brandonroberts/graft#readme",
+  "bugs": "https://github.com/brandonroberts/graft/issues",
+  "keywords": [
+    "graft",
+    "skill",
+    "agent",
+    "claude",
+    "patch",
+    "npm"
+  ],
   "files": [
     "SKILL.md"
   ],
   "exports": {
     "./SKILL.md": "./SKILL.md",
     "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   }
 }

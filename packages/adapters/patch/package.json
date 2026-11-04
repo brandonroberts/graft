@@ -1,8 +1,24 @@
 {
   "name": "@graftsync/adapter-patch",
   "version": "0.1.0",
+  "description": "Graft mechanism adapter for unified-diff patches, for any package manager.",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/brandonroberts/graft.git",
+    "directory": "packages/adapters/patch"
+  },
+  "homepage": "https://github.com/brandonroberts/graft#readme",
+  "bugs": "https://github.com/brandonroberts/graft/issues",
+  "keywords": [
+    "graft",
+    "patch",
+    "patch-package",
+    "pnpm",
+    "npm",
+    "adapter"
+  ],
   "engines": {
     "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
   },
@@ -23,5 +39,9 @@
     "diff": "^9.0.0",
     "yaml": "^2.9.1",
     "tar": "^7.5.22"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   }
 }
