@@ -17,7 +17,6 @@ import {
   recordVariant,
   replay,
   resolveVersion,
-  runOracle,
   scopeDiff,
   setupAgent,
   sync,
@@ -123,7 +122,7 @@ async function readBundledSkill(): Promise<string> {
 }
 
 const add = defineCommand({
-  meta: { name: 'add', description: 'Scaffold graft.md, a variant stub, and an oracle stub' },
+  meta: { name: 'add', description: 'Scaffold graft.md and a variant stub' },
   args: {
     ...common,
     id: { type: 'positional', required: true, description: 'Graft id (kebab-case)' },
@@ -131,7 +130,6 @@ const add = defineCommand({
     version: { type: 'string', description: 'Upstream version (default: installed)' },
     mechanism: { type: 'string', default: 'patch', description: 'Mechanism adapter' },
     target: { type: 'string', description: 'Comma-separated target files in the package' },
-    modes: { type: 'string', description: 'Comma-separated oracle modes (default: default)' },
     'in-place': { type: 'boolean', description: 'fork: the graft lives in the fork itself (repo: ., repo mode, variant { @worktree, @verified })' },
     'repo-mode': { type: 'boolean', description: 'fork: the fork is the product, nothing is installed (install: none)' },
     'fork-repo': { type: 'string', description: 'fork: git URL (or path) of the fork' },
@@ -163,7 +161,6 @@ const add = defineCommand({
       version: args.version,
       mechanism: args.mechanism,
       targets: split(args.target),
-      modes: split(args.modes),
       options,
     });
     print(args.json, { created: files }, () => files.forEach((f) => console.log(`created ${path.relative(process.cwd(), f)}`)));
@@ -277,7 +274,7 @@ const syncCmd = defineCommand({
     id: { type: 'string', description: 'Comma-separated graft ids' },
     install: { type: 'boolean', description: 'Install the target version if it is not installed' },
     'dry-run': { type: 'boolean', description: 'Do not update graft.md on success' },
-    quiet: { type: 'boolean', description: 'Do not stream oracle output' },
+    quiet: { type: 'boolean', description: 'Do not stream generator output' },
   },
   run: guarded(async (args) => {
     const project = await open(args.root);
@@ -299,27 +296,6 @@ const syncCmd = defineCommand({
       if (report.reportFiles) console.log(`report: ${path.relative(process.cwd(), report.reportFiles.markdown)}`);
     });
     return report.exitCode;
-  }),
-});
-
-const verify = defineCommand({
-  meta: { name: 'verify', description: "Run a graft's oracle in all configured modes" },
-  args: {
-    ...common,
-    id: { type: 'positional', required: true },
-    mode: { type: 'string', description: 'Comma-separated subset of modes' },
-  },
-  run: guarded(async (args) => {
-    const project = await open(args.root);
-    const graft = await project.get(args.id);
-    const result = await runOracle(project, graft, {
-      modes: args.mode?.split(','),
-      onOutput: args.json ? undefined : (c) => process.stdout.write(c),
-    });
-    print(args.json, result, () => {
-      for (const m of result.modes) console.log(`${m.passed ? '✓' : '✗'} ${m.mode} (exit ${m.exitCode}, ${m.durationMs}ms)`);
-    });
-    return result.passed ? EXIT.ok : EXIT.attention;
   }),
 });
 
@@ -385,7 +361,6 @@ const show = defineCommand({
     print(args.json, value, () => {
       console.log(`${graft.id}: ${fm.rootstock.package} (verified ${fm.rootstock.verified}, installed ${installed ?? '—'}) · ${fm.mechanism} · ${fm.status}`);
       for (const v of value.variants) console.log(`  ${v.module === value.selectedForInstalled ? '▶' : ' '} ${v.range.padEnd(20)} ${v.module}`);
-      console.log(`  oracle: ${fm.oracle.command} [${fm.oracle.modes.join(', ')}]`);
       for (const d of graft.diagnostics) console.log(`  ${d.severity}: ${d.message}`);
       console.log(`  intent: ${path.relative(process.cwd(), graft.file)}`);
     });
@@ -471,7 +446,7 @@ const capture = defineCommand({
           ? `captured ${result.module} (${files.length} file(s): ${files.join(', ')})`
           : `captured ${result.module} as a new variant for "${result.range}" (${files.length} file(s): ${files.join(', ')})`,
       );
-      console.log(`next: graft apply (so installs apply it), then write the oracle and graft verify ${result.graft}`);
+      console.log(`next: graft apply (so installs apply it), then verify the Invariants with the project's tests`);
     });
     return EXIT.ok;
   }),
@@ -486,7 +461,7 @@ const mark = defineCommand({
     ...common,
     id: { type: 'positional', required: true, description: 'Graft id' },
     status: { type: 'string', description: GRAFT_STATUSES.join(' | ') },
-    verified: { type: 'string', description: 'Set rootstock.verified (only after the oracle passed at that version)' },
+    verified: { type: 'string', description: 'Set rootstock.verified (only after you verified the Invariants at that version)' },
     history: { type: 'string', description: 'History entry to append' },
   },
   run: guarded(async (args) => {
@@ -505,5 +480,5 @@ const CLI_VERSION = (createRequire(import.meta.url)('../package.json') as { vers
 
 export const main: CommandDef = defineCommand({
   meta: { name: 'graft', version: CLI_VERSION, description: 'Keep local modifications to upstream packages in sync' },
-  subCommands: { init, add, capture, show, apply, preview, status, check, diff, sync: syncCmd, verify, variant, mark, outdated: outdatedCmd, replay: replayCmd },
+  subCommands: { init, add, capture, show, apply, preview, status, check, diff, sync: syncCmd, variant, mark, outdated: outdatedCmd, replay: replayCmd },
 }) as CommandDef;

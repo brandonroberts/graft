@@ -347,7 +347,7 @@ export async function captureVariant(project: Project, id: string, options: { ve
   const version = await resolveVersion(project, graft, options.version);
   const content = await adapter.capture(project.context(graft), version);
   const fm = graft.frontmatter;
-  const scaffold = { id: graft.id, package: fm.rootstock.package, targets: fm.targets, root: project.root, modes: fm.oracle.modes, options: {} };
+  const scaffold = { id: graft.id, package: fm.rootstock.package, targets: fm.targets, root: project.root, options: {} };
 
   const selected = project.selectVariant(graft, version);
   const current = selected && existsSync(selected.path) ? await readFile(selected.path, 'utf8') : undefined;

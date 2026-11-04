@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { GraftError } from './errors.js';
-import { runCommand } from './oracle.js';
+import { runCommand } from './command.js';
 
 /** `yarn` is yarn classic (1.x); `yarn-berry` is yarn 2+ (Plug'n'Play or `nodeLinker: node-modules`). */
 export type PackageManager = 'pnpm' | 'yarn' | 'yarn-berry' | 'npm' | 'bun' | 'upm';

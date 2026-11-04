@@ -1,6 +1,6 @@
-// Oracle for graft "semver-esm": semver loads as native ESM and behaves exactly like the
+// Check for graft "semver-esm" (run by `pnpm test:grafts`): semver loads as native ESM and behaves exactly like the
 // pristine CommonJS release.
-import { assert, assertNoCommonJS, consumerRequire, differential, installedDir, pristine, run, trackFormats } from '../.shared/oracle.mjs';
+import { assert, assertNoCommonJS, consumerRequire, differential, installedDir, pristine, run, trackFormats } from '../.shared/check.mjs';
 
 const formats = trackFormats();
 const mode = process.env.GRAFT_MODE ?? 'esm';

@@ -149,7 +149,7 @@ export interface InstalledCopyResult {
   /** Real path of the installed package directory. */
   dir: string;
   version: string;
-  /** True for the copy the project itself resolves (the one the oracle exercises). */
+  /** True for the copy the project itself resolves (the one the project runs). */
   primary: boolean;
   action: 'patched' | 'already-patched' | 'skipped' | 'failed';
   /** Files written (or that were already patched). */
@@ -176,8 +176,6 @@ export interface ScaffoldInput {
   targets?: string[];
   /** Project root. */
   root: string;
-  /** Oracle modes chosen for the graft. */
-  modes: string[];
   /** Mechanism-specific options (e.g. the fork mechanism's `upstream`, `inPlace`). */
   options: Record<string, string | boolean>;
 }
@@ -206,7 +204,7 @@ export interface AgentStart extends Partial<FetchableRef> {
   conflicts?: string[];
 }
 
-/** Where a standalone graft's oracle runs (see `MechanismAdapter.workspace`). */
+/** A standalone graft's materialized result (see `MechanismAdapter.workspace`). */
 export interface Workspace {
   /** Directory holding the upstream source with the graft applied. */
   dir: string;
@@ -246,12 +244,12 @@ export interface MechanismAdapter {
   /**
    * True when the graft installs nothing into the project (e.g. a fork that is the product
    * itself, not a dependency). Its current version is then `rootstock.verified`, `sync` skips
-   * the install step, and the oracle runs in `workspace(version)` instead of the project root.
+   * the install step, and a green sync materializes `workspace(version)` as its result.
    */
   standalone?(graft: Graft): boolean;
   /**
    * For standalone grafts: materialize the graft applied to `version` (e.g. the fork's change
-   * rebased onto the upstream tag) in a directory the oracle runs in. Throw when it can't be.
+   * rebased onto the upstream tag), e.g. as a branch to fetch. Throw when it can't be.
    */
   workspace?(ctx: GraftContext, version: string): Promise<Workspace>;
   /**

@@ -5,10 +5,10 @@ import semver from 'semver';
 import { ACTIVE_STATUSES } from '@graftsync/spec';
 import { GraftError } from './errors.js';
 import { installPackage, reinstall } from './install.js';
-import { runCommand, runOracle, type OracleResult } from './oracle.js';
+import { runCommand } from './command.js';
 import { recordVariant, summarizeMisses, updateGraft } from './operations.js';
 import type { Project } from './project.js';
-import type { AgentStart, AnchorReport, ApplyResult, Graft, GraftUpdate, ResolvedVariant } from './types.js';
+import type { AgentStart, AnchorReport, ApplyResult, FetchableRef, Graft, GraftUpdate, ResolvedVariant } from './types.js';
 
 export type SyncOutcome = 'green' | 'needs-agent' | 'skipped' | 'error';
 
@@ -25,7 +25,8 @@ export interface SyncGraftResult {
   variant?: ResolvedVariant | null;
   anchors?: AnchorReport;
   apply?: ApplyResult;
-  oracle?: OracleResult;
+  /** For a standalone graft: the materialized result (e.g. the rebased fork) and how to fetch it. */
+  materialized?: { description?: string; fetch?: FetchableRef };
   /** Scoped upstream diff (from → to) written for the agent path. */
   diffPath?: string;
   /** True when graft.md was updated (verified bumped / status set to applied). */
@@ -39,7 +40,7 @@ export interface SyncGraftResult {
   /**
    * Set when the graft's `generator` wrote a new variant for the target version. `module` is
    * relative to the graft directory. `rolledBack` is true when the regenerated variant was
-   * removed again because it did not hold (static checks, install, or oracle).
+   * removed again because it did not hold (static checks or install).
    */
   regenerated?: { module: string; command: string; rolledBack?: boolean };
   /** Where the agent can start (from the mechanism's `prepareAgent`, e.g. a branch with conflict markers). */
@@ -53,7 +54,7 @@ export interface SyncTarget {
   version: string;
   installedBefore?: string;
   installCommand?: string;
-  /** True for a standalone graft's target: nothing is installed, the oracle runs in a workspace. */
+  /** True for a standalone graft's target: nothing is installed; the result is materialized instead. */
   standalone?: boolean;
 }
 
@@ -87,7 +88,8 @@ export interface SyncOptions {
 
 /**
  * The cheap path: deterministic re-verification of every graft against an upstream version.
- * Grafts whose anchors, apply step, or oracle fail are marked `needs-agent` with full context.
+ * Grafts whose anchors or apply step fail are marked `needs-agent` with full context. Sync checks
+ * that a graft still fits and installs; verifying behavior is the agent's job (see the skill).
  */
 export async function sync(project: Project, options: SyncOptions = {}): Promise<SyncReport> {
   const log = options.onProgress ?? (() => {});
@@ -190,10 +192,10 @@ export async function sync(project: Project, options: SyncOptions = {}): Promise
       if (ready.length !== staged.length) {
         for (const s of ready) {
           s.result.outcome = 'skipped';
-          s.result.reasons.push(`oracle not run: ${pkg}@${version} was not installed because other grafts on ${pkg} need attention first`);
+          s.result.reasons.push(`not recorded: ${pkg}@${version} was not installed because other grafts on ${pkg} need attention first`);
         }
       } else if (!options.install) {
-        installError = `${pkg}@${version} is not installed (installed: ${installedBefore ?? 'none'}); the oracle must run against the target version — rerun with --install`;
+        installError = `${pkg}@${version} is not installed (installed: ${installedBefore ?? 'none'}); rerun with --install to install it and record the graft against it (or --dry-run for the static checks only)`;
       } else {
         try {
           let bare = false;
@@ -218,9 +220,8 @@ export async function sync(project: Project, options: SyncOptions = {}): Promise
       }
     }
 
-    // Phase 3: the oracle, the only proof that a graft still holds.
+    // Phase 3: record the result (and, for standalone grafts, materialize it).
     for (const s of ready.filter((s) => s.result.outcome === 'green')) {
-      log(`running oracle for ${s.graft.id}`);
       try {
         await finish(project, s.graft, s.result, options);
       } catch (err) {
@@ -229,7 +230,7 @@ export async function sync(project: Project, options: SyncOptions = {}): Promise
       }
     }
 
-    // A regenerated variant that the oracle did not prove is never left registered.
+    // A regenerated variant that did not end green is never left registered.
     for (const s of staged.filter((s) => s.rollback && s.result.outcome !== 'green')) {
       s.result.reasons.push(await s.rollback!(target.installCommand !== undefined));
       if (s.result.regenerated) s.result.regenerated.rolledBack = true;
@@ -468,16 +469,22 @@ async function markNeedsAgent(project: Project, graft: Graft, result: SyncGraftR
 async function finish(project: Project, graft: Graft, result: SyncGraftResult, options: SyncOptions): Promise<void> {
   const fm = graft.frontmatter;
   const version = result.to!;
-  result.oracle = await runOracle(project, graft, { version, onOutput: options.onOutput });
-  if (!result.oracle.passed) {
-    const failed = result.oracle.modes.filter((m) => !m.passed).map((m) => m.mode);
-    result.reasons.push(`oracle failed in mode(s): ${failed.join(', ') || '(no modes)'}`);
-    await markNeedsAgent(project, graft, result);
-    return;
-  }
-  if (options.dryRun) return;
   const adapter = project.adapterFor(graft);
   const ctx = project.context(graft);
+  // A standalone graft's result is the upstream with the graft applied (e.g. the fork rebased onto
+  // the target): materialize it for the user (or the Action) to take.
+  if (project.isStandalone(graft) && adapter.workspace) {
+    try {
+      const ws = await adapter.workspace(ctx, version);
+      result.materialized = { description: ws.result, fetch: ws.fetch };
+      await ws.dispose();
+    } catch (err) {
+      result.reasons.push(`could not materialize ${fm.rootstock.package}@${version} with the graft applied: ${(err as Error).message}`);
+      await markNeedsAgent(project, graft, result);
+      return;
+    }
+  }
+  if (options.dryRun) return;
   let update: GraftUpdate | undefined;
   if (fm.rootstock.verified !== version || fm.status !== 'applied') {
     update = {
@@ -525,10 +532,10 @@ export function renderSyncMarkdown(report: SyncReport, root: string = report.roo
     lines.push(`| ${g.id} | ${g.package} | ${g.from} → ${g.to ?? '?'} | ${ICON[g.outcome]} ${g.outcome}${g.likelyUpstreamed ? ' (likely upstreamed)' : ''}${regen} |`);
   }
   lines.push('');
-  const results = report.grafts.filter((g) => g.outcome === 'green' && g.oracle?.workspace);
+  const results = report.grafts.filter((g) => g.outcome === 'green' && g.materialized?.description);
   if (results.length) {
     lines.push('Materialized results (Graft never pushes; take them from here):', '');
-    for (const g of results) lines.push(`- ${g.id} @ ${g.to}: ${g.oracle!.workspace}`);
+    for (const g of results) lines.push(`- ${g.id} @ ${g.to}: ${g.materialized!.description}`);
     lines.push('');
   }
   const regenerated = report.grafts.filter((g) => g.regenerated && !g.regenerated.rolledBack);
@@ -548,19 +555,16 @@ export function renderSyncMarkdown(report: SyncReport, root: string = report.roo
       for (const a of missed) lines.push(`- \`${a.name}\` in \`${a.file}\`${a.description ? ` — ${a.description}` : ''}${a.error ? ` (${a.error})` : ''}`);
       lines.push('');
     }
-    for (const m of g.oracle?.modes.filter((m) => !m.passed) ?? []) {
-      lines.push(`Oracle output (${m.mode}, exit ${m.exitCode}):`, '', '```', m.output.trim().slice(-4000), '```', '');
-    }
     if (g.diffPath) lines.push(`Scoped upstream diff: \`${rel(g.diffPath)}\``, '');
     if (g.agentStart) lines.push(`Start from: ${g.agentStart.description}`, '');
     if (g.outcome === 'needs-agent' && g.likelyUpstreamed) {
       lines.push(
-        `Next: upstream ${g.package}@${g.to} appears to already contain this graft's change. Confirm it (the invariants hold on pristine upstream, e.g. run the oracle without the graft), then run \`graft mark ${g.id} --status upstreamed --history "…"\` to set \`.grafts/${g.id}/graft.md\` to \`upstreamed\` with a History entry. Do not write a new variant.`,
+        `Next: upstream ${g.package}@${g.to} appears to already contain this graft's change. Confirm it (the Invariants hold on pristine upstream: run the project's tests without the graft), then run \`graft mark ${g.id} --status upstreamed --history "…"\` to set \`.grafts/${g.id}/graft.md\` to \`upstreamed\` with a History entry. Do not write a new variant.`,
         '',
       );
     } else if (g.outcome === 'needs-agent') {
       lines.push(
-        `Next: follow the graft sync skill — read \`.grafts/${g.id}/graft.md\`, write a new variant for ${g.package}@${g.to}, and verify with the oracle.`,
+        `Next: follow the graft sync skill — read \`.grafts/${g.id}/graft.md\`, write a new variant for ${g.package}@${g.to}, and verify the Invariants with the project's tests.`,
         '',
       );
     }

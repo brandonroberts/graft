@@ -19,7 +19,7 @@ const PATCH = `diff --git a/index.js b/index.js
  module.exports = { a, b }
 `;
 
-async function fixture(installed: string, oracle = 'node -e "process.exit(0)"') {
+async function fixture(installed: string) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'graft-patch-'));
   const up: Record<string, string> = {};
   for (const [v, code] of [['1.0.0', V1], ['1.1.0', V2], ['2.0.0', V3]] as const) {
@@ -34,7 +34,7 @@ async function fixture(installed: string, oracle = 'node -e "process.exit(0)"') 
   await writeFile(path.join(g, 'variants', 'v1.patch'), PATCH);
   await writeFile(
     path.join(g, 'graft.md'),
-    `---\nid: add-c\nrootstock: { package: lib, verified: 1.0.0 }\nmechanism: patch\nvariants:\n  - range: ">=1.0.0"\n    module: ./variants/v1.patch\noracle: { command: '${oracle}' }\n---\n## Why\nw\n## Invariants\ni\n## Where to look\nl\n## Anchors\na\n## History\n- created\n`,
+    `---\nid: add-c\nrootstock: { package: lib, verified: 1.0.0 }\nmechanism: patch\nvariants:\n  - range: ">=1.0.0"\n    module: ./variants/v1.patch\n---\n## Why\nw\n## Invariants\ni\n## Where to look\nl\n## Anchors\na\n## History\n- created\n`,
   );
   await writeFile(
     path.join(root, 'pnpm-workspace.yaml'),
@@ -85,7 +85,7 @@ describe('patch adapter', () => {
 });
 
 describe('sync with the patch adapter', () => {
-  it('is green and bumps verified when anchors hold and the oracle passes', async () => {
+  it('is green and bumps verified when the anchors hold and the variant applies', async () => {
     const { project, root } = await fixture('1.1.0');
     const report = await sync(project, { writeReport: false });
     expect(report.exitCode).toBe(0);
@@ -100,13 +100,6 @@ describe('sync with the patch adapter', () => {
     expect(report.targets[0]?.installCommand).toBeUndefined();
     expect(report.grafts[0]?.outcome).toBe('needs-agent');
     expect(await readFile(report.grafts[0]!.diffPath!, 'utf8')).toContain('-const b = 2');
-  });
-
-  it('needs an agent when the oracle fails', async () => {
-    const { project } = await fixture('1.1.0', 'node -e "process.exit(3)"');
-    const report = await sync(project, { writeReport: false });
-    expect(report.grafts[0]).toMatchObject({ outcome: 'needs-agent' });
-    expect(report.grafts[0]?.oracle?.modes[0]?.exitCode).toBe(3);
   });
 
   it('records a new variant and narrows the open-ended range', async () => {
@@ -202,8 +195,8 @@ const V3_PATCH = `diff --git a/index.js b/index.js
 `;
 
 /** Fixture whose graft has a generator; target 2.0.0 is installed and the v1 variant misses there. */
-async function generatorFixture(opts: { generator?: string; oracle?: string; patch?: string } = {}) {
-  const { root } = await fixture('2.0.0', opts.oracle);
+async function generatorFixture(opts: { generator?: string; patch?: string } = {}) {
+  const { root } = await fixture('2.0.0');
   // Use Graft's built-in applier so the installed-version checks don't depend on pnpm wiring.
   await writeFile(path.join(root, '.grafts/config.json'), JSON.stringify({ mechanisms: { patch: { applier: 'graft' } } }));
   await writeFile(
@@ -222,7 +215,7 @@ copyFileSync('v3.patch', out);
 `,
   );
   const file = path.join(root, '.grafts/add-c/graft.md');
-  const md = (await readFile(file, 'utf8')).replace(/^oracle:/m, `generator: { command: '${opts.generator ?? 'node gen.mjs {version} {out}'}' }\noracle:`);
+  const md = (await readFile(file, 'utf8')).replace(/^variants:/m, `generator: { command: '${opts.generator ?? 'node gen.mjs {version} {out}'}' }\nvariants:`);
   await writeFile(file, md);
   const upstream = new DirectoryUpstreamSource(
     { lib: Object.fromEntries(['1.0.0', '1.1.0', '2.0.0'].map((v) => [v, path.join(root, 'upstream', v)])) },
@@ -291,19 +284,6 @@ describe('sync regenerates generated variants', () => {
     expect(existsSync(path.join(root, '.grafts/add-c/variants/v2.0.0.patch'))).toBe(false);
   });
 
-  it('rolls back a regenerated variant whose oracle fails', async () => {
-    const { project, root, file, original } = await generatorFixture({ oracle: 'node -e "process.exit(3)"' });
-    const report = await sync(project, { writeReport: false });
-    const g = report.grafts[0]!;
-    expect(g.outcome).toBe('needs-agent');
-    expect(g.oracle?.passed).toBe(false);
-    expect(g.regenerated).toMatchObject({ module: './variants/v2.0.0.patch', rolledBack: true });
-    expect(g.reasons.join('\n')).toMatch(/rolled back: graft\.md restored/);
-    expect(await readFile(file, 'utf8')).toBe(original);
-    expect(existsSync(path.join(root, '.grafts/add-c/variants/v2.0.0.patch'))).toBe(false);
-    expect(existsSync(path.join(root, '.grafts/.report/add-c/regenerated/v2.0.0.patch'))).toBe(true);
-  });
-
   it('only generates into the report directory on a dry run', async () => {
     const { project, root, file, original } = await generatorFixture();
     const report = await sync(project, { writeReport: false, dryRun: true });
@@ -322,7 +302,8 @@ describe('onboarding a new graft (found by testing against a real project)', () 
     expect(files.some((f) => f.endsWith(path.join('variants', 'v1.patch')))).toBe(true);
     const report = await patchAdapter.checkAnchors(project.context(await project.get('new-one')), '1.0.0');
     expect(report.errors.join('\n')).toMatch(/contains no hunks/);
-    expect(await readFile(path.join(root, '.grafts/new-one/graft.md'), 'utf8')).toContain('- default');
+    expect(await readFile(path.join(root, '.grafts/new-one/graft.md'), 'utf8')).not.toContain('oracle');
+    expect(files.some((f) => f.includes('oracle'))).toBe(false);
   });
 
   it('flags and removes pnpm.patchedDependencies entries that pnpm patch-commit writes to package.json', async () => {

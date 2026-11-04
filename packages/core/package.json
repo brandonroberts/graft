@@ -1,7 +1,7 @@
 {
   "name": "@graftsync/core",
   "version": "0.1.2",
-  "description": "Graft core engine: load grafts, select variants, run oracles and sync with upstream releases.",
+  "description": "Graft core engine: load grafts, select variants, check anchors and sync with upstream releases.",
   "type": "module",
   "license": "MIT",
   "repository": {

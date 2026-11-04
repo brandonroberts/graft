@@ -1,11 +1,11 @@
-// Oracle for graft "pacote-esm": pacote's own modules load as native ESM, with working named
+// Check for graft "pacote-esm" (run by `pnpm test:grafts`): pacote's own modules load as native ESM, with working named
 // exports, and the API still works end to end.
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
-import { assert, assertNoCommonJS, consumerRequire, installedDir, repoRoot, run, trackFormats } from '../.shared/oracle.mjs';
+import { assert, assertNoCommonJS, consumerRequire, installedDir, repoRoot, run, trackFormats } from '../.shared/check.mjs';
 
 const formats = trackFormats();
 const mode = process.env.GRAFT_MODE ?? 'esm';
@@ -29,7 +29,7 @@ if (mode === 'esm') {
 const local = path.join(repoRoot, 'packages/spec');
 // Directory specs need an Arborist constructor (pacote's own requirement), so extract/tarball
 // use a local tarball built with pacote's own `tar` dependency.
-const work = mkdtempSync(path.join(os.tmpdir(), 'pacote-oracle-'));
+const work = mkdtempSync(path.join(os.tmpdir(), 'pacote-check-'));
 const tgz = path.join(work, 'spec.tgz');
 createRequire(path.join(dir, 'package.json'))('tar').c({ gzip: true, file: tgz, cwd: local, prefix: 'package', sync: true }, ['package.json']);
 process.on('exit', () => rmSync(work, { recursive: true, force: true }));

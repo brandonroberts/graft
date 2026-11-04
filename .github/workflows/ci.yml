@@ -33,3 +33,5 @@ jobs:
       # Dogfood: this repo's own grafts must be applied. In a fresh checkout pnpm links the
       # `graft` bin before dist exists, so call the built file directly.
       - run: node packages/cli/dist/bin.js check
+      # And they still behave like the pristine packages (Graft only checks that they fit).
+      - run: pnpm test:grafts

@@ -6,7 +6,7 @@ import type { AnchorReport, ApplyResult } from './types.js';
 export interface ReplayEntry {
   version: string;
   variant: string | null;
-  /** True when anchors match and the variant applies (static checks only; no install, no oracle). */
+  /** True when anchors match and the variant applies (static checks only; nothing is installed). */
   ok: boolean;
   summary: string;
   anchors?: AnchorReport;

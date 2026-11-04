@@ -1,6 +1,6 @@
-// Oracle for graft "yaml-esm": yaml's Node build loads as native ESM and behaves exactly like
+// Check for graft "yaml-esm" (run by `pnpm test:grafts`): yaml's Node build loads as native ESM and behaves exactly like
 // the pristine CommonJS dist/ build.
-import { assert, assertNoCommonJS, consumerRequire, differential, installedDir, pristine, run, trackFormats } from '../.shared/oracle.mjs';
+import { assert, assertNoCommonJS, consumerRequire, differential, installedDir, pristine, run, trackFormats } from '../.shared/check.mjs';
 
 const formats = trackFormats();
 const mode = process.env.GRAFT_MODE ?? 'esm';

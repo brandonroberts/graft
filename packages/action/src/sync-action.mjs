@@ -106,8 +106,6 @@ export function renderPrBody({ candidate, report, agentBody, outcome }) {
       if (g.likelyUpstreamed) lines.push(`**Likely upstreamed:** \`${g.package}@${g.to}\` already contains this graft's change. Confirm, then set its status to \`upstreamed\`.`, '');
       for (const r of g.reasons ?? []) lines.push(`- ${r}`);
       if (g.agentStart?.conflicts?.length) lines.push('', `Conflict markers to resolve on this branch: ${g.agentStart.conflicts.map((f) => `\`${f}\``).join(', ')}. Then run \`graft sync --version ${candidate.version}\`; it verifies the branch in place.`);
-      const failed = (g.oracle?.modes ?? []).filter((m) => !m.passed);
-      for (const m of failed) lines.push('', `Oracle output (${m.mode}):`, '', '```', String(m.output ?? '').trim().slice(-3000), '```');
       lines.push('', '</details>', '');
     }
   }
@@ -115,9 +113,9 @@ export function renderPrBody({ candidate, report, agentBody, outcome }) {
     '---',
     candidate.standalone
       ? (outcome === 'green'
-        ? "_Opened by the [Graft](https://github.com/brandonroberts/graft) GitHub Action. This branch is the fork's change rebased onto the new upstream, and the graft's oracle passed on it; review the diff before merging._"
+        ? "_Opened by the [Graft](https://github.com/brandonroberts/graft) GitHub Action. This branch is the fork's change rebased onto the new upstream; Graft checked that it still applies, not how it behaves. Let your CI run and review the diff before merging._"
         : "_Opened by the [Graft](https://github.com/brandonroberts/graft) GitHub Action. This branch holds git's merge of the fork's change onto the new upstream; finish it before merging._")
-      : "_Opened by the [Graft](https://github.com/brandonroberts/graft) GitHub Action. Graft verified this change with each graft's oracle; review the variant diffs before merging._",
+      : "_Opened by the [Graft](https://github.com/brandonroberts/graft) GitHub Action. Graft checked that each graft still fits the new version and installs; it doesn't check behavior. Let your CI run and review the variant diffs before merging._",
   );
   return lines.join('\n');
 }
@@ -130,18 +128,18 @@ export function renderStandaloneAgentPrompt({ candidate, report, files }) {
 
 Upstream ${candidate.package} moved to ${candidate.version} (${candidate.tag}); this repository is a fork of it, verified against ${candidate.verified}.
 The working tree on branch ${files.branch} already holds git's merge of the fork's change onto ${candidate.version}, and the graft files say so.
-${conflicts.length ? `These files still have conflict markers: ${conflicts.join(', ')}.` : 'It merged without conflicts, but the oracle failed: read its output in the report.'}
+${conflicts.length ? `These files still have conflict markers: ${conflicts.join(', ')}.` : 'It merged without conflicts, but sync could not finish: read the reasons in the report.'}
 
 Follow the graft-sync skill: ${files.skill}
 The sync report is at ${files.reportMarkdown} (JSON: ${files.reportJson}); what upstream changed in the files the fork touches is in .grafts/.report/<id>/diff.patch.
 Drive Graft with its CLI, \`${files.graftCommand}\` (also in $GRAFT_COMMAND).
 
 - Resolve every conflict by behavior: keep upstream's new content and re-apply the fork's change to it (the graft's Why / Invariants say what that means here). Remove every marker.
-- Read the oracle output too: upstream changes that merged cleanly can still break an invariant.
-- Prove it with \`${files.graftCommand} sync --version ${candidate.version}\`; it verifies the working tree in place.
+- Verify the graft's Invariants with the project's own tests (and add a test where none covers one): upstream changes that merged cleanly can still break an invariant. Graft only checks that the change fits.
+- Then run \`${files.graftCommand} sync --version ${candidate.version}\`; it checks the working tree in place.
 - Do NOT commit, push, or open a pull request; the action does that after re-verifying your work. Do not edit variants.
 - If an invariant cannot be satisfied, mark the graft conflicted (\`mark <id> --status conflicted --history "…"\`) instead of forcing a pass.
-- Write the pull request description to ${files.prBody}.
+- Write the pull request description to ${files.prBody}, including how you verified the Invariants.
 `;
 }
 
@@ -155,13 +153,14 @@ The deterministic first pass could not re-verify these grafts: ${needs.join(', '
 
 Follow the graft-sync skill: ${files.skill}
 The sync report is at ${files.reportMarkdown} (JSON: ${files.reportJson}); scoped upstream diffs are under .grafts/.report/<id>/diff.patch.
-Drive Graft with its CLI, \`${files.graftCommand}\` (also in $GRAFT_COMMAND; every command takes --json): \`check\`, \`diff\`, \`show\`, \`preview\`, \`variant add\`, \`apply\`, \`verify\`, \`sync\`, \`mark\`.
+Drive Graft with its CLI, \`${files.graftCommand}\` (also in $GRAFT_COMMAND; every command takes --json): \`check\`, \`diff\`, \`show\`, \`preview\`, \`capture\`, \`variant add\`, \`apply\`, \`sync\`, \`mark\`.
 
 You are running inside the Graft GitHub Action on branch ${files.branch}:
 - Do NOT commit, push, or open a pull request; the action does that after re-verifying your work.
-- Make the grafts pass for ${candidate.package}@${candidate.version} by adding new variants (never edit existing ones), registering them with \`variant add --verify-version ${candidate.version}\`, and proving them with the oracle (\`${files.graftCommand} sync --version ${candidate.version} --package ${candidate.package} --install\`).
+- Make the grafts pass for ${candidate.package}@${candidate.version} by adding new variants (never edit existing ones), registering them with \`variant add --verify-version ${candidate.version}\`, and checking them with \`${files.graftCommand} sync --version ${candidate.version} --package ${candidate.package} --install\`.
+- Verify each graft's Invariants with the project's own tests at ${candidate.version} (add a test where none covers one). Graft only checks that a variant fits and installs; the behavior is yours to prove.
 - If an invariant cannot be satisfied, mark the graft conflicted (\`mark <id> --status conflicted --history "…"\`) instead of forcing a pass.
-- Write the pull request description (the skill's format) to ${files.prBody}.
+- Write the pull request description (the skill's format, including how you verified the Invariants) to ${files.prBody}.
 `;
 }
 
@@ -278,7 +277,7 @@ export async function runAction(options, deps) {
       const adoptFrom = async (report, code) => {
         if (!candidate.standalone) return;
         const g = report.grafts.find((x) => x.outcome !== 'skipped');
-        if (code === 0 && g?.oracle?.fetch) await adopt(g.oracle.fetch);
+        if (code === 0 && g?.materialized?.fetch) await adopt(g.materialized.fetch);
         else if (code === 1 && g?.agentStart?.ref) await adopt(g.agentStart);
       };
       const syncOnce = async () => {

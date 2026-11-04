@@ -14,7 +14,7 @@ published `@graftsync/cli@0.1.0`. Copy it into the fork's root:
   angular-tr/
     graft.md                 # intent: Why / Invariants / Where to look / Anchors / History
     variants/v22.json        # { "ref": "@worktree", "base": "@verified" }, permanent
-    oracle.mjs               # the translation check (below)
+    check-pages.mjs          # the translation check, for agents and CI (below)
 .github/workflows/graft-sync.yml
 ```
 
@@ -22,7 +22,7 @@ and, optionally, `graft init --agent --skills-dir .agent/skills` to put the `gra
 to the repo's own `tr-contributor` skill.
 
 To start from scratch instead, scaffold the same frontmatter and variant from the fork's checkout
-(with an `upstream` remote pointing at angular/angular), then write the body and the oracle:
+(with an `upstream` remote pointing at angular/angular), then write the body:
 
 ```bash
 npx -y @graftsync/cli@latest add angular-tr --package angular --mechanism fork --in-place \
@@ -35,9 +35,11 @@ npx -y @graftsync/cli@latest add angular-tr --package angular --mechanism fork -
   graft lives in the fork, nothing is installed, and the single variant means *this checkout
   against the upstream it last verified*. `rootstock.verified` is `22.3.0-next.2+e36a63e20e30`,
   the upstream commit the fork's last sync was based on (it syncs to `main`, between releases).
-- **The oracle** (`oracle.mjs`, mode `pages`) runs in the rebased checkout. For every page the
-  fork had translated (as last committed, against the upstream it was verified on), the result
-  must:
+- **Graft checks that the translation still fits** each new upstream: that is all a green sync
+  means. Whether the result is still fully Turkish is verified by **`check-pages.mjs`**, which the
+  agent (or a contributor) runs after adopting a result or resolving an `-agent` branch, and
+  which belongs in the fork's PR checks too. For every page the fork had translated (as last
+  committed, against the upstream it was verified on), the working tree must:
   - not be identical to upstream's English;
   - have no more English headings or English prose lines (verbatim upstream lines, outside code)
     than before;
@@ -45,8 +47,8 @@ npx -y @graftsync/cli@latest add angular-tr --package angular --mechanism fork -
     translation that drops upstream's new section fails;
   - and contain no conflict markers.
 
-  The docs build (`pnpm bazel build //adev:build`, which catches broken heading links) would be
-  a good second mode, but it needs a full install per run.
+  The docs build (`pnpm bazel build //adev:build`) catches broken heading links; it needs a full
+  install, so it fits the fork's existing CI better than a per-sync step.
 - **The workflow** runs the [Graft Action](../../packages/action) manually (a schedule is
   commented out). Graft runs from npm via `npx`, so the fork's `package.json` is untouched.
 
@@ -57,22 +59,24 @@ All runs on a shallow clone (like `actions/checkout`), fork at `7421917`, upstre
 | Step | Result | Time |
 |---|---|---|
 | `graft check` (first run: fetches angular/angular, ~680 MB) | 2,834 anchors, all match | 1m56s |
-| `graft sync` (re-verify the current base, oracle included) | green: 392 translated pages checked | 25s |
+| `graft sync` (re-check the current base) | green | 25s |
+| `check-pages.mjs` on the fork as it is | passes: 392 translated pages checked | 3s |
 | `graft outdated` | offers `22.3.0-next.3` (from upstream's tags) | 3s |
 | `graft sync --version 22.3.0-next.3` | needs-agent: 7 files conflict, the same 7 `git apply --3way` reports; 364-line scoped diff; `-agent` branch with markers in just those 7 | 20s |
-| A careless "agent": keep the Turkish side of every conflict, then `graft sync` | **caught**: `deploy.md` gained 5 English headings and 18 English prose lines that merged in cleanly; `ssr.md` and `locale-id.md` lost upstream's new sections (structure no longer matches) | 18s |
+| A careless "agent": keep the Turkish side of every conflict, then `check-pages.mjs` | **caught**: `deploy.md` gained 5 English headings and 18 English prose lines that merged in cleanly; `ssr.md` and `locale-id.md` lost upstream's new sections (structure no longer matches) | 18s |
 | The Action, dry run | would open a **draft PR** `graft/sync-angular-22.3.0-next.3` with git's merge and the 7 files to translate | 1m |
 
-What the oracle can't see: an upstream *wording* change inside a paragraph that the conflict
+What `check-pages.mjs` can't see: an upstream *wording* change inside a paragraph that the conflict
 resolution replaced with the old Turkish. Those files are exactly the ones listed in the PR, so a
 reviewer (or the agent's own diff) is the check there.
 
 ## The monthly flow, with this setup
 
 1. Run the **Graft sync** workflow (or it runs on its schedule).
-2. **Green** (no translated page touched upstream): a PR with the fork rebased onto the new
-   release, `graft.md` already saying so. Review and merge.
+2. **Green** (the translation still fits): a PR with the fork rebased onto the new release,
+   `graft.md` already saying so. Upstream English can still have merged in cleanly, so let
+   `check-pages.mjs` run on the PR (or run it yourself), translate what it lists, and merge.
 3. **Conflicts**: a draft PR with git's merge; conflict markers only in the listed files, and
    `graft.md` at the new version with `status: conflicted`. Translate those files (by hand, a
-   contributor, or `agent-command`), push to the PR branch, run `graft sync --version <X>` to
-   prove it, and merge.
+   contributor, or `agent-command`), run `check-pages.mjs` and `graft sync --version <X>`, push
+   to the PR branch, and merge.

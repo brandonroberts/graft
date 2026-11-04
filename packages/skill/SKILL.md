@@ -1,6 +1,6 @@
 ---
 name: graft-sync
-description: Keep local modifications ("grafts") to upstream npm packages working when upstream releases a new version. Use when a repo has a `.grafts/` directory and an upstream dependency was bumped, `graft sync` reported `needs-agent`, a graft's anchors miss or its oracle fails, or you are asked to sync, repair, add, or retire a graft.
+description: Keep local modifications ("grafts") to upstream npm packages working when upstream releases a new version. Use when a repo has a `.grafts/` directory and an upstream dependency was bumped, `graft sync` reported `needs-agent`, a graft's anchors miss or its tests fail after an upgrade, or you are asked to sync, repair, add, or retire a graft.
 ---
 
 # Graft sync
@@ -17,19 +17,19 @@ https://github.com/brandonroberts/graft/blob/main/docs/spec.md
 
 `graft.md` frontmatter:
 
-- `rootstock.package` / `rootstock.verified` — upstream package and the last version the
-  oracle passed against.
+- `rootstock.package` / `rootstock.verified` — upstream package and the last version the graft
+  was verified against.
 - `mechanism` — how it is applied (e.g. `patch`: a pnpm `patchedDependencies` patch file).
 - `variants` — one implementation per upstream version range (`range` + `module` path).
   Ranges are disjoint; exactly one variant applies to any version.
-- `oracle` — the command that proves the invariants hold, run once per `mode`
-  (with `GRAFT_MODE` and `GRAFT_UPSTREAM_VERSION` set).
 - `status` — `applied` | `conflicted` | `upstreamed` | `obsolete`.
 
 Body sections, all required — read them before touching anything:
 
 - **Why** — what the modification enables and why upstream doesn't do it.
-- **Invariants** — observable behaviors that must hold. **This is the contract.**
+- **Invariants** — observable behaviors that must hold, and which of the project's tests cover
+  them. **This is the contract, and verifying it is your job:** Graft only checks that a graft
+  still *fits* (anchors, apply, install). It runs no tests.
 - **Where to look** — the upstream area, described by behavior so you can re-find it after
   a refactor. Trust this over file paths.
 - **Anchors** — what each variant matches on and why it was chosen.
@@ -51,7 +51,7 @@ the project root. Exit codes: `0` ok, `1` something needs attention, `2` tooling
 | Apply a variant to pristine upstream, for inspection | `graft preview <id> [--version X] [--out dir]` |
 | Register a new variant | `graft variant add <id> --range R --module ./variants/… --verify-version X --note "…"` |
 | Wire the package manager to the selected variants + reinstall | `graft apply` |
-| Prove it | `graft verify <id>` |
+| Prove the Invariants | the project's own tests (see *Invariants*) |
 | Status, verified version, History | `graft mark <id> [--status S] [--verified X] [--history "…"]` |
 | Where a variant fits across published versions | `graft replay <id> [--range R]` |
 
@@ -65,7 +65,7 @@ Reports from `sync` land in `.grafts/.report/` (`sync.md`, `sync.json`, and per 
    `verified` and wrote History. Only grafts marked `needs-agent` are yours.
 2. **Gather context for each `needs-agent` graft**, in this order:
    `graft show <id>` → the reasons in the sync report → `graft check <id> --version <target>` →
-   `graft diff <id>` (from `verified` to the target) → the failing oracle output, if the oracle ran.
+   `graft diff <id>` (from `verified` to the target).
 3. **Locate the new equivalent code by behavior.** Use *Where to look* and *Anchors*, then
    the scoped diff. If a target file was removed or renamed, search the new version's
    published files for the behavior (the pristine copy is under `.grafts/.cache/upstream/`). Upstream
@@ -81,19 +81,21 @@ Reports from `sync` land in `.grafts/.report/` (`sync.md`, `sync.json`, and per 
    refuses (and rolls back) if the anchors don't match at the target. Older open-ended ranges
    are narrowed automatically; existing variant files are never touched. Then
    `graft check <id> --version <target>` should be clean.
-7. **Prove it:** re-run `graft sync --version <target> --install`. With anchors now matching,
-   it wires the package manager to the new variant, installs the target, and runs the oracle
-   in every mode; on green it sets `verified` and status `applied`. (Or install yourself, run
-   `graft verify <id>`, then `graft mark <id> --status applied --verified <target>`.)
-8. **Finish:** open a PR (see below).
+7. **Check it fits:** re-run `graft sync --version <target> --install`. With anchors now
+   matching, it wires the package manager to the new variant, installs the target, and on green
+   sets `verified` and status `applied`.
+8. **Prove the Invariants** at the target with the project's tests: run the ones *Invariants*
+   names (and the suite), and add a test for any Invariant nothing covers. Show it fails
+   without the graft. If a test fails, the graft isn't done, whatever sync said: fix the
+   variant, or stop (see *When to stop*).
+9. **Finish:** open a PR (see below), saying how you verified each Invariant.
 
 ## Adding a new graft
 
 When asked to capture a modification as a graft (new, or migrating an existing patch):
 
 1. **Scaffold:** `graft init --agent` (once; it also installs this skill), then `graft add <id> --package <pkg> --target <file>`.
-   This creates `graft.md`, an empty variant stub (which fails loudly until written), and an
-   oracle stub that exits 1.
+   This creates `graft.md` and an empty variant stub (which fails loudly until written).
 2. **Write the intent first,** with the person who owns the modification if you can: *Why*,
    the *Invariants* (observable behaviors, one per bullet), *Where to look* (by behavior), and
    *Anchors* (what the variant matches on and why).
@@ -106,23 +108,18 @@ When asked to capture a modification as a graft (new, or migrating an existing p
    (`pnpm patch-commit` may also write a `package.json` entry; the next step replaces it).
 4. **Apply it:** `graft apply`. This points the package manager at the
    variant, reinstalls, and re-checks anchors.
-5. **Write the oracle** so it fails before the modification and passes after. Check that it
-   fails without the graft. An oracle that can't fail proves nothing. Test the Invariants,
-   plus at least one pre-existing behavior the graft must not break.
-   - **Browser oracles** (Playwright etc.) fail on uncaught page errors, **`console.error`**
-     messages, and failed (5xx) requests. Frameworks catch errors and only log them:
-     Angular's `ErrorHandler`, React error boundaries, Vue's `errorHandler`. Listening only
-     for page errors lets a broken page pass.
-   - **Assert something visible that depends on the graft,** not only "no errors": a page can
-     fail to render without throwing.
-   - **Clean up what you start:** stop a dev server on *every* exit (`process.on('exit', …)`),
-     because `process.exit` skips `finally` blocks and leaves the port taken.
-   - **Test the code path, not the whole stack,** when the rest isn't what the graft changes.
-     For a dependency's browser behavior, load it through the dev server (e.g. a one-line
-     module importing it) instead of rendering pages through a framework's dev SSR.
-   - **Cover the modes the bug lives in.** A dev-only bug needs a `dev` mode; a production
-     build may behave differently (e.g. Vite replaces `process.env` only there).
-6. **Prove it:** `graft verify <id>`, then `graft sync` (green).
+5. **Cover the Invariants with the project's tests.** Find the tests that exercise each
+   Invariant, or add them to the project's suite, and name them under *Invariants*. Show each
+   fails without the modification and passes with it: a test that can't fail proves nothing.
+   Also keep one pre-existing behavior the graft must not break covered.
+   - **Test what the graft changes, not the whole stack.** For a patch that stops a dependency
+     loading Node polyfills, assert it doesn't load them (e.g. via `require.cache`); you don't
+     need a browser or a build.
+   - **Browser tests** (Playwright etc.), when you need one, fail on uncaught page errors,
+     **`console.error`** messages and failed (5xx) requests: Angular's `ErrorHandler`, React
+     error boundaries and Vue's `errorHandler` catch errors and only log them. Assert something
+     visible that depends on the graft, and stop any server you start on every exit.
+6. **Check it:** `graft sync` (green), and the project's tests pass.
 7. **Find the variant's real range:** `graft replay <id>` checks every published version.
    Record what you learn in *History*.
 
@@ -130,12 +127,13 @@ When asked to capture a modification as a graft (new, or migrating an existing p
 
 - **Never edit an existing variant.** Older version ranges keep their variants and tests.
   Write a new file for the new range. `graft variant add` refuses to re-register a file.
-- **The Invariants are the contract and the oracle is the only proof.** Anchors matching or a
-  clean apply is not success; a passing oracle is.
-- **Never weaken the oracle** to get green: don't skip, loosen, or delete checks, and don't
-  change Invariants to match what you built. If an invariant is genuinely obsolete, say so
-  and ask a human.
-- **Never set `verified`** to a version the oracle has not passed against.
+- **The Invariants are the contract, and you verify them.** A green sync means the change still
+  fits and installs, not that it still works. Prove the Invariants with the project's tests.
+- **Never weaken a test** to get green: don't skip, loosen, or delete checks, and don't change
+  Invariants to match what you built. If an invariant is genuinely obsolete, say so and ask a
+  human.
+- **Never set `verified`** (or register a variant) for a version you haven't verified the
+  Invariants at.
 - **Fail loudly.** A graft that silently applies nothing is the worst outcome. Anchors must
   match exactly once; don't add fuzz, catch-alls, or "skip if not found" logic.
 - **Anchor by behavior.** Prefer stable exported names, public API lists, and user-facing
@@ -179,8 +177,8 @@ When asked to capture a modification as a graft (new, or migrating an existing p
 - If the graft's variants are generated, give it a `generator: { command }` in its
   frontmatter (`{version}` and `{out}` are substituted; e.g.
   `node tools/cjs-to-esm/make-variant.mjs semver {version} {out}`). `graft sync` then
-  regenerates and registers a variant itself when the old one misses, and keeps it only if
-  the oracle passes. If sync still hands the graft to you, its reasons say what the generator
+  regenerates and registers a variant itself when the old one misses, and keeps it only if it
+  fits and installs. If sync still hands the graft to you, its reasons say what the generator
   did; the rejected output is under `.grafts/.report/<id>/regenerated/`. Fix the generator
   or review that output rather than hand-patching the old variant.
 
@@ -204,13 +202,14 @@ When asked to capture a modification as a graft (new, or migrating an existing p
      `{ "ref": "graft/<id>-<target>", "base": "<target>" }`. Register it with
      `graft variant add <id> --range '>=<target>' --module ./variants/v<target>.json
      --verify-version <target>`.
-  4. Prove it with `graft sync --version <target> --install`.
+  4. Check it with `graft sync --version <target> --install`, then prove the Invariants with the
+     project's tests.
 - **Repo mode** (`fork.install: none`): the fork is the product (e.g. a translated docs site),
-  nothing is installed, and the oracle runs in the rebased checkout. The diff in
+  nothing is installed, and a green sync materializes the rebased checkout. The diff in
   `.grafts/.report/<id>/diff.patch` is what upstream changed since the fork's base in the files
   the fork touches. A clean rebase is not enough: upstream text that lands next to the change
-  (e.g. a new English paragraph in a translated page) only fails the oracle, so read its
-  output. Same fix steps as above, with `graft sync --version <target>` (no `--install`). A
+  (e.g. a new English paragraph in a translated page) merges without a conflict, so run the
+  project's checks (the graft's *Invariants* say which) on the result. Same fix steps as above, with `graft sync --version <target>` (no `--install`). A
   green sync leaves the result as branch `graft/<id>/<target>` in `.grafts/.cache/fork/<id>`;
   fetch it from there. Never push it unless the user asks.
 - A target can be an upstream commit between releases: `--version 22.3.0-next.3+<sha>` (the
@@ -221,7 +220,7 @@ When asked to capture a modification as a graft (new, or migrating an existing p
   variant. A green sync puts the new `verified` only in the result branch; adopt it with
   `git fetch <repo> <ref> && git read-tree -u --reset FETCH_HEAD`. On the `-agent` branch,
   graft.md already says the target version (`status: conflicted`): resolve, then
-  `graft sync --version <target>` verifies the working tree as it is.
+  `graft sync --version <target>` checks the working tree as it is; then run the project's checks.
 - **Start from the prepared branch.** On `needs-agent`, the report's "Start from" line names
   `graft/<id>/<target>-agent` in the cache clone: git's merge of the fork's change onto the
   target, with conflict markers left only in the files it lists. Fetch it into the fork, resolve
@@ -235,7 +234,7 @@ Stop and mark the graft `conflicted` (`graft mark <id> --status conflicted --his
 
 - the behavior the graft modifies no longer exists upstream, or upstream changed it in a way
   that makes an invariant impossible or contradictory;
-- you cannot make the oracle pass in every mode without weakening it;
+- you cannot make the project's tests pass for an Invariant without weakening them;
 - upstream now does what the graft did — say so; a human decides whether to mark it
   `upstreamed`. Graft detects the common case for you: when the variant no longer applies
   but upstream already contains its change (for patches, the reverse patch applies cleanly),
@@ -256,7 +255,9 @@ at everything else: `GRAFT_SKILL_PATH` (this file), `GRAFT_COMMAND` (how to run 
 `GRAFT_TARGET_VERSION`, and `GRAFT_BRANCH` (already checked out).
 
 - Do **not** commit, push, or open a pull request. The action re-runs `graft sync` on your
-  work and opens the PR itself: a normal PR only if the oracle passes, otherwise a draft.
+  work and opens the PR itself: a normal PR when every graft fits, otherwise a draft. It can't
+  check behavior: prove the Invariants with the project's tests before you finish, and say how
+  in the PR description.
 - Write the PR description (format below) to `GRAFT_PR_BODY_FILE`.
 
 ## PR description
@@ -272,8 +273,8 @@ at everything else: `GRAFT_SKILL_PATH` (this file), `GRAFT_COMMAND` (how to run 
 **What changed upstream:** <the behavior-level change, citing the scoped diff>
 **Anchors that moved:** <anchor names, and where they went>
 **New variant:** `variants/<file>` for `<range>` — <how it differs from the previous variant>
-**Proof:** oracle passed in <modes> against <package>@<target>
+**Verified:** <which tests, covering which Invariants, passed against <package>@<target>>
 ```
 
-For a conflicted graft, replace *New variant* and *Proof* with **Failing invariant**,
+For a conflicted graft, replace *New variant* and *Verified* with **Failing invariant**,
 **What was tried**, and **What a human needs to decide**.

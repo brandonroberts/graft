@@ -10,9 +10,6 @@ targets:
 variants:
   - range: ">=22.0.1"
     module: ./variants/v22.patch
-oracle:
-  command: node .grafts/pacote-esm/oracle.mjs
-  modes: [ esm, cjs ]
 generator:
   command: node tools/cjs-to-esm/make-variant.mjs pacote {version} {out}
 status: applied
@@ -30,6 +27,8 @@ itself to native ESM with real named exports. It is part of Graft's dogfood vali
 have this patch.
 
 ## Invariants
+
+Verified by `pnpm test:grafts` (`.grafts/pacote-esm/check.mjs`, in `esm` and `cjs` modes), which CI runs.
 
 - Every module of pacote itself (`lib/`, `bin/`) that loads, through `import` or
   `require()`, is evaluated as ESM.
@@ -59,7 +58,8 @@ The package's version is read with `require('../package.json')` in `lib/registry
   `require.main` is rewritten to a check of `process.argv[1]` against
   `import.meta.filename`, anchored on the `if (module === require.main)` line.
 - When a release misses, `graft sync` reruns the `generator` (the converter) for the new
-  version and keeps the result only if the oracle passes.
+  version and keeps the result only if it fits and installs; `pnpm test:grafts` then checks
+  the behavior.
 
 ## History
 
@@ -73,3 +73,4 @@ The package's version is read with `require('../package.json')` in `lib/registry
 - 2026-11-04: Added `generator:`, so `graft sync` regenerates the variant with the converter
   when a release misses and verifies it with the oracle before handing off to an agent.
 - 2026-11-04: pacote is no longer a dependency of the published packages (#20): Graft fetches pristine packages with npm. It stays a root devDependency of this repo to keep this conversion, the hardest of the three, verified; resolveFrom now points at the repo root.
+- 2026-11-04: The oracle block is gone (Graft no longer runs a runtime check): its differential test is now .grafts/pacote-esm/check.mjs, run by `pnpm test:grafts` in CI.

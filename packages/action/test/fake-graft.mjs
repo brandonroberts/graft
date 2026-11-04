@@ -51,7 +51,7 @@ if (args[0] === 'sync' && arg('--id') && arg('--id') !== 'sync') {
   const report = (outcome, extra = {}) => ({ exitCode: 0, targets: [{ package: 'docs', version, standalone: true }], grafts: [{ id, package: 'docs', from: '1.0.0', to: version, outcome, reasons: outcome === 'green' ? [] : ['anchors: content/page.md#1 missed'], ...extra }] });
   if (mode === 'repo-green' || (mode === 'repo-conflict' && page && !page.includes('<<<<<<<'))) {
     const fetch = commitRef(`graft/${id}/${version}`, { 'content/page.md': page || `çevrildi ${version}\n`, [`.grafts/${id}/graft.md`]: `verified: ${version}\nstatus: applied\n` });
-    console.log(JSON.stringify(report('green', { oracle: { passed: true, modes: [], fetch } })));
+    console.log(JSON.stringify(report('green', { materialized: { fetch } })));
     process.exit(0);
   }
   if (mode === 'repo-conflict') {

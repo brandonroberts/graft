@@ -10,6 +10,7 @@
     "build": "tsc -b",
     "typecheck": "tsc -b",
     "test": "vitest run --passWithNoTests",
+    "test:grafts": "node tools/check-grafts.mjs",
     "clean": "tsc -b --clean",
     "graft": "graft",
     "changeset": "changeset",

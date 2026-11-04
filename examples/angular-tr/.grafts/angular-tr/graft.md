@@ -9,11 +9,6 @@ variants:
   # One permanent variant: this checkout (uncommitted work included) against `verified`.
   - range: ">=22.0.0-0"
     module: ./variants/v22.json
-oracle:
-  command: node "$GRAFT_DIR/oracle.mjs" {mode}
-  modes:
-    - pages
-  timeout: 900
 fork:
   repo: .
   upstream: https://github.com/angular/angular.git
@@ -29,6 +24,10 @@ https://angular-docs.tr. The repository is a full fork of angular/angular; the t
 its change. Graft keeps that change current with each upstream Angular release.
 
 ## Invariants
+
+Check them with `node .grafts/angular-tr/check-pages.mjs` after adopting a sync result or
+resolving an `-agent` branch, before committing (it compares the working tree with the fork as
+last committed). The docs build, `pnpm bazel build //adev:build`, checks the heading anchors.
 
 - Every page under `adev/src/content` that the fork has translated stays translated after a
   sync: not reverted to upstream's English, no new English headings, no new English prose.
@@ -53,8 +52,8 @@ its change. Graft keeps that change current with each upstream Angular release.
 Every hunk of the fork's diff against upstream is an anchor: the English it replaced must still
 be in upstream, unchanged. Upstream edits to a translated paragraph surface as misses, and git's
 merge leaves conflict markers in exactly those files for an agent (or contributor) to translate.
-Upstream English that merges cleanly into a translated page is not an anchor miss; the oracle's
-`pages` check catches it.
+Upstream English that merges cleanly into a translated page is not an anchor miss, so sync can't
+see it; `check-pages.mjs` catches it.
 
 ## History
 

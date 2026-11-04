@@ -32,7 +32,7 @@ async function fixture() {
   await writeFile(path.join(g, 'variants/v1.patch'), PATCH_V1);
   await writeFile(
     path.join(g, 'graft.md'),
-    `---\nid: add-c\nrootstock: { package: lib, verified: 1.0.0 }\nmechanism: patch\nvariants:\n  - range: ">=1.0.0"\n    module: ./variants/v1.patch\noracle: { command: "true" }\n---\n## Why\nAdds c.\n## Invariants\n- c is 3\n## Where to look\nThe constants.\n## Anchors\nThe const block.\n## History\n- created\n`,
+    `---\nid: add-c\nrootstock: { package: lib, verified: 1.0.0 }\nmechanism: patch\nvariants:\n  - range: ">=1.0.0"\n    module: ./variants/v1.patch\n---\n## Why\nAdds c.\n## Invariants\n- c is 3\n## Where to look\nThe constants.\n## Anchors\nThe const block.\n## History\n- created\n`,
   );
   const graft = (...args: string[]) => {
     const r = spawnSync(process.execPath, [BIN, ...args, '--root', root], { encoding: 'utf8' });

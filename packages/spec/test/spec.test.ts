@@ -17,7 +17,9 @@ describe('parseGraft', () => {
     const r = parseGraft(doc(FM), { directoryName: 'x' });
     expect(r.ok).toBe(true);
     expect(r.graft?.frontmatter.status).toBe('applied');
-    expect(r.graft?.frontmatter.oracle.modes).toEqual(['default']);
+    // A leftover oracle block (from before 0.2) is ignored, with a warning saying why.
+    expect(r.graft).toBeDefined();
+    expect(r.diagnostics.find((d) => d.code === 'frontmatter/oracle-ignored')).toMatchObject({ severity: 'warning', path: 'oracle' });
   });
 
   it('reports missing sections, bad ranges, overlaps and id mismatch', () => {

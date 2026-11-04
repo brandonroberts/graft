@@ -48,7 +48,7 @@ async function setup(opts: { tag?: string; build?: string; ref?: string } = {}) 
   const fork = { repo: `file://${r.fork}`, upstream: `file://${r.upstream}`, tag: opts.tag ?? 'v{version}', ...(opts.build ? { build: opts.build } : {}) };
   await writeFile(
     path.join(g, 'graft.md'),
-    `---\nid: add-c\nrootstock: { package: lib, verified: 1.0.0 }\nmechanism: fork\nfork: ${JSON.stringify(fork)}\nvariants:\n  - range: ">=1.0.0"\n    module: ./variants/v1.json\noracle: { command: "true" }\n---\n## Why\nAdds c.\n## Invariants\n- c is 3\n## Where to look\nThe constants.\n## Anchors\nThe const block.\n## History\n- created\n`,
+    `---\nid: add-c\nrootstock: { package: lib, verified: 1.0.0 }\nmechanism: fork\nfork: ${JSON.stringify(fork)}\nvariants:\n  - range: ">=1.0.0"\n    module: ./variants/v1.json\n---\n## Why\nAdds c.\n## Invariants\n- c is 3\n## Where to look\nThe constants.\n## Anchors\nThe const block.\n## History\n- created\n`,
   );
   await writeFile(path.join(app, 'package.json'), `${JSON.stringify({ name: 'app', packageManager: 'npm@10.9.9', dependencies: { lib: '1.0.0' } }, null, 2)}\n`);
   const installed = path.join(app, 'node_modules/lib');

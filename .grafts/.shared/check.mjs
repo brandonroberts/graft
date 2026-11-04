@@ -1,4 +1,4 @@
-// Shared helpers for the *-esm dogfood oracles. Each oracle checks that an upstream package,
+// Shared helpers for the *-esm dogfood checks (`pnpm test:grafts`). Each check verifies that an upstream package,
 // as installed with its graft applied, loads as native ESM (no CommonJS) and behaves exactly
 // like the pristine CommonJS release.
 import assert from 'node:assert/strict';
@@ -100,6 +100,6 @@ export async function run(name, checks) {
       console.log(`  ✗ ${label}\n    ${String(err.message).split('\n').join('\n    ')}`);
     }
   }
-  console.log(`[oracle:${name}] mode=${process.env.GRAFT_MODE ?? '-'}: ${failed ? 'FAIL' : 'PASS'}`);
+  console.log(`[check:${name}] mode=${process.env.GRAFT_MODE ?? '-'}: ${failed ? 'FAIL' : 'PASS'}`);
   process.exit(failed ? 1 : 0);
 }

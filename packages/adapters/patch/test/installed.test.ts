@@ -81,7 +81,7 @@ describe('built-in applier: the whole project', () => {
     await writeFile(path.join(g, 'variants/v1.patch'), PATCH);
     await writeFile(
       path.join(g, 'graft.md'),
-      `---\nid: add-c\nrootstock: { package: lib, verified: 1.0.0 }\nmechanism: patch\nvariants:\n  - range: ">=1.0.0 <2.0.0"\n    module: ./variants/v1.patch\noracle: { command: "true" }\n---\n## Why\nw\n## Invariants\ni\n## Where to look\nl\n## Anchors\na\n## History\n- h\n`,
+      `---\nid: add-c\nrootstock: { package: lib, verified: 1.0.0 }\nmechanism: patch\nvariants:\n  - range: ">=1.0.0 <2.0.0"\n    module: ./variants/v1.patch\n---\n## Why\nw\n## Invariants\ni\n## Where to look\nl\n## Anchors\na\n## History\n- h\n`,
     );
     await writeFile(path.join(root, 'package.json'), JSON.stringify({ name: 'app', scripts: { postinstall: 'graft apply --installed' }, devDependencies: { '@graftsync/cli': '0.1.0' } }));
     await writeFile(path.join(root, 'package-lock.json'), '{}');

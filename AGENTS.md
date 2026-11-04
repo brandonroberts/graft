@@ -17,6 +17,7 @@ pnpm build                                   # tsc -b (TypeScript 7)
 pnpm test                                    # vitest: unit, CLI, Action (real git, fake gh), yarn/PnP fixtures
 node packages/cli/dist/bin.js check          # the dogfood grafts must be applied
 node packages/cli/dist/bin.js sync --quiet   # and green
+pnpm test:grafts                             # and still behave like the pristine packages
 ```
 
 - **CI** runs exactly these on Node 22, 24 and 26. Run them before every push.
@@ -28,14 +29,14 @@ node packages/cli/dist/bin.js sync --quiet   # and green
 | Path | What |
 |---|---|
 | `packages/spec` | `graft.md` schema (zod), parser, validator, comment-preserving YAML editor |
-| `packages/core` | Project loading, the `MechanismAdapter` interface, sync, oracle runner, scoped diffs, outdated, replay, scaffold |
+| `packages/core` | Project loading, the `MechanismAdapter` interface, sync, scoped diffs, outdated, replay, scaffold, capture |
 | `packages/adapters/patch` | The `patch` mechanism and its appliers (pnpm, npm ≥ 12, bun, yarn berry, built-in `graft`, patch-package, vendor) |
 | `packages/adapters/fork` | The `fork` mechanism, including repo mode (`fork.install: none`) |
 | `packages/cli` | The `graft` CLI, a thin front-end |
 | `packages/skill` | `SKILL.md`, which teaches agents to use Graft |
 | `packages/action` | The GitHub Action: plain ESM `.mjs`, no build step, private, used from `main` |
 | `tools/cjs-to-esm` | Generator for the dogfood grafts |
-| `.grafts/` | This repo's own grafts: pacote, semver and yaml converted to native ESM |
+| `.grafts/` | This repo's own grafts: pacote, semver and yaml converted to native ESM; their behavior checks are `check.mjs`, run by `pnpm test:grafts` |
 | `examples/angular-tr` | A repo-mode setup tested against a real fork |
 
 ## Rules
@@ -47,7 +48,7 @@ node packages/cli/dist/bin.js sync --quiet   # and green
 - **Fail loudly.** A graft must never silently apply nothing.
   - A missed anchor, an unsupported case, or a package manager that would drop a patch is an error with a reason, never a warning or a pass.
   - When you find a silent failure mode, add a check for it.
-- **The oracle is the only proof.** Never weaken an oracle, and never treat anchors matching or a clean apply as success.
+- **Graft checks fit, not behavior.** Sync proves a graft still fits and installs; there is no runtime check (the oracle was removed in 0.2). Behavior is verified by the agent with the project's own tests. Never let Graft output claim it verified behavior, and never weaken a test to make a graft pass.
 - **Never edit an existing variant.** Add a new one (`graft variant add`). This applies to the dogfood grafts in `.grafts/` too; regenerate those with their generator.
 - **Diff what the mechanism sees.** Work on the pristine artifact (the published tarball, or the upstream source tag), never on the installed copy.
 - **New adapter behavior goes behind optional hooks** on `MechanismAdapter`. Keep the four required members (`name`, `apply`, `checkAnchors`, `scopeDiff`) stable. The spec is near freeze (#6), so discuss interface changes there first.
@@ -76,8 +77,7 @@ Keep these in step with the code, in the same commit:
 - **Shell commands blocked by the safety check.** Heredocs containing `rm -rf` patterns or `$${…}` get blocked. Use the Write/Edit tools, and `"${VAR:?}"` in `rm` paths.
 - **`graft.md` edits must keep comments and formatting.** Go through `GraftDocumentEditor` / `updateGraft`, never string-replace YAML.
 - **Repo mode (fork):**
-  - A standalone graft's oracle runs in the rebased checkout, which has no `.grafts/`. Oracle commands use `$GRAFT_DIR` and `$GRAFT_PROJECT_ROOT`.
-  - Oracles that compare "before" with "after" must baseline on the fork's last commit (`HEAD`), not the working tree: after an `-agent` branch is adopted, the working tree *is* the result.
+  - Checks that compare "before" with "after" (like `examples/angular-tr`'s `check-pages.mjs`) must baseline on the fork's last commit (`HEAD`), not the working tree: after an `-agent` branch is adopted, the working tree *is* the result.
 - **npm stages new publishes** for a few minutes. Don't treat `npm view` returning 404 right after a publish as failure.
 - **GitHub Actions status can lag** during incidents, showing `queued` for runs that already finished. Check job step timestamps before assuming anything is stuck.
 

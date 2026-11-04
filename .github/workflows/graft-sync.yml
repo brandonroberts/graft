@@ -1,5 +1,5 @@
 # Dogfood: keep this repo's grafts (pacote, semver, yaml → native ESM) in sync with upstream.
-# Opens a PR when a new upstream version passes every graft's oracle, and an issue or draft PR
+# Opens a PR when every graft still fits a new upstream version (CI checks behavior), and an issue or draft PR
 # when a graft needs an agent or a human.
 #
 # Requires: Settings → Actions → General → "Allow GitHub Actions to create and approve pull requests".

@@ -14,7 +14,8 @@ ${yaml}---
 
 ## Invariants
 
-<!-- Observable behaviors that must hold. One bullet each. The oracle tests exactly these.
+<!-- Observable behaviors that must hold. One bullet each. Whoever changes the graft (usually
+     an agent) verifies exactly these, with the project's own tests: say which tests cover them.
      Example: "- Every request sent by the client carries an \`x-trace-id\` header." -->
 
 ## Where to look

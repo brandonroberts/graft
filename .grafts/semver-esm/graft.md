@@ -10,9 +10,6 @@ targets:
 variants:
   - range: ">=7.8.6"
     module: ./variants/v7.patch
-oracle:
-  command: node .grafts/semver-esm/oracle.mjs
-  modes: [esm, cjs]
 generator:
   command: node tools/cjs-to-esm/make-variant.mjs semver {version} {out}
 status: applied
@@ -30,6 +27,8 @@ and is a whole-package conversion: every `.js` file becomes an ES module, and pa
 gains `"type": "module"`.
 
 ## Invariants
+
+Verified by `pnpm test:grafts` (`.grafts/semver-esm/check.mjs`, in `esm` and `cjs` modes), which CI runs.
 
 - Every semver module that loads, through `import` or `require()`, is evaluated as ESM.
   Nothing from the package loads as CommonJS.
@@ -59,8 +58,8 @@ bottom of their files, after defining the class, to break a load-order cycle.
   file's hunks are anchored on that file's `require` lines and its final
   `module.exports = …` statement. These are the parts of semver's files that change least.
   A file whose requires change upstream misses. `graft sync` then reruns the `generator`
-  (the converter) for the new version and keeps the result only if the oracle passes;
-  otherwise it hands the graft to an agent.
+  (the converter) for the new version and keeps the result only if it fits and installs;
+  otherwise it hands the graft to an agent. `pnpm test:grafts` checks the behavior.
 
 ## History
 
@@ -71,3 +70,4 @@ bottom of their files, after defining the class, to break a load-order cycle.
   (regenerate with the converter, then review).
 - 2026-11-04: Added `generator:`, so `graft sync` regenerates the variant with the converter
   when a release misses and verifies it with the oracle before handing off to an agent.
+- 2026-11-04: The oracle block is gone (Graft no longer runs a runtime check): its differential test is now .grafts/semver-esm/check.mjs, run by `pnpm test:grafts` in CI.

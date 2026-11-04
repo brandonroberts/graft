@@ -2,7 +2,7 @@ export * from './types.js';
 export * from './errors.js';
 export * from './upstream.js';
 export * from './project.js';
-export * from './oracle.js';
+export * from './command.js';
 export * from './diff.js';
 export * from './operations.js';
 export * from './install.js';

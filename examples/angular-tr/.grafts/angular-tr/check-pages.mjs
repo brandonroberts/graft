@@ -1,10 +1,16 @@
-// Oracle for the angular-tr graft. Runs in the rebased checkout ($GRAFT_WORKSPACE), a worktree
-// of Graft's cache clone, so upstream revisions resolve there.
+// Translation check for the angular-tr graft. Graft only checks that the translation still fits
+// a new upstream; run this to verify the Invariants, after adopting a sync result or resolving an
+// `-agent` branch, before committing:
 //
-// pages: every page the fork had translated, as last committed (HEAD of $GRAFT_PROJECT_ROOT,
-// against the `verified` recorded there), must still be translated in the result (against the
-// target upstream). HEAD, not the working tree: while an agent resolves a sync, the working
-// tree already holds the merged result, and comparing it with itself would prove nothing.
+//   node .grafts/angular-tr/check-pages.mjs [--target <version>]
+//
+// It compares the working tree (the result) against the fork as last committed (HEAD, against the
+// `verified` recorded there). HEAD, not the working tree, is the "before": while you resolve a
+// sync, the working tree already holds the merged result, and comparing it with itself proves
+// nothing. The target defaults to the working tree's `verified`. Upstream revisions are read from
+// Graft's cache clone (.grafts/.cache/fork/angular-tr; any `graft check`/`sync` creates it).
+//
+// Every page the fork had translated must still be translated:
 //   - not identical to upstream's English,
 //   - no more English headings than before,
 //   - no more English prose lines than before (e.g. an upstream paragraph merged in cleanly),
@@ -12,34 +18,35 @@
 //     before: a translation that drops upstream's new section fails,
 //   - and no conflict markers anywhere.
 import { execFileSync, spawnSync } from 'node:child_process';
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 
-const mode = process.argv[2] ?? 'pages';
-const ws = process.env.GRAFT_WORKSPACE ?? process.cwd();
-const project = process.env.GRAFT_PROJECT_ROOT;
-const graftDir = process.env.GRAFT_DIR;
+const root = path.resolve(import.meta.dirname, '..', '..');
+const cache = path.join(root, '.grafts/.cache/fork/angular-tr');
 const CONTENT = 'adev/src/content';
-
-if (mode !== 'pages') {
-  console.error(`unknown mode ${mode}`);
+const ws = root;
+if (!existsSync(cache)) {
+  console.error(`no Graft cache clone at ${cache}: run \`graft check angular-tr\` first`);
   process.exit(2);
 }
 
-const git = (...args) => execFileSync('git', args, { cwd: ws, encoding: 'utf8', maxBuffer: 1 << 28 }).trim();
-const projectGit = (...args) => execFileSync('git', args, { cwd: project, encoding: 'utf8', maxBuffer: 1 << 28 });
+const git = (...args) => execFileSync('git', args, { cwd: cache, encoding: 'utf8', maxBuffer: 1 << 28 }).trim();
+const projectGit = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 1 << 28 });
 /** Upstream revision for a Graft version: `X+<sha>` names a commit, otherwise the tag vX. */
 const rev = (version) => {
   const [v, sha] = version.split('+');
   return git('rev-parse', `${sha ?? `refs/tags/v${v}`}^{commit}`);
 };
-const graftMd = path.relative(project, path.join(graftDir, 'graft.md')).split(path.sep).join('/');
-const verified = /verified:\s*(\S+)/.exec(projectGit('show', `HEAD:${graftMd}`))[1];
+const verifiedIn = (text) => /verified:\s*(\S+)/.exec(text)[1];
+const graftMd = '.grafts/angular-tr/graft.md';
+const verified = verifiedIn(projectGit('show', `HEAD:${graftMd}`));
+const flag = process.argv.indexOf('--target');
+const target = flag > -1 ? process.argv[flag + 1] : verifiedIn(readFileSync(path.join(root, graftMd), 'utf8'));
 const baseRev = rev(verified);
-const targetRev = rev(process.env.GRAFT_UPSTREAM_VERSION);
+const targetRev = rev(target);
 
 /** Contents of many `rev:path` blobs at once (undefined when missing). */
-function blobs(specs, cwd = ws) {
+function blobs(specs, cwd = cache) {
   const r = spawnSync('git', ['cat-file', '--batch'], { cwd, input: specs.join('\n') + '\n', maxBuffer: 1 << 30 });
   const out = r.stdout;
   const result = [];
@@ -102,7 +109,7 @@ function english(text, upstream) {
 
 const files = walk(path.join(ws, CONTENT)).map((f) => path.join(CONTENT, f).split(path.sep).join('/'));
 const [baseTexts, targetTexts] = [blobs(files.map((f) => `${baseRev}:${f}`)), blobs(files.map((f) => `${targetRev}:${f}`))];
-const beforeTexts = blobs(files.map((f) => `HEAD:${f}`), project);
+const beforeTexts = blobs(files.map((f) => `HEAD:${f}`), root);
 const problems = [];
 let checked = 0;
 files.forEach((file, i) => {
@@ -126,6 +133,6 @@ files.forEach((file, i) => {
   if (a.prose > b.prose) problems.push(`${file}: ${a.prose - b.prose} new English prose line(s)`);
 });
 
-console.log(`checked ${checked} translated page(s) of ${files.length}: ${verified} -> ${process.env.GRAFT_UPSTREAM_VERSION}`);
+console.log(`checked ${checked} translated page(s) of ${files.length}: ${verified} -> ${target}`);
 for (const p of problems) console.log(`  ✗ ${p}`);
 process.exit(problems.length ? 1 : 0);

@@ -10,7 +10,7 @@
 //
 // Repo mode (`fork.install: none`): the fork is the product itself (a translated docs site, a
 // patched tool run from source), not a dependency. Nothing is installed; the graft is
-// standalone, and its oracle runs in the rebased checkout, which is kept as the local branch
+// standalone, and a green sync keeps the rebased checkout as the local branch
 // `graft/<id>/<version>` in the cache clone. `base` may then also be any upstream commit or ref,
 // since such forks often sit on a commit between releases.
 import { spawnSync } from 'node:child_process';
@@ -660,7 +660,7 @@ export function createForkAdapter(): MechanismAdapter {
         conflicts,
         description: conflicts.length
           ? `${where}, with conflict markers in ${conflicts.length} file(s): ${conflicts.join(', ')}`
-          : `${where}; it merges without conflicts, so check the oracle output and the anchors that missed`,
+          : `${where}; it merges without conflicts, so check the anchors that missed`,
       };
     },
 
@@ -706,7 +706,7 @@ export function createForkAdapter(): MechanismAdapter {
       return `${JSON.stringify(variant, null, 2)}\n`;
     },
 
-    scaffoldFrontmatter({ id, root, modes, options }) {
+    scaffoldFrontmatter({ root, options }) {
       const inPlace = options.inPlace === true;
       const str = (k: string) => (typeof options[k] === 'string' ? (options[k] as string) : undefined);
       // In place, the fork is this checkout: its `upstream` git remote (if any) names the upstream.
@@ -719,12 +719,7 @@ export function createForkAdapter(): MechanismAdapter {
       };
       if (inPlace || options.repoMode === true) fork.install = 'none';
       if (str('track')) fork.track = str('track');
-      return {
-        fork,
-        // A standalone graft's oracle runs in the rebased checkout, which has no .grafts/: point at
-        // the graft directory instead.
-        ...(fork.install === 'none' ? { oracle: { command: `node "$GRAFT_DIR/oracle.mjs"${modes.length > 1 ? ' {mode}' : ''}`, modes } } : {}),
-      };
+      return { fork };
     },
   };
   return adapter;

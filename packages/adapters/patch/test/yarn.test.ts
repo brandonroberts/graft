@@ -133,7 +133,7 @@ describe("Plug'n'Play", () => {
     const g = path.join(p.root, '.grafts', 'g');
     await writeFile(
       path.join(g, 'graft.md'),
-      `---\nid: g\nrootstock: { package: lib, verified: 1.0.0 }\nmechanism: patch\nvariants:\n  - range: ">=1.0.0"\n    module: ./variants/v1.patch\noracle: { command: 'node -e "process.exit(0)"' }\n---\n## Why\nw\n## Invariants\ni\n## Where to look\nl\n## Anchors\na\n## History\n- created\n`,
+      `---\nid: g\nrootstock: { package: lib, verified: 1.0.0 }\nmechanism: patch\nvariants:\n  - range: ">=1.0.0"\n    module: ./variants/v1.patch\n---\n## Why\nw\n## Invariants\ni\n## Where to look\nl\n## Anchors\na\n## History\n- created\n`,
     );
     const pristine = path.join(p.root, 'upstream');
     await mkdir(pristine);

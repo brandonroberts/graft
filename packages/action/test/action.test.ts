@@ -142,7 +142,7 @@ describe('graft GitHub Action', () => {
 
   it('repo mode: the agent resolves the markers in place, Graft re-verifies, and the PR carries the result', async () => {
     const t = setup({ outdated: [repoEntry('2.0.0')], sync: { tr: 'repo-conflict' } });
-    const agent = `grep -q "These files still have conflict markers: content/page.md" "$GRAFT_PROMPT_FILE" && grep -q "verifies the working tree in place" "$GRAFT_PROMPT_FILE" && printf 'Yeni Türkçe.\\n' > content/page.md`;
+    const agent = `grep -q "These files still have conflict markers: content/page.md" "$GRAFT_PROMPT_FILE" && grep -q "checks the working tree in place" "$GRAFT_PROMPT_FILE" && grep -q "with the project.s own tests" "$GRAFT_PROMPT_FILE" && printf 'Yeni Türkçe.\\n' > content/page.md`;
     const { results } = await t.run({ 'agent-command': agent });
     expect(results[0]).toMatchObject({ outcome: 'pr', agent: true, agentExitCode: 0, syncExitCode: 0 });
     expect(t.git('show', 'origin/graft/sync-docs-2.0.0:content/page.md')).toBe('Yeni Türkçe.\n');
@@ -202,12 +202,13 @@ describe('graft GitHub Action', () => {
     const body = renderPrBody({
       candidate: { package: 'lib', verified: '1.0.0', version: '2.0.0', tag: 'next' },
       outcome: 'needs-agent',
-      report: { grafts: [{ id: 'g', from: '1.0.0', to: '2.0.0', outcome: 'needs-agent', reasons: ['oracle failed in mode(s): esm'], oracle: { modes: [{ mode: 'esm', passed: false, output: 'AssertionError: boom' }] } }] },
+      report: { grafts: [{ id: 'g', from: '1.0.0', to: '2.0.0', outcome: 'needs-agent', reasons: ['anchors: anchor "index.js#1" missed in index.js'] }] },
     });
     expect(body).toContain('## Graft sync: lib 1.0.0 → 2.0.0');
     expect(body).toContain('dist-tag `next`');
-    expect(body).toContain('AssertionError: boom');
+    expect(body).toContain('anchor "index.js#1" missed in index.js');
     expect(body).toContain('[!WARNING]');
+    expect(body).toContain("it doesn't check behavior"); // Graft doesn't claim to have verified behavior
   });
 
   it('calls out a graft that upstream has likely absorbed', () => {
