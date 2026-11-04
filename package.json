@@ -11,16 +11,20 @@
     "typecheck": "tsc -b",
     "test": "vitest run --passWithNoTests",
     "clean": "tsc -b --clean",
-    "graft": "graft"
+    "graft": "graft",
+    "changeset": "changeset",
+    "version-packages": "changeset version && pnpm install --lockfile-only",
+    "release": "pnpm build && changeset publish"
   },
   "devDependencies": {
+    "@changesets/cli": "^3.0.3",
     "@graftsync/cli": "workspace:*",
+    "@graftsync/core": "workspace:*",
     "@types/node": "^22.20.5",
     "@types/semver": "^7.8.0",
     "acorn": "^8.19.0",
+    "diff": "^9.0.0",
     "typescript": "~7.0.2",
-    "vitest": "^5.1.0",
-    "@graftsync/core": "workspace:*",
-    "diff": "^9.0.0"
+    "vitest": "^5.1.0"
   }
 }
