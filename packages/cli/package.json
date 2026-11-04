@@ -1,8 +1,24 @@
 {
   "name": "@graftsync/cli",
   "version": "0.1.0",
+  "description": "The graft CLI: keep local modifications to upstream npm packages in sync.",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/brandonroberts/graft.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/brandonroberts/graft#readme",
+  "bugs": "https://github.com/brandonroberts/graft/issues",
+  "keywords": [
+    "graft",
+    "cli",
+    "patch",
+    "npm",
+    "upstream",
+    "sync"
+  ],
   "engines": {
     "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
   },
@@ -26,5 +42,9 @@
     "citty": "^0.2.2",
     "@graftsync/adapter-patch": "workspace:*",
     "@graftsync/skill": "workspace:*"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   }
 }

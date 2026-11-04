@@ -1,8 +1,24 @@
 {
   "name": "@graftsync/core",
   "version": "0.1.0",
+  "description": "Graft core engine: load grafts, select variants, run oracles and sync with upstream releases.",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/brandonroberts/graft.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/brandonroberts/graft#readme",
+  "bugs": "https://github.com/brandonroberts/graft/issues",
+  "keywords": [
+    "graft",
+    "patch",
+    "npm",
+    "upstream",
+    "sync",
+    "dependencies"
+  ],
   "engines": {
     "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
   },
@@ -26,5 +42,9 @@
   },
   "devDependencies": {
     "@types/pacote": "^11.1.8"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   }
 }
