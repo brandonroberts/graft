@@ -10,6 +10,9 @@ A **graft** is one local modification to an upstream package, described by
 them and you. Your job when upstream moves is to make each graft hold again — or to say
 clearly that it can't.
 
+Full format and tooling contract: the Graft spec in the Graft repository,
+https://github.com/brandonroberts/graft/blob/main/docs/spec.md
+
 ## What a graft is made of
 
 `graft.md` frontmatter:

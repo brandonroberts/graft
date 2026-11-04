@@ -12,6 +12,8 @@ Coding agents can do that fix. What's missing is something to start them, a reco
 
 Graft does not ship its own agent or call an LLM, and there is no hosted service.
 
+The format and tooling contract are specified in [`docs/spec.md`](docs/spec.md) (draft v1).
+
 > **Status: early development.** The spec, core, `patch` mechanism and `graft` CLI work. Graft keeps its own CommonJS dependencies converted to native ESM through its own sync loop ([dogfood](#dogfood-validation)). The MCP server, skill and GitHub Action are built. See [Roadmap](#roadmap).
 
 ## Quick start
@@ -45,6 +47,8 @@ pnpm exec graft sync --version 2.1.3 --install                    # a real upgra
 | **Oracle** | The command that checks the graft's invariants still hold. Passing it is what counts as a successful sync. |
 
 ## Graft layout
+
+The full, normative description of this layout and of `graft.md` is in [`docs/spec.md`](docs/spec.md).
 
 ```
 .grafts/
@@ -172,6 +176,27 @@ To set both up in a project, run **`graft init --agent`**. It:
 - notes if `@graftsync/cli` or `@graftsync/mcp` isn't a dependency yet.
 
 For agents that don't read `.mcp.json`, point them at the same command and skill file.
+
+**Behind a proxy.** MCP clients start stdio servers with only a small, safe set of environment variables (such as `PATH` and `HOME`), not your shell's full environment. Proxy settings therefore don't reach `graft-mcp`, and its registry fetches (pristine upstream contents, published versions) fail. Add them to the `env` block of the `graft` entry in `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "graft": {
+      "command": "npx",
+      "args": ["--no-install", "graft-mcp", "--root", "."],
+      "env": {
+        "HTTPS_PROXY": "http://proxy.example.com:8080",
+        "HTTP_PROXY": "http://proxy.example.com:8080",
+        "NO_PROXY": "localhost,127.0.0.1",
+        "NODE_EXTRA_CA_CERTS": "/path/to/corporate-ca.pem"
+      }
+    }
+  }
+}
+```
+
+`NODE_EXTRA_CA_CERTS` is only needed when the proxy re-signs TLS with its own CA. Re-running `graft init --agent` keeps an existing `graft` entry, so this `env` survives.
 
 This repo uses both on itself: [`.mcp.json`](.mcp.json) registers the server, and [`.claude/skills/graft-sync`](.claude/skills/graft-sync/SKILL.md) links the skill.
 
