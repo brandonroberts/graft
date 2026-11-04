@@ -109,6 +109,10 @@ It also warns when `rootstock.verified` isn't covered by any variant. Prerelease
 
 ## The sync loop
 
+![Graft sync workflow: static checks, install, oracle, and the agent path](docs/workflow.png)
+
+<sub>Source: [`docs/workflow.html`](docs/workflow.html), rendered at 2× with Playwright.</sub>
+
 1. **Deterministic first pass (`sync` in `@graftsync/core`).** For each active graft, the tool:
    1. selects the variant for the target version,
    2. checks its anchors,

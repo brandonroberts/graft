@@ -1,0 +1,109 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>
+body{margin:0;background:#fff;font-family:-apple-system,"Segoe UI",Inter,Helvetica,Arial,sans-serif}
+svg text{fill:#1f2328}
+.t{font-weight:650;font-size:17px}
+.s{font-size:13.5px;fill:#4a5260}
+.m{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px}
+.lbl{font-size:12.5px;font-weight:600}
+</style></head><body>
+<svg id="d" xmlns="http://www.w3.org/2000/svg" width="1320" height="1040" viewBox="0 0 1320 1040">
+<defs>
+  <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#57606a"/></marker>
+  <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#bc4c00"/></marker>
+  <marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1a7f37"/></marker>
+</defs>
+<style>
+.box{fill:#f6f8fa;stroke:#d0d7de;stroke-width:1.5}
+.det{fill:#eef4ff;stroke:#7aa2e3;stroke-width:1.5}
+.agent{fill:#fff4e5;stroke:#e3a35a;stroke-width:1.5}
+.ok{fill:#e9f7ee;stroke:#4cae6b;stroke-width:1.5}
+.ln{stroke:#57606a;stroke-width:1.8;fill:none}
+.lr{stroke:#bc4c00;stroke-width:1.8;fill:none}
+.lg{stroke:#1a7f37;stroke-width:1.8;fill:none}
+</style>
+
+<text x="40" y="44" style="font-size:24px;font-weight:700">Graft sync workflow</text>
+<text x="40" y="68" class="s">Deterministic path in blue · agent path in orange · nothing is pushed</text>
+
+<!-- start -->
+<rect x="470" y="96" width="300" height="44" rx="22" class="box"/>
+<text x="620" y="124" text-anchor="middle" class="t">Upstream releases version X</text>
+<path d="M620 140 V172" class="ln" marker-end="url(#a)"/>
+<rect x="400" y="174" width="440" height="56" rx="10" class="det"/>
+<text x="620" y="198" text-anchor="middle" class="m">graft sync --version X --install</text>
+<text x="620" y="219" text-anchor="middle" class="s">manually, or from the GitHub Action</text>
+<path d="M620 230 V262" class="ln" marker-end="url(#a)"/>
+
+<!-- static checks -->
+<rect x="300" y="264" width="640" height="112" rx="10" class="det"/>
+<text x="620" y="292" text-anchor="middle" class="t">1 · Static checks on the pristine upstream at X</text>
+<text x="620" y="317" text-anchor="middle" class="s">patch: the published package · fork: the upstream source tag</text>
+<text x="620" y="339" text-anchor="middle" class="s">select the variant for X (semver range) · locate every anchor (fuzz 0)</text>
+<text x="620" y="361" text-anchor="middle" class="s">apply to a scratch copy · flag "likely upstreamed"</text>
+
+<!-- left column -->
+<path d="M400 376 V438" class="lg" marker-end="url(#ag)"/>
+<text x="410" y="414" class="lbl" style="fill:#1a7f37">all anchors fit</text>
+<rect x="150" y="440" width="500" height="150" rx="10" class="det"/>
+<text x="400" y="468" text-anchor="middle" class="t">2 · Install X</text>
+<text x="400" y="494" text-anchor="middle" class="s">patch: pnpm · npm ≥12 · bun · yarn berry (native)</text>
+<text x="400" y="515" text-anchor="middle" class="s">or graft postinstall (npm &lt;12, yarn classic) · vendor (upm)</text>
+<text x="400" y="536" text-anchor="middle" class="s">fork: rebase → build → npm pack → vendored tarball</text>
+<text x="400" y="557" text-anchor="middle" class="s">fork repo mode: nothing installed</text>
+<text x="400" y="578" text-anchor="middle" class="s">(static failure? nothing is installed)</text>
+<path d="M400 590 V632" class="ln" marker-end="url(#a)"/>
+<rect x="150" y="634" width="500" height="96" rx="10" class="det"/>
+<text x="400" y="662" text-anchor="middle" class="t">3 · Oracle, the only proof</text>
+<text x="400" y="688" text-anchor="middle" class="s">every mode must exit 0</text>
+<text x="400" y="709" text-anchor="middle" class="s">repo mode: runs in the rebased checkout</text>
+<path d="M400 730 V782" class="lg" marker-end="url(#ag)"/>
+<text x="410" y="762" class="lbl" style="fill:#1a7f37">pass</text>
+<rect x="150" y="784" width="500" height="106" rx="10" class="ok"/>
+<text x="400" y="812" text-anchor="middle" class="t">✓ Green · exit 0</text>
+<text x="400" y="838" text-anchor="middle" class="s">rootstock.verified := X, History entry added</text>
+<text x="400" y="859" text-anchor="middle" class="s">repo mode: local branch graft/&lt;id&gt;/X</text>
+<text x="400" y="878" text-anchor="middle" class="s">regenerated variants listed for review</text>
+
+<!-- right column -->
+<path d="M860 376 V418" class="lr" marker-end="url(#ar)"/>
+<text x="870" y="402" class="lbl" style="fill:#bc4c00">anchor miss / won't apply</text>
+<polygon points="860,420 950,460 860,500 770,460" class="box"/>
+<text x="860" y="456" text-anchor="middle" class="lbl">generator</text>
+<text x="860" y="472" text-anchor="middle" class="lbl">set?</text>
+<path d="M950 460 H1028" class="ln" marker-end="url(#a)"/>
+<text x="972" y="452" class="lbl">yes</text>
+<rect x="1030" y="424" width="250" height="72" rx="10" class="det"/>
+<text x="1155" y="452" text-anchor="middle" class="t" style="font-size:15px">Regenerate variant</text>
+<text x="1155" y="474" text-anchor="middle" class="s">rolled back if any step fails</text>
+<path d="M1155 424 V320 H942" class="ln" marker-end="url(#a)"/>
+<text x="1165" y="380" class="lbl">re-check</text>
+<path d="M860 500 V560" class="lr" marker-end="url(#ar)"/>
+<text x="870" y="536" class="lbl" style="fill:#bc4c00">no</text>
+
+<rect x="700" y="562" width="420" height="120" rx="10" class="agent"/>
+<text x="910" y="590" text-anchor="middle" class="t">Needs-agent · exit 1</text>
+<text x="910" y="616" text-anchor="middle" class="s">.grafts/.report/sync.md: missed anchors, oracle output</text>
+<text x="910" y="637" text-anchor="middle" class="s">scoped diff: only upstream changes near the graft</text>
+<text x="910" y="658" text-anchor="middle" class="s">plus a "likely upstreamed" hint when it applies</text>
+<path d="M650 682 C 680 682, 680 640, 698 640" class="lr" marker-end="url(#ar)"/>
+<text x="658" y="700" class="lbl" style="fill:#bc4c00">fail</text>
+<path d="M910 682 V728" class="lr" marker-end="url(#ar)"/>
+
+<rect x="700" y="730" width="420" height="160" rx="10" class="agent"/>
+<text x="910" y="758" text-anchor="middle" class="t">Agent (graft-sync skill)</text>
+<text x="910" y="784" text-anchor="middle" class="s">graft show → Why · Invariants · Where to look</text>
+<text x="910" y="805" text-anchor="middle" class="s">write a NEW variant (never edit old ones)</text>
+<text x="910" y="826" text-anchor="middle" class="s">patch: new .patch · fork: new branch on the new tag</text>
+<text x="910" y="847" text-anchor="middle" class="m">graft variant add … --verify-version X</text>
+<text x="910" y="870" text-anchor="middle" class="s">or graft mark conflicted / upstreamed</text>
+<path d="M1120 810 H1300 V202 H842" class="lr" marker-end="url(#ar)"/>
+<text x="1240" y="196" class="lbl" style="fill:#bc4c00">re-run sync</text>
+
+<!-- CI -->
+<path d="M400 890 V938" class="ln" marker-end="url(#a)"/>
+<rect x="150" y="940" width="970" height="64" rx="10" class="box"/>
+<text x="635" y="967" text-anchor="middle" class="t"><tspan class="m" style="font-size:15px;font-weight:600">graft check</tspan> in CI</text>
+<text x="635" y="990" text-anchor="middle" class="s">variants still fit · installed files really are patched · exit 2 on tooling errors</text>
+</svg>
+</body></html>
