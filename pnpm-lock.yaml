@@ -72,6 +72,9 @@ importers:
       '@graftsync/core':
         specifier: workspace:*
         version: link:../core
+      '@graftsync/skill':
+        specifier: workspace:*
+        version: link:../skill
       '@graftsync/spec':
         specifier: workspace:*
         version: link:../spec

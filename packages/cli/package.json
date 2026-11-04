@@ -24,6 +24,7 @@
     "@graftsync/core": "workspace:*",
     "@graftsync/spec": "workspace:*",
     "citty": "^0.2.2",
-    "@graftsync/adapter-patch": "workspace:*"
+    "@graftsync/adapter-patch": "workspace:*",
+    "@graftsync/skill": "workspace:*"
   }
 }

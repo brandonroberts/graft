@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { defineCommand, type CommandDef } from 'citty';
 import {
@@ -13,6 +15,7 @@ import {
   replay,
   runOracle,
   scopeDiff,
+  setupAgent,
   sync,
   type AnchorReport,
   type MechanismAdapter,
@@ -61,9 +64,13 @@ function printAnchors(report: AnchorReport): void {
 }
 
 const init = defineCommand({
-  meta: { name: 'init', description: 'Create .grafts/ (and a starter graft with --package)' },
+  meta: { name: 'init', description: 'Create .grafts/ (and a starter graft with --package; agent setup with --agent)' },
   args: {
     ...common,
+    agent: {
+      type: 'boolean',
+      description: 'Also onboard coding agents: register the graft MCP server in .mcp.json and install the graft-sync skill',
+    },
     package: { type: 'string', description: 'Upstream package for a starter graft' },
     id: { type: 'string', description: 'Starter graft id (default: <package>-graft)' },
     mechanism: { type: 'string', default: 'patch', description: 'Mechanism for the starter graft' },
@@ -76,13 +83,25 @@ const init = defineCommand({
       const id = args.id ?? `${args.package.replace(/^@/, '').replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-graft`;
       created.push(...(await addGraft(project, { id, package: args.package, mechanism: args.mechanism })));
     }
-    print(args.json, { created }, () => {
+    const agent = args.agent ? await setupAgent(root, { skill: await readBundledSkill() }) : undefined;
+    print(args.json, { created, agent }, () => {
       for (const f of created) console.log(`created ${path.relative(process.cwd(), f)}`);
+      for (const f of agent?.files ?? []) {
+        const what = { created: 'created', updated: 'updated', unchanged: 'up to date', kept: 'kept (already has a graft server)' }[f.action];
+        console.log(`${what.padEnd(10)} ${path.relative(process.cwd(), f.file)}`);
+      }
+      for (const n of agent?.notes ?? []) console.log(`note: ${n}`);
       if (!args.package) console.log('next: graft add <id> --package <upstream>');
     });
     return EXIT.ok;
   }),
 });
+
+/** The graft-sync skill shipped in @graftsync/skill. */
+async function readBundledSkill(): Promise<string> {
+  const file = createRequire(import.meta.url).resolve('@graftsync/skill/SKILL.md');
+  return readFile(file, 'utf8');
+}
 
 const add = defineCommand({
   meta: { name: 'add', description: 'Scaffold graft.md, a variant stub, and an oracle stub' },

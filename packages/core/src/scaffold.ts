@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import semver from 'semver';
 import { GRAFT_ID_PATTERN, renderGraftTemplate } from '@graftsync/spec';
@@ -36,6 +36,71 @@ export async function initProject(root: string): Promise<string[]> {
     }
   }
   return created;
+}
+
+export const AGENT_SKILL_PATH = '.claude/skills/graft-sync/SKILL.md';
+export const MCP_CONFIG_FILE = '.mcp.json';
+export const DEFAULT_MCP_SERVER = { command: 'npx', args: ['--no-install', 'graft-mcp', '--root', '.'] };
+
+export interface SetupAgentInput {
+  /** Contents of the graft-sync SKILL.md to install (the CLI reads it from @graftsync/skill). */
+  skill: string;
+  /** MCP server entry to register as `graft` (default: npx graft-mcp --root .). */
+  server?: { command: string; args: string[]; env?: Record<string, string> };
+}
+
+export interface SetupAgentResult {
+  /** Files created or updated, with what happened to each. */
+  files: { file: string; action: 'created' | 'updated' | 'unchanged' | 'kept' }[];
+  /** Things the user still has to do. */
+  notes: string[];
+}
+
+/**
+ * Onboard coding agents to a project: register the graft MCP server in `.mcp.json` (merged
+ * with any existing servers; an existing `graft` entry is kept, as it may carry custom env) and
+ * install the graft-sync skill. Idempotent.
+ */
+export async function setupAgent(root: string, input: SetupAgentInput): Promise<SetupAgentResult> {
+  const result: SetupAgentResult = { files: [], notes: [] };
+
+  const mcpFile = path.join(root, MCP_CONFIG_FILE);
+  let config: { mcpServers?: Record<string, unknown> } = {};
+  if (existsSync(mcpFile)) {
+    try {
+      config = JSON.parse(await readFile(mcpFile, 'utf8'));
+    } catch (err) {
+      throw new GraftError(`${MCP_CONFIG_FILE} is not valid JSON (${(err as Error).message}); not overwriting it`, 'agent/mcp-config');
+    }
+  }
+  if (config.mcpServers?.graft) {
+    result.files.push({ file: mcpFile, action: 'kept' });
+  } else {
+    const existed = existsSync(mcpFile);
+    config.mcpServers = { ...(config.mcpServers ?? {}), graft: input.server ?? DEFAULT_MCP_SERVER };
+    await writeFile(mcpFile, `${JSON.stringify(config, null, 2)}\n`);
+    result.files.push({ file: mcpFile, action: existed ? 'updated' : 'created' });
+  }
+
+  const skillFile = path.join(root, AGENT_SKILL_PATH);
+  const current = existsSync(skillFile) ? await readFile(skillFile, 'utf8') : undefined;
+  if (current === input.skill) {
+    result.files.push({ file: skillFile, action: 'unchanged' });
+  } else {
+    await mkdir(path.dirname(skillFile), { recursive: true });
+    await writeFile(skillFile, input.skill);
+    result.files.push({ file: skillFile, action: current === undefined ? 'created' : 'updated' });
+  }
+
+  const manifest = path.join(root, 'package.json');
+  if (existsSync(manifest)) {
+    const json = JSON.parse(await readFile(manifest, 'utf8')) as Record<string, Record<string, string> | undefined>;
+    const has = (name: string) => ['dependencies', 'devDependencies'].some((f) => json[f]?.[name] !== undefined);
+    const missing = ['@graftsync/cli', '@graftsync/mcp'].filter((name) => !has(name));
+    if (missing.length) result.notes.push(`add ${missing.join(' and ')} as devDependencies so agents can start the MCP server`);
+  }
+  result.notes.push('agents without .mcp.json support: point them at the same command (npx --no-install graft-mcp --root .) and at the skill file');
+  return result;
 }
 
 export interface AddGraftInput {

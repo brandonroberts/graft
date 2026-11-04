@@ -122,7 +122,7 @@ Reports go to `.grafts/.report/sync.json` and `sync.md`. Exit codes: `0` all gre
 ## CLI
 
 ```sh
-graft init [--package <pkg>]          # create .grafts/ (and a starter graft)
+graft init [--package <pkg>] [--agent] # create .grafts/ (a starter graft; agent setup)
 graft add <id> --package <pkg>        # scaffold graft.md, a variant stub, an oracle stub
 graft apply [<id>]                    # wire the package manager to selected variants, reinstall
 graft status                          # grafts, versions, status, anchor health
@@ -165,6 +165,13 @@ The [skill](packages/skill/SKILL.md) (`graft-sync`) teaches any agent the loop a
 - never weaken the oracle;
 - know when to stop and mark `conflicted`;
 - write the PR description in the given format.
+
+To set both up in a project, run **`graft init --agent`**. It:
+- registers the server as `graft` in `.mcp.json` (`npx --no-install graft-mcp --root .`), merged with any servers already there. An existing `graft` entry is kept, since it may carry custom `env` such as proxy settings, and an `.mcp.json` that isn't valid JSON is never overwritten;
+- installs the skill at `.claude/skills/graft-sync/SKILL.md`, from the `@graftsync/skill` package. Re-running updates the skill when Graft's version changes;
+- notes if `@graftsync/cli` or `@graftsync/mcp` isn't a dependency yet.
+
+For agents that don't read `.mcp.json`, point them at the same command and skill file.
 
 This repo uses both on itself: [`.mcp.json`](.mcp.json) registers the server, and [`.claude/skills/graft-sync`](.claude/skills/graft-sync/SKILL.md) links the skill.
 
