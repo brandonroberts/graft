@@ -195,6 +195,12 @@ export interface MechanismAdapter {
   applyInstalled?(ctx: GraftContext): Promise<InstalledApplyReport>;
   /** Validate a new variant module before it is registered. Throw to reject. */
   validateVariant?(ctx: GraftContext, variant: ResolvedVariant): Promise<void>;
+  /**
+   * True when the mechanism can apply only one graft per package (e.g. one pnpm
+   * patchedDependencies entry, one vendored tarball). Two active grafts with this mechanism on
+   * the same rootstock package are then reported invalid (`graft/duplicate-rootstock`).
+   */
+  exclusivePerPackage?: boolean;
   /** File extension of variant modules, used when scaffolding (e.g. `.patch`). Default `.ts`. */
   variantExtension?: string;
   /** Scaffold a variant module stub. Returns file contents. */

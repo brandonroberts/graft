@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createJiti } from 'jiti';
-import { parseGraft, selectVariant, type VariantRef } from '@graftsync/spec';
+import { ACTIVE_STATUSES, parseGraft, selectVariant, type Diagnostic, type VariantRef } from '@graftsync/spec';
 import { GraftError } from './errors.js';
 import type { Graft, GraftContext, InvalidGraft, MechanismAdapter, ResolvedVariant } from './types.js';
 import { NpmUpstreamSource, type UpstreamSource } from './upstream.js';
@@ -113,7 +113,48 @@ export class Project {
       if ('frontmatter' in result) grafts.push(result);
       else invalid.push(result);
     }
-    return { grafts, invalid };
+    const duplicates = this.duplicateRootstocks(grafts);
+    if (!duplicates.size) return { grafts, invalid };
+    for (const graft of grafts) {
+      const diagnostic = duplicates.get(graft.id);
+      if (!diagnostic) continue;
+      invalid.push({ id: graft.id, dir: graft.dir, file: graft.file, diagnostics: [...graft.diagnostics, diagnostic] });
+    }
+    invalid.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    return { grafts: grafts.filter((g) => !duplicates.has(g.id)), invalid };
+  }
+
+  /**
+   * Active grafts whose mechanism allows only one graft per package (e.g. one
+   * patchedDependencies entry or one vendored tarball) and that share a rootstock package
+   * would silently overwrite each other. Returns an error diagnostic per offending graft id.
+   */
+  private duplicateRootstocks(grafts: Graft[]): Map<string, Diagnostic> {
+    const byKey = new Map<string, Graft[]>();
+    for (const g of grafts) {
+      const fm = g.frontmatter;
+      if (!ACTIVE_STATUSES.includes(fm.status) || !this.adapters.get(fm.mechanism)?.exclusivePerPackage) continue;
+      const key = `${fm.mechanism}\0${fm.rootstock.package}`;
+      byKey.set(key, [...(byKey.get(key) ?? []), g]);
+    }
+    const out = new Map<string, Diagnostic>();
+    for (const group of byKey.values()) {
+      if (group.length < 2) continue;
+      for (const g of group) {
+        const others = group.filter((o) => o !== g).map((o) => `"${o.id}"`).join(', ');
+        const { mechanism, rootstock } = g.frontmatter;
+        out.set(g.id, {
+          severity: 'error',
+          code: 'graft/duplicate-rootstock',
+          path: 'rootstock.package',
+          message:
+            `graft "${g.id}" and ${others} both patch ${rootstock.package} with the ${mechanism} mechanism, which applies ` +
+            `only one graft per package, so one would silently overwrite the other. Merge them into one graft ` +
+            `(a single variant can contain patches for several files), or mark one obsolete.`,
+        });
+      }
+    }
+    return out;
   }
 
   private async loadFile(id: string, file: string): Promise<Graft | InvalidGraft> {
@@ -134,11 +175,20 @@ export class Project {
     return { id, dir, file, ...parsed.graft, diagnostics };
   }
 
-  /** Load one graft by id. Throws a GraftError listing diagnostics if it is invalid. */
-  async get(id: string): Promise<Graft> {
+  /**
+   * Load one graft by id. Throws a GraftError listing diagnostics if it is invalid, including
+   * when it conflicts with another graft on the same package (unless `allowConflicts`, used
+   * by bookkeeping edits such as marking one of the conflicting grafts obsolete).
+   */
+  async get(id: string, options: { allowConflicts?: boolean } = {}): Promise<Graft> {
     const file = path.join(this.graftsDir, id, GRAFT_FILE);
     if (!existsSync(file)) throw new GraftError(`no graft "${id}" (expected ${file})`, 'graft/not-found');
-    const result = await this.loadFile(id, file);
+    let result = await this.loadFile(id, file);
+    if ('frontmatter' in result && !options.allowConflicts && this.adapters.get(result.frontmatter.mechanism)?.exclusivePerPackage) {
+      const { invalid } = await this.loadAll();
+      const conflict = invalid.find((g) => g.id === id && g.diagnostics.some((d) => d.code === 'graft/duplicate-rootstock'));
+      if (conflict) result = conflict;
+    }
     if (!('frontmatter' in result)) {
       const errors = result.diagnostics.filter((d) => d.severity === 'error').map((d) => `  - ${d.message}`);
       throw new GraftError(`graft "${id}" is invalid:\n${errors.join('\n')}`, 'graft/invalid');

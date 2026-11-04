@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import semver from 'semver';
-import { GRAFT_ID_PATTERN, renderGraftTemplate } from '@graftsync/spec';
+import { ACTIVE_STATUSES, GRAFT_ID_PATTERN, renderGraftTemplate } from '@graftsync/spec';
 import { GraftError } from './errors.js';
 import { GRAFT_FILE, GRAFTS_DIR, type Project } from './project.js';
 
@@ -120,6 +120,18 @@ export async function addGraft(project: Project, input: AddGraftInput): Promise<
   if (existsSync(path.join(dir, GRAFT_FILE))) throw new GraftError(`graft "${input.id}" already exists`, 'graft/exists');
   const adapter = project.adapter(input.mechanism);
   if (!adapter) throw new GraftError(`unknown mechanism "${input.mechanism}" (available: ${project.adapterNames.join(', ')})`, 'adapter/unknown');
+  if (adapter.exclusivePerPackage) {
+    const existing = (await project.loadAll()).grafts.find(
+      (g) => g.frontmatter.mechanism === input.mechanism && g.frontmatter.rootstock.package === input.package && ACTIVE_STATUSES.includes(g.frontmatter.status),
+    );
+    if (existing) {
+      throw new GraftError(
+        `graft "${existing.id}" already patches ${input.package} with the ${input.mechanism} mechanism, which applies only one graft per package; ` +
+          `add your change to "${existing.id}" instead (a single variant can contain patches for several files)`,
+        'graft/duplicate-rootstock',
+      );
+    }
+  }
 
   const version = input.version ?? (await project.installedVersion(input.package));
   if (!version || !semver.valid(version)) {

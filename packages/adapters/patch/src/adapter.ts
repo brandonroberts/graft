@@ -3,7 +3,9 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { applyPatch, reversePatch } from 'diff';
 import {
+  distinctiveText,
   GraftError,
+  rankFilesByContent,
   renderPatch,
   scopeFileDiff,
   type AnchorReport,
@@ -110,6 +112,8 @@ export function createPatchAdapter(): MechanismAdapter {
   return {
     name: MECHANISM,
     variantExtension: '.patch',
+    // One patchedDependencies entry / one vendored tarball per package.
+    exclusivePerPackage: true,
 
     async checkAnchors(ctx: GraftContext, version: string): Promise<AnchorReport> {
       const { project, graft } = ctx;
@@ -223,7 +227,16 @@ export function createPatchAdapter(): MechanismAdapter {
           name: `${file}#${i + 1}`,
           old: [h.oldStart, h.oldStart + Math.max(h.oldLines - 1, 0)] as [number, number],
         }));
-        files.push(scopeFileDiff({ file, oldText, newText, regions, window: 10 }));
+        const scoped = scopeFileDiff({ file, oldText, newText, regions, window: 10 });
+        if (scoped.status === 'removed' && filePatch?.hunks.length) {
+          // Point at where the patched code went: files in `to` holding the hunks' old side.
+          const text = distinctiveText(filePatch.hunks.flatMap((h) => h.lines.filter((l) => l[0] === ' ' || l[0] === '-').map((l) => l.slice(1))));
+          const ext = path.extname(file);
+          const include = ext && !/^\.(c|m)?js$/.test(ext) ? new RegExp(`(\\.(c|m)?js|${ext.replace('.', '\\.')})$`) : undefined;
+          const candidates = await rankFilesByContent(toDir, { ...text, include });
+          if (candidates.length) scoped.candidates = candidates;
+        }
+        files.push(scoped);
       }
       return { graft: graft.id, package: pkg, from, to, files, patch: renderPatch(files, { from: `${pkg}@${from}`, to: `${pkg}@${to}` }) };
     },

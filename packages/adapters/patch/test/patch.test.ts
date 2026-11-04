@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { addGraft, DirectoryUpstreamSource, Project, recordVariant, sync } from '@graftsync/core';
+import { addGraft, DirectoryUpstreamSource, Project, projectStatus, recordVariant, sync, updateGraft, type MechanismAdapter } from '@graftsync/core';
 import { configurePnpmPatch, patchAdapter, pnpmConfigProblems } from '../src/index.js';
 
 const V1 = `const a = 1\nconst b = 2\nmodule.exports = { a, b }\n`;
@@ -194,7 +194,7 @@ new file mode 100644
 describe('onboarding a new graft (found by testing against a real project)', () => {
   it('scaffolds a .patch variant for the patch mechanism, which fails loudly until written', async () => {
     const { project, root } = await fixture('1.0.0');
-    const files = await addGraft(project, { id: 'new-one', package: 'lib', mechanism: 'patch' });
+    const files = await addGraft(project, { id: 'new-one', package: 'other-lib', version: '1.0.0', mechanism: 'patch' });
     expect(files.some((f) => f.endsWith(path.join('variants', 'v1.patch')))).toBe(true);
     const report = await patchAdapter.checkAnchors(project.context(await project.get('new-one')), '1.0.0');
     expect(report.errors.join('\n')).toMatch(/contains no hunks/);
@@ -213,5 +213,76 @@ describe('onboarding a new graft (found by testing against a real project)', () 
     const manifest = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
     expect(manifest.pnpm).toEqual({ overrides: { x: '1' }, patchedDependencies: { other: 'o.patch' } });
     expect(await pnpmConfigProblems(root, 'lib', variant)).toEqual([]);
+  });
+});
+
+describe('scoped diff for a removed target', () => {
+  it('points to the files the patched code moved to', async () => {
+    const { project, graft, root } = await fixture('1.0.0');
+    const v3 = path.join(root, 'upstream', '3.0.0');
+    await mkdir(path.join(v3, 'dist'), { recursive: true });
+    await mkdir(path.join(v3, 'lib'), { recursive: true });
+    await writeFile(path.join(v3, 'package.json'), JSON.stringify({ name: 'lib', version: '3.0.0', main: 'dist/main.js' }));
+    await writeFile(path.join(v3, 'dist', 'main.js'), `'use strict'\n${V1}`);
+    await writeFile(path.join(v3, 'lib', 'util.js'), `const a = 1\n}\n`); // a weaker match
+    await writeFile(path.join(v3, 'lib', 'noise.js'), `}\n\nfunction other() {}\n`); // trivial lines only
+    (project.upstream as unknown as { dirs: Record<string, Record<string, string>> }).dirs.lib!['3.0.0'] = v3;
+    const diff = await patchAdapter.scopeDiff(project.context(graft), '1.0.0', '3.0.0');
+    const file = diff.files.find((f) => f.file === 'index.js')!;
+    expect(file.status).toBe('removed');
+    expect(file.candidates).toEqual(['dist/main.js', 'lib/util.js']);
+    expect(diff.patch).toMatch(/# candidate files in lib@3\.0\.0[^\n]*\n#   dist\/main\.js\n#   lib\/util\.js/);
+  });
+});
+
+describe('two grafts on the same package', () => {
+  async function withSecond(status = 'applied', mechanism = 'patch') {
+    const fx = await fixture('1.0.0');
+    const g = path.join(fx.root, '.grafts', 'add-d');
+    await mkdir(path.join(g, 'variants'), { recursive: true });
+    await writeFile(path.join(g, 'variants', 'v1.patch'), PATCH.replace('const c = 3', 'const d = 4'));
+    await writeFile(
+      path.join(g, 'graft.md'),
+      (await readFile(path.join(fx.root, '.grafts/add-c/graft.md'), 'utf8'))
+        .replace('id: add-c', 'id: add-d')
+        .replace('mechanism: patch', `mechanism: ${mechanism}\nstatus: ${status}`),
+    );
+    return fx;
+  }
+
+  it('marks both invalid in loadAll, get, status and sync', async () => {
+    const { project } = await withSecond();
+    const { grafts, invalid } = await project.loadAll();
+    expect(grafts).toEqual([]);
+    expect(invalid.map((g) => g.id)).toEqual(['add-c', 'add-d']);
+    const diag = invalid[0]!.diagnostics.find((d) => d.code === 'graft/duplicate-rootstock');
+    expect(diag?.message).toMatch(/"add-c" and "add-d" both patch lib/);
+    expect(diag?.message).toMatch(/Merge them into one graft/);
+    expect(invalid[1]!.diagnostics.some((d) => d.code === 'graft/duplicate-rootstock' && d.message.includes('"add-c"'))).toBe(true);
+    await expect(project.get('add-c')).rejects.toThrow(/both patch lib/);
+    await expect(project.get('add-d')).rejects.toThrow(/"add-c"/);
+    const status = await projectStatus(project);
+    expect(status.invalid.map((i) => i.id)).toEqual(['add-c', 'add-d']);
+    const report = await sync(project, { writeReport: false });
+    expect(report.exitCode).not.toBe(0);
+  });
+
+  it('can be resolved by marking one obsolete, and refuses to scaffold a duplicate', async () => {
+    const { project } = await withSecond();
+    await updateGraft(project, 'add-d', { status: 'obsolete' });
+    expect((await project.loadAll()).invalid).toEqual([]);
+    expect((await project.get('add-c')).id).toBe('add-c');
+    await expect(addGraft(project, { id: 'add-e', package: 'lib', mechanism: 'patch' })).rejects.toThrow(/"add-c" already patches lib/);
+  });
+
+  it('ignores inactive grafts and mechanisms that allow several grafts per package', async () => {
+    const { project } = await withSecond('upstreamed');
+    expect((await project.loadAll()).invalid).toEqual([]);
+    const other: MechanismAdapter = { ...patchAdapter, name: 'multi', exclusivePerPackage: false };
+    const fx = await withSecond('applied', 'multi');
+    const p2 = await Project.open({ root: fx.root, adapters: [patchAdapter, other], upstream: fx.upstream });
+    const { grafts, invalid } = await p2.loadAll();
+    expect(invalid).toEqual([]);
+    expect(grafts.map((g) => g.id)).toEqual(['add-c', 'add-d']);
   });
 });
