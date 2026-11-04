@@ -2,7 +2,8 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { bunApplier, patchPackageApplier, patchPackageFileName, selectApplier, toPatchPackageFormat } from '../src/index.js';
+import { detectPackageManager } from '@graftsync/core';
+import { bunApplier, npmApplier, patchPackageApplier, patchPackageFileName, pnpmApplier, selectApplier, toPatchPackageFormat } from '../src/index.js';
 
 const VARIANT = 'diff --git a/index.js b/index.js\nindex 111..222 100644\n--- a/index.js\n+++ b/index.js\n@@ -1,2 +1,3 @@\n a\n+b\n c\n';
 
@@ -24,6 +25,36 @@ describe('applier selection', () => {
     expect(selectApplier((await project({}, 'yarn.lock')).root).name).toBe('graft');
     expect(selectApplier((await project({}, 'pnpm-lock.yaml')).root).name).toBe('pnpm');
     expect(selectApplier((await project({}, 'bun.lock')).root, 'patch-package').name).toBe('patch-package');
+  });
+});
+
+describe('package manager precedence', () => {
+  const pm = async (manifest: Record<string, unknown>, ...lockfiles: string[]) => {
+    const { root } = await project(manifest);
+    for (const f of lockfiles) await writeFile(path.join(root, f), '');
+    return detectPackageManager(root);
+  };
+
+  it('prefers pnpm, then npm, then upm when several lockfiles are present', async () => {
+    expect(await pm({}, 'pnpm-lock.yaml', 'package-lock.json', 'upm.lock')).toBe('pnpm');
+    expect(await pm({}, 'package-lock.json', 'upm.lock', 'yarn.lock', 'bun.lock')).toBe('npm');
+    expect(await pm({}, 'upm.lock', 'yarn.lock', 'bun.lock')).toBe('upm');
+    expect(await pm({}, 'yarn.lock', 'bun.lock')).toBe('yarn');
+  });
+
+  it('lets an explicit packageManager win, and falls back to npm with no signal', async () => {
+    expect(await pm({ packageManager: 'upm@1.5.1' }, 'pnpm-lock.yaml')).toBe('upm');
+    expect(await pm({})).toBe('npm');
+  });
+
+  it('creates a settings-only pnpm-workspace.yaml when a pnpm project has none', async () => {
+    const { root, variant } = await project({ name: 'app', packageManager: 'pnpm@10.28.0' });
+    expect((await pnpmApplier.problems(root, 'lib', '1.0.0', variant)).join('\n')).toMatch(/no pnpm-workspace\.yaml found/);
+    await pnpmApplier.configure(root, 'lib', '1.0.0', variant);
+    expect(await readFile(path.join(root, 'pnpm-workspace.yaml'), 'utf8')).toBe(
+      'patchedDependencies:\n  lib: .grafts/g/variants/v1.patch\nignorePatchFailures: false\n',
+    );
+    expect(await pnpmApplier.problems(root, 'lib', '1.0.0', variant)).toEqual([]);
   });
 });
 
@@ -77,5 +108,26 @@ describe('patch-package applier', () => {
     const problems = (await patchPackageApplier.problems(p.root, 'lib', '1.0.0', p.variant)).join('\n');
     expect(problems).toMatch(/must pass --error-on-fail/);
     expect(problems).toMatch(/must pass --error-on-warn/);
+  });
+});
+
+describe('npm applier (npm >= 12 native patches)', () => {
+  it('is the default for npm 12+, and the built-in applier stays the default for older npm', async () => {
+    expect(selectApplier((await project({ packageManager: 'npm@12.2.1' }, 'package-lock.json')).root).name).toBe('npm');
+    expect(selectApplier((await project({ packageManager: 'npm@10.9.9' }, 'package-lock.json')).root).name).toBe('graft');
+  });
+
+  it('uses a name-only key and flags version-specific ones', async () => {
+    const p = await project({ name: 'app', packageManager: 'npm@12.2.1', patchedDependencies: { 'lib@1.0.0': 'patches/lib@1.0.0.patch' } }, 'package-lock.json');
+    expect((await npmApplier.problems(p.root, 'lib', '1.0.0', p.variant)).join('\n')).toMatch(/\["lib@1\.0\.0"\] is version-specific/);
+    await npmApplier.configure(p.root, 'lib', '1.0.0', p.variant);
+    expect((await p.manifest()).patchedDependencies).toEqual({ lib: '.grafts/g/variants/v1.patch' });
+    expect(await npmApplier.problems(p.root, 'lib', '1.0.0', p.variant)).toEqual([]);
+  });
+
+  it('refuses npm < 12, which ignores patchedDependencies silently', async () => {
+    const p = await project({ name: 'app', packageManager: 'npm@10.9.9' }, 'package-lock.json');
+    expect((await npmApplier.problems(p.root, 'lib', '1.0.0', p.variant)).join('\n')).toMatch(/npm 10 ignores patchedDependencies silently/);
+    await expect(npmApplier.configure(p.root, 'lib', '1.0.0', p.variant)).rejects.toThrow(/needs npm >= 12/);
   });
 });

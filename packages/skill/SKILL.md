@@ -135,13 +135,14 @@ When asked to capture a modification as a graft (new, or migrating an existing p
   in the target version (position may shift; no fuzz). Files the patch creates must not
   already exist upstream. The same variant works with every package manager.
 - Make one with the project's package manager: `pnpm patch <pkg>@<version>` then
-  `pnpm patch-commit <dir> --patches-dir <tmp>`, or `bun patch <pkg>` then
-  `bun patch --commit node_modules/<pkg>`. Move the generated file into the graft's
+  `pnpm patch-commit <dir> --patches-dir <tmp>`, `npm patch <pkg>` then `npm patch commit <dir>`
+  (npm 12+), or `bun patch <pkg>` then `bun patch --commit node_modules/<pkg>`. Move the generated file into the graft's
   `variants/`. For npm, diff a pristine copy (under `.grafts/.cache/upstream/`) against your
   modified copy, using package-relative paths.
 - Don't hand-edit the package manager's patch configuration. `graft apply` / `apply_to_project`
-  wires the selected variant: pnpm `patchedDependencies`, bun's version-pinned key, or (npm,
-  yarn and others) Graft's built-in applier, `graft apply --installed` in `postinstall`. The
+  wires the selected variant: pnpm `patchedDependencies`, npm 12+ `patchedDependencies` (name-only
+  key), bun's version-pinned key, or (npm < 12, yarn and others) Graft's built-in applier,
+  `graft apply --installed` in `postinstall`. The
   built-in applier is offline, idempotent, and never edits store-shared files in place.
   With upm (or the `vendor` applier forced in `.grafts/config.json`), Graft builds a patched
   tarball under `.grafts/.vendor/` and points overrides and the root dependency at it. Commit

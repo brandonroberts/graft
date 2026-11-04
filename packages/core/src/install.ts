@@ -7,8 +7,24 @@ import { runCommand } from './oracle.js';
 export type PackageManager = 'pnpm' | 'yarn' | 'npm' | 'bun' | 'upm';
 
 /**
- * Detect the package manager, walking up from `root`: package.json `packageManager`
- * (e.g. "pnpm@10.0.0"), pnpm-workspace.yaml, then lockfiles. Defaults to npm.
+ * Precedence when a directory has several lockfiles: pnpm first, then npm, then upm.
+ * yarn and bun remain supported after those. A project with no signal at all is npm.
+ */
+const LOCKFILE_PRECEDENCE: [PackageManager, string[]][] = [
+  ['pnpm', ['pnpm-lock.yaml', 'pnpm-workspace.yaml']],
+  ['npm', ['package-lock.json', 'npm-shrinkwrap.json']],
+  ['upm', ['upm.lock']],
+  ['yarn', ['yarn.lock']],
+  ['bun', ['bun.lock', 'bun.lockb']],
+];
+
+/** The package manager Graft assumes when a project gives no signal. */
+export const DEFAULT_PACKAGE_MANAGER: PackageManager = 'npm';
+
+/**
+ * Detect the package manager, walking up from `root`. In each directory: an explicit
+ * package.json `packageManager` (e.g. "pnpm@10.28.0") wins; otherwise lockfiles in the order
+ * pnpm, npm, upm, yarn, bun. With no signal anywhere, npm.
  */
 export function detectPackageManager(root: string): PackageManager {
   let dir = path.resolve(root);
@@ -22,13 +38,11 @@ export function detectPackageManager(root: string): PackageManager {
         // unreadable manifest: fall through to lockfile detection
       }
     }
-    if (existsSync(path.join(dir, 'pnpm-lock.yaml')) || existsSync(path.join(dir, 'pnpm-workspace.yaml'))) return 'pnpm';
-    if (existsSync(path.join(dir, 'upm.lock'))) return 'upm';
-    if (existsSync(path.join(dir, 'yarn.lock'))) return 'yarn';
-    if (existsSync(path.join(dir, 'bun.lockb')) || existsSync(path.join(dir, 'bun.lock'))) return 'bun';
-    if (existsSync(path.join(dir, 'package-lock.json'))) return 'npm';
+    for (const [pm, files] of LOCKFILE_PRECEDENCE) {
+      if (files.some((f) => existsSync(path.join(dir, f)))) return pm;
+    }
     const parent = path.dirname(dir);
-    if (parent === dir) return 'npm';
+    if (parent === dir) return DEFAULT_PACKAGE_MANAGER;
     dir = parent;
   }
 }

@@ -61,7 +61,7 @@ export async function readPnpmPatchState(root: string, pkg: string): Promise<Pnp
 /** Problems that would make pnpm apply something other than `variantPath` to `pkg`, or fail silently. */
 export async function pnpmConfigProblems(root: string, pkg: string, variantPath: string): Promise<string[]> {
   const state = await readPnpmPatchState(root, pkg);
-  if (!state) return [`no ${WORKSPACE_FILE} found; the patch mechanism applies grafts through pnpm patchedDependencies`];
+  if (!state) return [`no ${WORKSPACE_FILE} found; pnpm applies grafts through its patchedDependencies — run \`graft apply\` to create it`];
   const problems: string[] = [];
   const expected = relativePosix(state.workspaceRoot, variantPath);
   if (state.ignorePatchFailures !== false) {
@@ -84,10 +84,11 @@ export async function pnpmConfigProblems(root: string, pkg: string, variantPath:
 
 /** Point patchedDependencies[pkg] at `variantPath` and enforce ignorePatchFailures: false. Preserves comments. */
 export async function configurePnpmPatch(root: string, pkg: string, variantPath: string): Promise<{ file: string; changed: boolean }> {
-  const workspaceRoot = findPnpmWorkspaceRoot(root);
-  if (!workspaceRoot) throw new Error(`no ${WORKSPACE_FILE} found above ${root}`);
+  // A project can be pnpm (e.g. via packageManager) without a workspace file yet.
+  // pnpm 10 accepts a settings-only pnpm-workspace.yaml for a single-package project.
+  const workspaceRoot = findPnpmWorkspaceRoot(root) ?? path.resolve(root);
   const file = path.join(workspaceRoot, WORKSPACE_FILE);
-  const before = await readFile(file, 'utf8');
+  const before = existsSync(file) ? await readFile(file, 'utf8') : '';
   const doc = parseDocument(before);
   const patched = doc.get('patchedDependencies', true) as { items?: { key: unknown }[] } | undefined;
   for (const item of patched?.items ?? []) {

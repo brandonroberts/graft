@@ -188,16 +188,24 @@ This repo runs it on itself, triggered manually ([`.github/workflows/graft-sync.
 
 ### `patch` (any package manager)
 
-Variants are git-style `.patch` files with package-relative paths, the format `pnpm patch-commit` and `bun patch --commit` write. The same variant works with every package manager. Graft picks an *applier* from the project's package manager: it reads `packageManager` in package.json, then `pnpm-workspace.yaml` and lockfiles. To force one, set `{ "mechanisms": { "patch": { "applier": "vendor" } } }` (or `pnpm`, `bun`, `graft`, `patch-package`) in `.grafts/config.json`.
+Variants are git-style `.patch` files with package-relative paths, the format `pnpm patch-commit` and `bun patch --commit` write. The same variant works with every package manager. Graft picks an *applier* from the project's package manager. An explicit `packageManager` in package.json wins. Otherwise Graft goes by lockfiles in the order **pnpm, npm, upm**, then yarn and bun, and falls back to **npm** when there's no signal. To force an applier, set `{ "mechanisms": { "patch": { "applier": "vendor" } } }` (or `pnpm`, `npm`, `bun`, `graft`, `patch-package`) in `.grafts/config.json`.
 
-- **Native appliers (pnpm, bun):** the package manager applies the patch and records it in its lockfile. They're preferred where they exist.
+| Package manager | Default applier |
+|---|---|
+| pnpm | `pnpm` (native) |
+| npm ≥ 12 | `npm` (native) |
+| npm < 12, yarn classic | `graft` (built-in) |
+| upm | `vendor` |
+| bun | `bun` (native) |
+
+- **Native appliers (pnpm, npm ≥ 12, bun):** the package manager applies the patch and records it in its lockfile. They're preferred where they exist. npm 12's is the strictest: a patch that doesn't apply, *or matches no installed package*, fails the install; it also applies with `--ignore-scripts`, and the lockfile records the patch. npm before 12 ignores `patchedDependencies` *silently*, so Graft checks the npm version (`packageManager`, else `npm --version`) and refuses the `npm` applier below 12.
 - **The vendored override applier (`vendor`):** the default for upm, and the most universal option. It works with any package manager that supports `file:` overrides, with no install hooks at all. Graft builds *pristine upstream + the selected variant* into `.grafts/.vendor/<pkg>-<version>.tgz` and commits it. It then points the package manager at that tarball through its overrides (npm, bun and upm `overrides`, yarn `resolutions`, pnpm's overrides) and through the root's own dependency. The package manager installs the patched package as an ordinary dependency:
   - **in the lockfile:** recorded there with the tarball's integrity;
   - **durable:** it survives fresh installs, `--ignore-scripts`, and verify/"repair" passes;
   - **tree-wide:** it reaches every copy in the dependency tree.
 
   Tarballs are reproducible, with sorted entries and fixed timestamps and owners. Graft only rewrites one when its *contents* change, so lockfile integrity stays stable. On an upgrade it rebuilds from the new pristine version and asks `sync` for a bare reinstall, because a targeted `add <pkg>@<version>` would undo the override. The cost: tarballs are committed binary files, and the root dependency reads `file:.grafts/.vendor/…` instead of a version range.
-- **The built-in applier (`graft`):** the default for npm and yarn, and usable with any package manager that installs into `node_modules` and runs the project's `postinstall`. `graft apply --installed` runs in `postinstall` and patches every installed copy of the package that a variant covers, hoisted or nested. It is:
+- **The built-in applier (`graft`):** the default for npm before 12 and yarn classic, and usable with any package manager that installs into `node_modules` and runs the project's `postinstall`. `graft apply --installed` runs in `postinstall` and patches every installed copy of the package that a variant covers, hoisted or nested. It is:
   - **offline:** it patches the installed file itself;
   - **idempotent:** a file whose *reverse* patch fits is already patched;
   - **store-safe:** it replaces files by rename (a new inode) instead of editing in place. pnpm, bun and some npm setups hardlink `node_modules` files to a shared global store, so editing in place would patch every project on the machine;
@@ -209,7 +217,8 @@ Variants are git-style `.patch` files with package-relative paths, the format `p
 |---|---|---|
 | pnpm | `pnpm-workspace.yaml` `patchedDependencies[<pkg>]` (name-only key) | Without `ignorePatchFailures: false`, a patch that stops applying is only a *warning*, and the package installs unmodified |
 | bun | `package.json` `patchedDependencies["<pkg>@<installed>"]` | bun ignores name-only keys and keys for other versions, so an upgrade installs unpatched. Graft rewrites the key before every version change |
-| npm, yarn classic, anything else (`graft`, built-in) | `graft apply --installed` in `postinstall` | npm and pnpm skip the project's `postinstall` on a targeted install (`npm install ms@2.1.3`), so `sync --install` applies the variant itself after installing |
+| npm ≥ 12 (`npm`, native) | package.json `patchedDependencies[<pkg>]` (name-only key) | npm < 12 ignores the field, so the project would install unpatched with no error. Graft refuses the native applier below npm 12 and falls back to the built-in one |
+| npm < 12, yarn classic, anything else (`graft`, built-in) | `graft apply --installed` in `postinstall` | npm and pnpm skip the project's `postinstall` on a targeted install (`npm install ms@2.1.3`), so `sync --install` applies the variant itself after installing |
 | upm, or anything with overrides (`vendor`) | `.grafts/.vendor/<pkg>-<version>.tgz` via overrides + the root dependency | upm never runs the project's `postinstall`, and `upm install --verify` silently "repairs" patched files. npm resolves `file:` overrides relative to each *dependent* and keeps stale nested lock entries, so Graft uses npm's `$<pkg>` reference and drops the package's lock entries before reinstalling |
 | opt-in (`patch-package`) | A generated `.grafts/.patch-package/<pkg>+<version>.patch` (paths rewritten for patch-package), applied by `patch-package --patch-dir .grafts/.patch-package --error-on-fail --error-on-warn` in `postinstall` | Plain `patch-package` exits 0 on a failed patch outside CI, and only warns on a version mismatch. Graft renames the derived file on every version change and re-runs the bare install that triggers `postinstall` |
 

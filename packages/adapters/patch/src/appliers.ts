@@ -15,14 +15,15 @@
 //   patch-package  (opt-in) a generated <pkg>+<version>.patch in a graft-owned dir, applied by
 //                  `patch-package --error-on-fail --error-on-warn` in postinstall; without those
 //                  flags patch-package exits 0 on a failed patch (outside CI)
-import { existsSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { detectPackageManager, type UpstreamSource } from '@graftsync/core';
 import { configurePnpmPatch, findPnpmWorkspaceRoot, pnpmConfigProblems } from './pnpm.js';
 import { vendorConfigure, vendorProblems } from './vendor.js';
 
-export type ApplierName = 'pnpm' | 'bun' | 'graft' | 'patch-package' | 'vendor';
+export type ApplierName = 'pnpm' | 'npm' | 'bun' | 'graft' | 'patch-package' | 'vendor';
 
 export interface ApplierContext {
   /** Pristine upstream contents, for appliers that build the patched package themselves. */
@@ -42,9 +43,12 @@ export interface PatchApplier {
 
 /** Pick the applier: explicit config wins, then the project's package manager. */
 export function selectApplier(root: string, configured?: string): PatchApplier {
-  const name = (configured ?? { pnpm: 'pnpm', bun: 'bun', npm: 'graft', yarn: 'graft', upm: 'vendor' }[detectPackageManager(root)]) as ApplierName;
+  const pm = detectPackageManager(root);
+  // npm 12+ patches natively; older npm silently ignores patchedDependencies, so it gets the built-in applier.
+  const npmDefault = pm === 'npm' && (npmMajor(root) ?? 0) >= NPM_NATIVE_PATCH_MAJOR ? 'npm' : 'graft';
+  const name = (configured ?? { pnpm: 'pnpm', npm: npmDefault, bun: 'bun', yarn: 'graft', upm: 'vendor' }[pm]) as ApplierName;
   const applier = APPLIERS[name];
-  if (!applier) throw new Error(`unknown patch applier "${configured}" (expected pnpm | bun | graft | patch-package | vendor)`);
+  if (!applier) throw new Error(`unknown patch applier "${configured}" (expected pnpm | npm | bun | graft | patch-package | vendor)`);
   return applier;
 }
 
@@ -83,6 +87,73 @@ export const pnpmApplier: PatchApplier = {
   async configure(root, pkg, _version, variantPath) {
     const r = await configurePnpmPatch(root, pkg, variantPath);
     return { files: [r.file] };
+  },
+};
+
+/** npm gained native `patchedDependencies` in v12. Earlier versions ignore the field silently. */
+export const NPM_NATIVE_PATCH_MAJOR = 12;
+
+const npmVersionCache = new Map<string, number | undefined>();
+
+/**
+ * Major version of npm for this project: the `packageManager` field ("npm@12.2.1") when the
+ * root declares one, otherwise the `npm` on PATH.
+ */
+export function npmMajor(root: string): number | undefined {
+  const installRoot = manifestRoot(root);
+  if (npmVersionCache.has(installRoot)) return npmVersionCache.get(installRoot);
+  let version: string | undefined;
+  try {
+    const declared = /^npm@(\d+)/.exec(String(JSON.parse(readFileSync(path.join(installRoot, 'package.json'), 'utf8')).packageManager ?? ''));
+    version = declared?.[1];
+  } catch {
+    // no readable manifest
+  }
+  if (!version) {
+    const r = spawnSync('npm', ['--version'], { cwd: installRoot, encoding: 'utf8', shell: process.platform === 'win32' });
+    version = r.status === 0 ? /^(\d+)/.exec(r.stdout.trim())?.[1] : undefined;
+  }
+  const major = version ? Number(version) : undefined;
+  npmVersionCache.set(installRoot, major);
+  return major;
+}
+
+/**
+ * npm 12+ native patches: root package.json `patchedDependencies[<pkg>]` (name-only key) →
+ * variant. npm applies patches during install (also with --ignore-scripts), records their hash
+ * in package-lock.json, and fails the install on a patch that does not apply or matches nothing.
+ */
+export const npmApplier: PatchApplier = {
+  name: 'npm',
+  async problems(root, pkg, _version, variantPath) {
+    const installRoot = manifestRoot(root);
+    const problems: string[] = [];
+    const major = npmMajor(root);
+    if (major === undefined || major < NPM_NATIVE_PATCH_MAJOR) {
+      problems.push(`npm ${major ?? '(not found)'} ignores patchedDependencies silently; native npm patches need npm >= ${NPM_NATIVE_PATCH_MAJOR} (use the "graft" or "vendor" applier otherwise)`);
+    }
+    const { json } = await readManifest(installRoot);
+    const entries = Object.entries((json.patchedDependencies ?? {}) as Record<string, string>).filter(([k]) => keyIsFor(k, pkg));
+    const expected = posix(path.relative(installRoot, variantPath));
+    if (!entries.some(([k]) => k === pkg)) problems.push(`package.json patchedDependencies has no "${pkg}" entry (expected "${pkg}": "${expected}")`);
+    for (const [k, p] of entries) {
+      if (k !== pkg) problems.push(`package.json patchedDependencies["${k}"] is version-specific; graft manages ${pkg} with a name-only key`);
+      else if (path.resolve(installRoot, p) !== path.resolve(variantPath)) problems.push(`package.json patchedDependencies["${pkg}"] points to ${p}, but the selected variant is ${expected}`);
+    }
+    return problems;
+  },
+  async configure(root, pkg, _version, variantPath) {
+    const major = npmMajor(root);
+    if (major === undefined || major < NPM_NATIVE_PATCH_MAJOR) {
+      throw new Error(`npm ${major ?? '(not found)'} ignores patchedDependencies silently; the "npm" applier needs npm >= ${NPM_NATIVE_PATCH_MAJOR}`);
+    }
+    const installRoot = manifestRoot(root);
+    const m = await readManifest(installRoot);
+    const patched = ((m.json.patchedDependencies ??= {}) as Record<string, string>);
+    for (const k of Object.keys(patched)) if (keyIsFor(k, pkg)) delete patched[k];
+    patched[pkg] = posix(path.relative(installRoot, variantPath));
+    await writeManifest(m);
+    return { files: [m.file] };
   },
 };
 
@@ -248,6 +319,6 @@ export const vendorApplier: PatchApplier = {
   },
 };
 
-const APPLIERS: Record<ApplierName, PatchApplier> = { pnpm: pnpmApplier, bun: bunApplier, graft: graftApplier, 'patch-package': patchPackageApplier, vendor: vendorApplier };
+const APPLIERS: Record<ApplierName, PatchApplier> = { pnpm: pnpmApplier, npm: npmApplier, bun: bunApplier, graft: graftApplier, 'patch-package': patchPackageApplier, vendor: vendorApplier };
 
 export { findPnpmWorkspaceRoot };
