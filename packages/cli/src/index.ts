@@ -7,6 +7,7 @@ import {
   applyGraft,
   applyInstalled,
   applyToProject,
+  captureVariant,
   checkAnchors,
   GraftError,
   initProject,
@@ -453,6 +454,29 @@ const variant = defineCommand({
   subCommands: { add: variantAdd },
 });
 
+const capture = defineCommand({
+  meta: { name: 'capture', description: "Turn your edit of the installed package into the graft's variant (diff against the published package)" },
+  args: {
+    ...common,
+    id: { type: 'positional', required: true, description: 'Graft id' },
+    version: { type: 'string', description: 'Installed upstream version (default: installed)' },
+  },
+  run: guarded(async (args) => {
+    const project = await open(args.root);
+    const result = await captureVariant(project, args.id, { version: args.version });
+    print(args.json, result, () => {
+      const files = result.apply.files.map((f) => f.file);
+      console.log(
+        result.replacedStub
+          ? `captured ${result.module} (${files.length} file(s): ${files.join(', ')})`
+          : `captured ${result.module} as a new variant for "${result.range}" (${files.length} file(s): ${files.join(', ')})`,
+      );
+      console.log(`next: graft apply (so installs apply it), then write the oracle and graft verify ${result.graft}`);
+    });
+    return EXIT.ok;
+  }),
+});
+
 const mark = defineCommand({
   meta: {
     name: 'mark',
@@ -481,5 +505,5 @@ const CLI_VERSION = (createRequire(import.meta.url)('../package.json') as { vers
 
 export const main: CommandDef = defineCommand({
   meta: { name: 'graft', version: CLI_VERSION, description: 'Keep local modifications to upstream packages in sync' },
-  subCommands: { init, add, show, apply, preview, status, check, diff, sync: syncCmd, verify, variant, mark, outdated: outdatedCmd, replay: replayCmd },
+  subCommands: { init, add, capture, show, apply, preview, status, check, diff, sync: syncCmd, verify, variant, mark, outdated: outdatedCmd, replay: replayCmd },
 }) as CommandDef;

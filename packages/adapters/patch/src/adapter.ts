@@ -22,6 +22,7 @@ import {
 import { applyFilePatch, describeHunk, locateHunk, parsePatchFile, patchTarget, type FilePatch } from './patchfile.js';
 import { selectApplier } from './appliers.js';
 import { applyToInstalledCopy, findInstalledCopies } from './installed.js';
+import { captureInstalledChanges } from './capture.js';
 import type { Project } from '@graftsync/core';
 
 /** The applier for this project (config `mechanisms.patch.applier`, else from the lockfile). */
@@ -308,11 +309,12 @@ export function createPatchAdapter(): MechanismAdapter {
       await loadPatch(ctx.graft, variant);
     },
 
-    variantTemplate({ package: pkg }: { package: string }) {
+    capture: captureInstalledChanges,
+
+    variantTemplate({ id, package: pkg }: { id: string; package: string }) {
       return `# Replace this file with the patch for ${pkg}.
-# Create it with:  pnpm patch ${pkg}   (edit the printed directory)
-#            then: pnpm patch-commit <dir> --patches-dir <this graft>/variants
-# and move/rename the generated file here.
+# Easiest: edit ${pkg} in node_modules, then run  graft capture ${id}
+# (it writes the difference from the published package here).
 `;
     },
   };

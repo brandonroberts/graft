@@ -196,6 +196,7 @@ Verified against the real `vercel/ms` repo, with a local fork, on npm and pnpm:
 | `graft show <id>` | Intent sections, variants with resolved paths, the variant selected for the installed version |
 | `graft diff <id> [from] [to]` | Scoped upstream diff |
 | `graft preview <id> [--version X] [--out D]` | Apply a variant to pristine upstream and write the files for inspection |
+| `graft capture <id> [--version X]` | Write the edit of the installed package as the variant (diff against pristine); replaces the scaffold stub or adds a new variant |
 | `graft variant add <id> --range R --module M [--verify-version X] [--note N] [--no-narrow]` | Register a variant |
 | `graft apply [<id>]` · `graft apply --installed` | Wire the package manager to the selected variants and reinstall · the built-in applier |
 | `graft verify <id>` | Run the oracle in all modes |
@@ -308,7 +309,7 @@ Graft keeps three of its own CommonJS dependencies converted to native ESM, as r
 - **Open questions carried over:**
   - Can one graft target several packages, or is that two grafts? (Today: one package per graft, one patch graft per package.)
   - Should upstream-authored migration notes feed the agent?
-  - `graft capture`: turn a change an agent made (in `node_modules` or a fork) into a graft in one command.
+  - `graft capture` for forks (today it captures `patch` grafts from `node_modules`; a fork's change is its commits already).
 
 ## 16. Working in this repo
 

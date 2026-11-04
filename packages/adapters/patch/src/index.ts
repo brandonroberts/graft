@@ -5,3 +5,4 @@ export { manifestRoot, bunApplier, npmApplier, yarnApplier, yarnPatchSpec, npmMa
 export { buildVendorTarball, installVendoredTarball, tarballContents, vendoredTarballProblems, vendorFileName, VENDOR_DIR, type TarballBuilder, type VendorContext } from './vendor.js';
 export { applyToInstalledCopy, findInstalledCopies, writeNewInode } from './installed.js';
 export { patchAdapter as default } from './adapter.js';
+export { captureInstalledChanges } from './capture.js';

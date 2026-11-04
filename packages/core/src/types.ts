@@ -273,6 +273,11 @@ export interface MechanismAdapter {
    */
   prepareAgent?(ctx: GraftContext, version: string): Promise<AgentStart | undefined>;
   /**
+   * `graft capture`: the change made to the installed copy of the graft's package at `version`,
+   * as the contents of a variant module. Throw when there is nothing (or nothing capturable).
+   */
+  capture?(ctx: GraftContext, version: string): Promise<string>;
+  /**
    * For standalone grafts (which have no npm dist-tags): the newest upstream version to sync to,
    * if newer than `rootstock.verified`. `tag` says where it came from (a tag, a branch).
    */

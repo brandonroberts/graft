@@ -309,6 +309,7 @@ under the name used in `mechanism`.
 | `recordsInResult?(ctx, version)` | no | True when a green sync at `version` is recorded in the materialized result instead of graft.md; `afterVerified` then receives the update. |
 | `newerVersion?(ctx)` | no | For standalone grafts (no dist-tags): the newest upstream version above `verified`, with where it came from. `outdated` lists one entry per such graft (`standalone: true`). |
 | `prepareAgent?(ctx, version)` | no | Called by `sync` when a graft needs an agent: prepare a starting point and return `{ description, repo?, ref?, conflicts? }` (`agentStart`; `description` is shown as "Start from"). |
+| `capture?(ctx, version)` | no | `graft capture`: the change made to the installed copy at `version`, as a variant module (the patch mechanism: the diff against the pristine package). Throw when there's nothing capturable. The tooling replaces the selected variant only while it is still the scaffold stub, otherwise registers a new one (§4.2), and keeps it only if it applies to pristine `version`. |
 | `validateVariant?(ctx, variant)` | no | Validate a new variant before it is registered; throw to reject. |
 | `exclusivePerPackage?` | no | When true, at most one active graft with this mechanism may target a package; more is a validation error. |
 | `variantExtension?` | no | File extension for scaffolded variant modules (default `.ts`). |

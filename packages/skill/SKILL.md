@@ -97,10 +97,13 @@ When asked to capture a modification as a graft (new, or migrating an existing p
 2. **Write the intent first,** with the person who owns the modification if you can: *Why*,
    the *Invariants* (observable behaviors, one per bullet), *Where to look* (by behavior), and
    *Anchors* (what the variant matches on and why).
-3. **Write the variant.** For `patch`: run `pnpm patch <pkg>@<installed>`, make the change in the
-   printed directory, then run `pnpm patch-commit <dir> --patches-dir <tmp>`. Move the generated
-   file onto the scaffolded `variants/v<major>.patch`. `pnpm patch-commit` may also write a
-   version-pinned entry to `package.json`; the next step replaces it.
+3. **Write the variant.** For `patch`, make the change in the installed package
+   (`node_modules/<pkg>`), then run `graft capture <id>`: it writes the difference from the
+   published package as the variant (replacing the scaffold stub), and refuses binary changes.
+   **With pnpm**, don't edit `node_modules` in place (its files are hard links into the shared
+   store): run `pnpm patch <pkg>@<installed>`, edit the printed directory, `pnpm patch-commit
+   <dir> --patches-dir <tmp>`, and move the generated file onto `variants/v<major>.patch`
+   (`pnpm patch-commit` may also write a `package.json` entry; the next step replaces it).
 4. **Apply it:** `graft apply`. This points the package manager at the
    variant, reinstalls, and re-checks anchors.
 5. **Write the oracle** so it fails before the modification and passes after. Check that it

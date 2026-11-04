@@ -18,7 +18,7 @@ The format and tooling contract are specified in [`docs/spec.md`](docs/spec.md) 
 
 ## Quick start
 
-The flow below has been tested end to end on a real project (`ms`, adding a `fortnight` unit) with pnpm, bun and npm. With bun, make the patch with `bun patch ms` / `bun patch --commit`. With npm or yarn, make it any way you like, for example by diffing a pristine copy against your edit. Graft's built-in applier applies it from `postinstall` (`graft apply` sets that up), so no extra dependency is needed.
+The flow below has been tested end to end on a real project (`ms`, adding a `fortnight` unit) with pnpm, bun and npm. The simplest way to make the variant is to edit the installed package and run **`graft capture`**, which writes the difference from the published package as the variant. With pnpm, files in `node_modules` are hard links into pnpm's shared store, so use `pnpm patch` (below) rather than editing them in place; bun has `bun patch`. With npm or yarn, Graft's built-in applier applies the variant from `postinstall` (`graft apply` sets that up).
 
 ```sh
 pnpm add -D @graftsync/cli
@@ -26,6 +26,7 @@ pnpm exec graft init --agent                                      # .grafts/, pl
 pnpm exec graft add ms-fortnight --package ms --target index.js   # graft.md + variant stub + oracle stub
 pnpm patch ms@2.1.2                                               # edit the printed directory
 pnpm patch-commit <dir> --patches-dir .grafts/tmp                 # then move the .patch onto variants/v2.patch
+# (npm/yarn/bun: edit node_modules/ms/index.js, then: graft capture ms-fortnight)
 pnpm exec graft apply                                             # wire pnpm to the variant, reinstall, check anchors
 # write Why / Invariants / Where to look / Anchors, and an oracle that fails without the graft
 pnpm exec graft verify ms-fortnight
@@ -48,9 +49,9 @@ keeps working, and keeps being re-verified, when upstream releases new versions.
 2. Find the modification as it exists today: a patch file, an edited dependency, commits on a
    fork. If it doesn't exist yet, make it. Tell me what you found before changing anything.
 3. Scaffold the graft:
-   - a dependency: `graft add <id> --package <pkg> --target <files>`, then turn the change into
-     the variant with the package manager's own patch flow (`pnpm patch`, `bun patch`, …), or a
-     diff of a pristine copy against the edited one;
+   - a dependency: `graft add <id> --package <pkg> --target <files>`, make the change in the
+     installed package, then `graft capture <id>` writes it as the variant (with pnpm, use
+     `pnpm patch` instead of editing `node_modules` in place: its files are hard links into the store);
    - a fork whose code is installed as a dependency: `graft add <id> --package <pkg> --mechanism fork`,
      and fill in the `fork:` block and the `{ ref, base }` variant;
    - a fork that is the product itself, with this checkout as the fork:
@@ -203,6 +204,7 @@ Agents drive Graft through the same `graft` CLI people use. Every command takes 
 | Command | Purpose |
 |---|---|
 | `graft show <id>` | The intent (all body sections), variants with resolved paths, and the variant selected for the installed version |
+| `graft capture <id> [--version X]` | Write your edit of the installed package as the variant: the diff against the published package. Replaces the untouched scaffold stub, or adds a new variant (`>=X`) if a real one exists; rolls back unless it applies to pristine `X` |
 | `graft preview <id> [--version X] [--out dir]` | Apply a graft's variant to pristine upstream and write the modified files for inspection; installs nothing |
 | `graft variant add <id> --range R --module M [--verify-version X] [--note "…"]` | Register a new variant. Never edits existing variants. Narrows overlapping open-ended ranges (`--no-narrow` refuses instead). With `--verify-version`, rolls back unless every anchor matches there (the version must be inside the new range) |
 | `graft mark <id> [--status S] [--verified X] [--history "…"]` | Set status and `verified`, and append a History entry |

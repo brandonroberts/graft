@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import semver from 'semver';
 import { GRAFT_STATUSES, GraftDocumentEditor, type GraftStatus } from '@graftsync/spec';
@@ -318,4 +318,81 @@ export async function applyInstalled(project: Project, options: { ids?: string[]
     }
   }
   return { reports, ok: reports.every((r) => r.errors.length === 0) };
+}
+
+export interface CaptureResult {
+  graft: string;
+  version: string;
+  /** Variant module written, relative to the graft directory. */
+  module: string;
+  /** True when it replaced the untouched scaffold stub; false when it was added as a new variant. */
+  replacedStub: boolean;
+  /** For a new variant: the range it was registered for. */
+  range?: string;
+  /** The captured variant applied to the pristine package (static check; nothing is installed). */
+  apply: ApplyResult;
+}
+
+/**
+ * `graft capture`: record the change made to the installed copy of a graft's package as a
+ * variant. Replaces the selected variant only while it is still the scaffold stub; otherwise adds
+ * a new variant for `>=version` (never editing an existing one). Rolls back unless the captured
+ * variant applies to the pristine package at `version`. (Not the installed-copy checks: the
+ * package manager still points at the previous variant until `graft apply`.)
+ */
+export async function captureVariant(project: Project, id: string, options: { version?: string } = {}): Promise<CaptureResult> {
+  const graft = await project.get(id);
+  const adapter = project.adapterFor(graft);
+  if (!adapter.capture) throw new GraftError(`mechanism "${adapter.name}" can't capture a variant from an installed copy`, 'capture/unsupported');
+  const version = await resolveVersion(project, graft, options.version);
+  const content = await adapter.capture(project.context(graft), version);
+  const fm = graft.frontmatter;
+  const scaffold = { id: graft.id, package: fm.rootstock.package, targets: fm.targets, root: project.root, modes: fm.oracle.modes, options: {} };
+
+  const selected = project.selectVariant(graft, version);
+  const current = selected && existsSync(selected.path) ? await readFile(selected.path, 'utf8') : undefined;
+  const isStub =
+    current !== undefined &&
+    (current === adapter.variantTemplate?.(scaffold) || current.split('\n').every((l) => !l.trim() || l.startsWith('#')));
+
+  const verify = async () => {
+    const fresh = await project.get(id);
+    const result = await project.adapterFor(fresh).apply(project.context(fresh), { version });
+    if (!result.ok) {
+      const why = [...result.errors, ...result.files.filter((f) => f.error).map((f) => `${f.file}: ${f.error}`)].join('; ');
+      throw new GraftError(`the captured variant does not apply to pristine ${fm.rootstock.package}@${version}: ${why}`, 'capture/apply');
+    }
+    return result;
+  };
+
+  if (selected && isStub) {
+    await writeFile(selected.path, content);
+    try {
+      const apply = await verify();
+      await updateGraft(project, id, { history: `Captured ${selected.module} from the installed ${fm.rootstock.package}@${version} with \`graft capture\`.` });
+      return { graft: id, version, module: selected.module, replacedStub: true, apply };
+    } catch (err) {
+      await writeFile(selected.path, current);
+      throw err;
+    }
+  }
+
+  // A real variant exists: add a new one for this version onwards.
+  const ext = adapter.variantExtension ?? '.patch';
+  let rel = `variants/v${version}${ext}`;
+  for (let n = 2; existsSync(path.join(graft.dir, rel)); n++) rel = `variants/v${version}-${n}${ext}`;
+  const module = `./${rel}`;
+  const range = semver.prerelease(version) ? `>=${semver.major(version)}.${semver.minor(version)}.${semver.patch(version)}-0` : `>=${version}`;
+  await mkdir(path.dirname(path.join(graft.dir, rel)), { recursive: true });
+  await writeFile(path.join(graft.dir, rel), content);
+  const original = await readFile(graft.file, 'utf8');
+  try {
+    await recordVariant(project, id, { range, module }, { note: `Captured from the installed ${fm.rootstock.package}@${version} with \`graft capture\`.` });
+    const apply = await verify();
+    return { graft: id, version, module, replacedStub: false, range, apply };
+  } catch (err) {
+    await writeFile(graft.file, original);
+    await rm(path.join(graft.dir, rel), { force: true });
+    throw err;
+  }
 }
