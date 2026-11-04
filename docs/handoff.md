@@ -311,6 +311,8 @@ Graft keeps three of its own CommonJS dependencies converted to native ESM, as r
 
 ## 16. Working in this repo
 
+Agents working on Graft itself: see [`AGENTS.md`](../AGENTS.md) (commands, rules, gotchas, release flow).
+
 ```sh
 pnpm install --frozen-lockfile
 pnpm build                                   # tsc -b
