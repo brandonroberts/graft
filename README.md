@@ -150,7 +150,7 @@ This repo uses both on itself: [`.mcp.json`](.mcp.json) registers the server, an
 
 ## GitHub Action
 
-[`packages/action`](packages/action) runs the loop on a schedule:
+[`packages/action`](packages/action) runs the loop, from a scheduled or manually triggered workflow:
 1. Poll each rootstock package's npm dist-tags.
 2. Run `graft sync --install` on a branch per package@version.
 3. If green, open a PR.
