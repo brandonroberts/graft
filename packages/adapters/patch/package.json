@@ -41,7 +41,6 @@
     "tar": "^7.5.22"
   },
   "publishConfig": {
-    "access": "public",
-    "provenance": true
+    "access": "public"
   }
 }

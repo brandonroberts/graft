@@ -45,7 +45,6 @@
     "@graftsync/adapter-fork": "workspace:*"
   },
   "publishConfig": {
-    "access": "public",
-    "provenance": true
+    "access": "public"
   }
 }

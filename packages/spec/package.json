@@ -39,7 +39,6 @@
     "zod": "^4.6.7"
   },
   "publishConfig": {
-    "access": "public",
-    "provenance": true
+    "access": "public"
   }
 }
