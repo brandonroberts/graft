@@ -9,6 +9,7 @@
 - A failed generator is reported with its error message, not the tail of its stack trace.
 - Missed anchors are summarized per file in sync reports, with long lists cut.
 - The graft-sync skill covers scaffolding in-place repo-mode grafts.
+- `graft --version` reports the CLI's real version (it was hard-coded as 0.1.0).
 - Updated dependencies
   - @graftsync/core@0.1.1
   - @graftsync/adapter-fork@0.1.1

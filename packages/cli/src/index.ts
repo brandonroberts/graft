@@ -476,7 +476,10 @@ const mark = defineCommand({
   }),
 });
 
+/** This package's version, from its own package.json (next to dist/, in the repo and when published). */
+const CLI_VERSION = (createRequire(import.meta.url)('../package.json') as { version: string }).version;
+
 export const main: CommandDef = defineCommand({
-  meta: { name: 'graft', version: '0.1.0', description: 'Keep local modifications to upstream packages in sync' },
+  meta: { name: 'graft', version: CLI_VERSION, description: 'Keep local modifications to upstream packages in sync' },
   subCommands: { init, add, show, apply, preview, status, check, diff, sync: syncCmd, verify, variant, mark, outdated: outdatedCmd, replay: replayCmd },
 }) as CommandDef;
