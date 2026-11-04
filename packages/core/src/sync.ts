@@ -42,6 +42,8 @@ export interface SyncGraftResult {
    * removed again because it did not hold (static checks, install, or oracle).
    */
   regenerated?: { module: string; command: string; rolledBack?: boolean };
+  /** Where the agent can start (from the mechanism's `prepareAgent`, e.g. a branch with conflict markers). */
+  agentStart?: string;
 }
 
 export interface SyncTarget {
@@ -410,6 +412,14 @@ async function tryRegenerate(
 async function markNeedsAgent(project: Project, graft: Graft, result: SyncGraftResult): Promise<void> {
   result.outcome = 'needs-agent';
   const fm = graft.frontmatter;
+  const prepare = project.adapterFor(graft).prepareAgent;
+  if (result.to && prepare && !result.agentStart) {
+    try {
+      result.agentStart = await prepare(project.context(graft), result.to);
+    } catch (err) {
+      result.reasons.push(`no starting point for the agent: ${(err as Error).message}`);
+    }
+  }
   if (!result.to || fm.rootstock.verified === result.to) return;
   try {
     const diff = await project.adapterFor(graft).scopeDiff(project.context(graft), fm.rootstock.verified, result.to);
@@ -446,6 +456,7 @@ async function finish(project: Project, graft: Graft, result: SyncGraftResult, o
     });
     result.updated = true;
   }
+  if (!options.dryRun) await project.adapterFor(graft).afterVerified?.(project.context(await project.get(graft.id)), version);
 }
 
 async function writeSyncReport(project: Project, report: SyncReport): Promise<{ json: string; markdown: string }> {
@@ -500,6 +511,7 @@ export function renderSyncMarkdown(report: SyncReport, root: string = report.roo
       lines.push(`Oracle output (${m.mode}, exit ${m.exitCode}):`, '', '```', m.output.trim().slice(-4000), '```', '');
     }
     if (g.diffPath) lines.push(`Scoped upstream diff: \`${rel(g.diffPath)}\``, '');
+    if (g.agentStart) lines.push(`Start from: ${g.agentStart}`, '');
     if (g.outcome === 'needs-agent' && g.likelyUpstreamed) {
       lines.push(
         `Next: upstream ${g.package}@${g.to} appears to already contain this graft's change. Confirm it (the invariants hold on pristine upstream, e.g. run the oracle without the graft), then run \`graft mark ${g.id} --status upstreamed --history "…"\` to set \`.grafts/${g.id}/graft.md\` to \`upstreamed\` with a History entry. Do not write a new variant.`,

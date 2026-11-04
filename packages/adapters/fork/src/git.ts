@@ -7,9 +7,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { GraftError } from '@graftsync/core';
 
-export async function git(cwd: string, args: string[], options: { allowFail?: boolean } = {}): Promise<{ ok: boolean; stdout: string; stderr: string }> {
+export async function git(
+  cwd: string,
+  args: string[],
+  options: { allowFail?: boolean; env?: Record<string, string> } = {},
+): Promise<{ ok: boolean; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    execFile('git', args, { cwd, maxBuffer: 256 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } }, (err, stdout, stderr) => {
+    execFile('git', args, { cwd, maxBuffer: 256 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', ...options.env } }, (err, stdout, stderr) => {
       if (err && !options.allowFail) {
         reject(new GraftError(`git ${args.join(' ')} failed: ${String(stderr || err.message).trim().split('\n').slice(-3).join(' ')}`, 'fork/git'));
         return;
@@ -156,4 +160,46 @@ export async function modeChanges(dir: string, from: string, to: string, sub?: s
     if (newMode !== oldMode && (status !== 'A' || newMode === '100755')) out.push({ file, executable: newMode === '100755' });
   }
   return out;
+}
+
+const IDENTITY = ['-c', 'user.name=graft', '-c', 'user.email=graft@localhost'];
+
+/**
+ * git's own three-way merge of `theirs` onto `ours` with `base` as the merge base (a rebase of
+ * the change base..theirs onto ours), written as a commit on top of `ours` and pointed at by
+ * `branch`. Conflicting files keep git's conflict markers. Returns the conflicted paths.
+ */
+export async function mergeToBranch(dir: string, base: string, ours: string, theirs: string, branch: string, message: string): Promise<string[]> {
+  const r = await git(dir, ['merge-tree', '--write-tree', '--name-only', '--no-messages', `--merge-base=${base}`, ours, theirs], { allowFail: true });
+  const [tree, ...rest] = r.stdout.split('\n');
+  if (!tree || !/^[0-9a-f]{40,64}$/.test(tree.trim())) throw new GraftError(`git merge-tree failed: ${r.stderr.trim() || r.stdout.trim()}`, 'fork/git');
+  const conflicted = r.ok ? [] : [...new Set(rest.map((l) => l.trim()).filter(Boolean))];
+  const full = conflicted.length ? `${message}\n\nConflicts (git markers left in place):\n${conflicted.map((f) => `- ${f}`).join('\n')}\n` : message;
+  const commit = (await git(dir, [...IDENTITY, 'commit-tree', tree.trim(), '-p', ours, '-m', full])).stdout.trim();
+  await git(dir, ['update-ref', `refs/heads/${branch}`, commit]);
+  return conflicted;
+}
+
+/**
+ * Replace `prefix/` in the tip commit of `branch` with the files of `srcDir` (amending it, same
+ * parent and message). Used to carry the graft's own `.grafts/` into a repo-mode result.
+ */
+export async function replaceSubtree(dir: string, branch: string, prefix: string, files: { rel: string; abs: string; executable: boolean }[]): Promise<void> {
+  const index = path.join(await mkdtemp(path.join(os.tmpdir(), 'graft-index-')), 'index');
+  const env = { GIT_INDEX_FILE: index };
+  try {
+    await git(dir, ['read-tree', `refs/heads/${branch}`], { env });
+    await git(dir, ['rm', '-r', '--cached', '--quiet', '--ignore-unmatch', '--', prefix], { env });
+    for (const f of files) {
+      const oid = (await git(dir, ['hash-object', '-w', '--', f.abs])).stdout.trim();
+      await git(dir, ['update-index', '--add', '--cacheinfo', `${f.executable ? '100755' : '100644'},${oid},${prefix}/${f.rel}`], { env });
+    }
+    const tree = (await git(dir, ['write-tree'], { env })).stdout.trim();
+    const parent = (await git(dir, ['rev-parse', `refs/heads/${branch}^`])).stdout.trim();
+    const message = (await git(dir, ['log', '-1', '--format=%B', `refs/heads/${branch}`])).stdout;
+    const commit = (await git(dir, [...IDENTITY, 'commit-tree', tree, '-p', parent, '-m', message.trimEnd()])).stdout.trim();
+    await git(dir, ['update-ref', `refs/heads/${branch}`, commit]);
+  } finally {
+    await rm(path.dirname(index), { recursive: true, force: true });
+  }
 }

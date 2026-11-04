@@ -215,6 +215,17 @@ export interface MechanismAdapter {
    * rebased onto the upstream tag) in a directory the oracle runs in. Throw when it can't be.
    */
   workspace?(ctx: GraftContext, version: string): Promise<Workspace>;
+  /**
+   * Called by `sync` after a green result was recorded in graft.md (not on dry runs), e.g. to
+   * carry the updated graft files into a standalone graft's materialized result.
+   */
+  afterVerified?(ctx: GraftContext, version: string): Promise<void>;
+  /**
+   * Called by `sync` when a graft needs an agent at `version`: prepare a starting point (e.g. a
+   * branch with the change merged and conflict markers left in place). Returns a sentence for
+   * the report, or undefined.
+   */
+  prepareAgent?(ctx: GraftContext, version: string): Promise<string | undefined>;
   /** Validate a new variant module before it is registered. Throw to reject. */
   validateVariant?(ctx: GraftContext, variant: ResolvedVariant): Promise<void>;
   /**

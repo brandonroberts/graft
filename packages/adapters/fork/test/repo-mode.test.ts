@@ -112,7 +112,9 @@ describe('fork repo mode (install: none)', () => {
     expect(gitIn(cache, 'show', `${branch}:README.md`)).toBe('upstream 1.0.1\n');
     expect(execFileSync('git', ['show', `${branch}:logo.png`], { cwd: cache })).toEqual(LOGO_TR);
     expect(gitIn(cache, 'rev-parse', `${branch}^`).trim()).toBe(gitIn(cache, 'rev-parse', 'v1.0.1^{commit}').trim());
-    expect(gitIn(cache, 'ls-tree', '-r', '--name-only', branch)).not.toContain('.grafts');
+    // The graft lives in the fork (repo: .): the result carries its files, with the new verification.
+    expect(gitIn(cache, 'show', `${branch}:.grafts/tr/graft.md`)).toMatch(/verified: 1\.0\.1/);
+    expect(gitIn(cache, 'ls-tree', '-r', '--name-only', branch)).not.toMatch(/\.grafts\/\.(cache|report)\//);
     expect(gitIn(cache, 'ls-tree', branch, 'tools/check.sh')).toMatch(/^100755 /); // executable bit carried over
     // Nothing but the fork's change and the new release differ from the fork itself.
     expect(gitIn(cache, 'diff', '--name-only', branch, 'fork/turkish-doc', '--', '.', ':(exclude).grafts', ':(exclude).gitignore').trim()).toBe('README.md');
@@ -139,16 +141,45 @@ describe('fork repo mode (install: none)', () => {
     expect(g.outcome).toBe('needs-agent');
     expect(g.anchors?.ok).toBe(true); // the change still rebases...
     expect(g.reasons.join('\n')).toMatch(/oracle failed/); // ...but the result is not Turkish
+    expect(g.agentStart).toMatch(/graft\/tr\/1\.1\.0-agent.*merges without conflicts/);
   });
 
   it('hands a conflicting upstream edit to an agent with the scoped upstream diff', async () => {
-    const { project } = await setup();
+    const { project, fork } = await setup();
     const report = await sync(project, { version: '1.2.0' });
     expect(report.exitCode).toBe(1);
     const g = report.grafts[0]!;
     expect(g.outcome).toBe('needs-agent');
     const patch = await readFile(g.diffPath!, 'utf8');
     expect(patch).toContain('+Templates bind data and events to the view.');
+    // The agent starts from git's merge of the translation onto the new tag, markers in place.
+    expect(g.agentStart).toMatch(/graft\/tr\/1\.2\.0-agent.*conflict markers in 1 file\(s\): content\/guide\.md/);
+    const cache = path.join(fork, '.grafts/.cache/fork/tr');
+    const merged = gitIn(cache, 'show', 'graft/tr/1.2.0-agent:content/guide.md');
+    expect(merged).toContain('<<<<<<<');
+    expect(merged).toContain('Templates bind data and events to the view.');
+    expect(merged).toContain('Şablonlar veriyi görünüme bağlar.');
+    expect(gitIn(cache, 'show', 'graft/tr/1.2.0-agent:content/deploy.md')).toContain('Yayınlamadan'); // clean files are merged
+    expect(gitIn(cache, 'rev-parse', 'graft/tr/1.2.0-agent^').trim()).toBe(gitIn(cache, 'rev-parse', 'v1.2.0^{commit}').trim());
+  });
+
+  it('syncs to an upstream commit between releases, named by semver build metadata', async () => {
+    const { project, fork, upstream } = await setup();
+    gitIn(upstream, 'checkout', '-q', 'v1.0.1');
+    await writeFile(path.join(upstream, 'README.md'), 'upstream main after 1.0.1\n');
+    gitIn(upstream, 'commit', '-q', '-am', 'main moves on');
+    const sha = gitIn(upstream, 'rev-parse', 'HEAD').trim().slice(0, 12);
+    gitIn(upstream, 'branch', '-f', 'main', 'HEAD');
+    gitIn(upstream, 'checkout', '-q', 'main');
+    const version = `1.0.1+${sha}`;
+    const report = await sync(project, { version });
+    expect(report.exitCode, JSON.stringify(report.grafts)).toBe(0);
+    const cache = path.join(fork, '.grafts/.cache/fork/tr');
+    const branch = `graft/tr/${version}`;
+    expect(gitIn(cache, 'rev-parse', `${branch}^`).trim().startsWith(sha)).toBe(true);
+    expect(gitIn(cache, 'show', `${branch}:README.md`)).toBe('upstream main after 1.0.1\n');
+    expect(await readFile(path.join(fork, '.grafts/tr/graft.md'), 'utf8')).toContain(`verified: ${version}`);
+    expect((await sync(project, { version: '1.0.1+deadbeef00' })).grafts[0]?.reasons.join('\n')).toMatch(/upstream commit deadbeef00 .* not found/);
   });
 
   it('treats upstream lines added right against a change at the end of a file as a conflict (like git)', async () => {

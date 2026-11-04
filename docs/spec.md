@@ -273,6 +273,8 @@ under the name used in `mechanism`.
 | `applyInstalled?(ctx)` | no | Apply selected variants to installed package copies (from `postinstall`). MUST be idempotent, work offline, and never modify files shared with a package-manager store (write new inodes). |
 | `standalone?(graft)` | no | True when the graft installs nothing into the project. Its current version is `rootstock.verified`, `sync` skips the install step (and defaults to re-verifying `verified`), and the oracle runs in `workspace`. |
 | `workspace?(ctx, version)` | with `standalone` | Materialize the upstream at `version` with the graft applied, in a directory the oracle runs in; returns `{ dir, result?, dispose }`. Throw when it can't be done. |
+| `afterVerified?(ctx, version)` | no | Called by `sync` after a green result is recorded in graft.md (not on dry runs). |
+| `prepareAgent?(ctx, version)` | no | Called by `sync` when a graft needs an agent: prepare a starting point and return a sentence for the report (`agentStart`, shown as "Start from"). |
 | `validateVariant?(ctx, variant)` | no | Validate a new variant before it is registered; throw to reject. |
 | `exclusivePerPackage?` | no | When true, at most one active graft with this mechanism may target a package; more is a validation error. |
 | `variantExtension?` | no | File extension for scaffolded variant modules (default `.ts`). |
@@ -321,6 +323,10 @@ on top of an upstream release tag.
   branch onto the new tag in the fork, then register a new variant pointing at it.
 - The diff excludes `.grafts/`. Binary files carry over only where upstream left them as they
   were at the base (otherwise the anchor `<file>#binary` misses); executable bits carry over.
+- When a graft needs an agent, the tooling SHOULD prepare the branch `graft/<id>/<version>-agent`
+  in the cache clone: git's three-way merge of the change onto the target (`merge-tree` with
+  the fork's base as merge base), conflict markers left in place, and name the conflicted
+  files in the report.
 - A hunk whose change is the first or last line of the base file (no context on that side)
   MUST miss when upstream has since added lines right against it, as git's merge would
   conflict. The scoped diff for an agent is taken from the fork's base, not from `verified`.
@@ -330,7 +336,13 @@ a tool run from source), not a dependency:
 
 - The graft is standalone (§9): nothing is packed or installed, and the installed-copy checks
   don't apply. `base` may also be any upstream commit, tag or branch, since such forks often
-  sit on a commit between releases; targets are still versions, resolved through `fork.tag`.
+  sit on a commit between releases.
+- A target version is resolved through `fork.tag`, unless it carries a commit as semver build
+  metadata (`22.3.0-next.3+57905ca4e6`): it then names that upstream commit, and the version
+  part is what variant ranges match. Commit targets are for repo mode only.
 - `sync` rebases the change onto `tag(version)` in a fresh checkout and runs the oracle there.
   The result is committed as the local branch `graft/<id>/<version>` in the cache clone
   (`.grafts/.cache/fork/<id>`), for the user to fetch. The tooling MUST NOT push it.
+- When the graft lives in the fork (`fork.repo` is the project's own checkout), a green
+  result also carries the project's `.grafts/` (without `.cache`, `.report` and `.vendor`),
+  including the just-recorded verification, so adopting the result keeps the graft files.

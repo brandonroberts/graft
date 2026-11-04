@@ -197,6 +197,14 @@ When asked to capture a modification as a graft (new, or migrating an existing p
   output. Same fix steps as above, with `graft sync --version <target>` (no `--install`). A
   green sync leaves the result as branch `graft/<id>/<target>` in `.grafts/.cache/fork/<id>`;
   fetch it from there. Never push it unless the user asks.
+- A target can be an upstream commit between releases: `--version 22.3.0-next.3+<sha>` (the
+  version part is matched against variant ranges; use upstream's version at that commit).
+- **Start from the prepared branch.** On `needs-agent`, the report's "Start from" line names
+  `graft/<id>/<target>-agent` in the cache clone: git's merge of the fork's change onto the
+  target, with conflict markers left only in the files it lists. Fetch it into the fork, resolve
+  those files by behavior (keep upstream's new content, re-apply the change to it, e.g.
+  translate the new paragraph), remove every marker, commit, and register the new variant
+  (`base` = the target). Don't redo the files that merged cleanly.
 
 ## When to stop: `conflicted`
 

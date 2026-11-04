@@ -13,8 +13,8 @@
 // standalone, and its oracle runs in the rebased checkout, which is kept as the local branch
 // `graft/<id>/<version>` in the cache clone. `base` may then also be any upstream commit or ref,
 // since such forks often sit on a commit between releases.
-import { existsSync } from 'node:fs';
-import { chmod, cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { existsSync, realpathSync } from 'node:fs';
+import { chmod, cp, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { applyPatch, reversePatch } from 'diff';
@@ -56,7 +56,7 @@ import {
   type TarballBuilder,
   type VendorContext,
 } from '@graftsync/adapter-patch';
-import { binaryChanges, blobId, checkout, commitTo, diff, ensureRepo, modeChanges, readBlob, resolveForkRef, resolveTag, resolveUpstreamRef, showFile } from './git.js';
+import { binaryChanges, blobId, checkout, commitTo, diff, ensureRepo, mergeToBranch, modeChanges, readBlob, replaceSubtree, resolveForkRef, resolveTag, resolveUpstreamRef, showFile } from './git.js';
 
 export const MECHANISM = 'fork';
 
@@ -77,6 +77,21 @@ function forkConfig(graft: Graft): ForkConfig {
 }
 
 const tagFor = (cfg: ForkConfig, version: string) => cfg.tag.replaceAll('{version}', version);
+
+/**
+ * The upstream commit a target version names through semver build metadata, e.g.
+ * `22.3.0-next.3+57905ca4e6` (version 22.3.0-next.3 for variant ranges, at commit 57905ca4e6):
+ * repo mode can then sync to any upstream commit, not just release tags.
+ */
+const commitOf = (version: string): string | undefined => {
+  const build = semver.parse(version)?.build ?? [];
+  return build.length === 1 && /^[0-9a-f]{7,40}$/i.test(build[0]!) ? build[0] : undefined;
+};
+/** How a target version is shown: its tag, or the commit it names. */
+const targetLabel = (cfg: ForkConfig, version: string) => {
+  const sha = commitOf(version);
+  return sha ? `commit ${sha}` : tagFor(cfg, version);
+};
 const inPkg = (cfg: ForkConfig, file: string) => (cfg.dir ? `${cfg.dir.replace(/\/+$/, '')}/${file}` : file);
 const repoDir = (project: Project, graft: Graft) => path.join(project.cacheDir, 'fork', graft.id);
 const isStandalone = (graft: Graft) => graft.frontmatter.fork?.install === 'none';
@@ -85,6 +100,34 @@ const resultBranch = (graft: Graft, version: string) => `graft/${graft.id}/${ver
 /** A git URL as is; anything else is a local path, resolved against the project root. */
 const remoteUrl = (project: Project, url: string) =>
   /^[a-z][a-z0-9+.-]*:\/\//i.test(url) || /^[^/\s]+@[^/\s:]+:/.test(url) ? url : path.resolve(project.root, url);
+
+/** True when `fork.repo` is the project's own checkout (`repo: .`): the graft lives in the fork. */
+function graftLivesInFork(project: Project, graft: Graft): boolean {
+  const url = remoteUrl(project, forkConfig(graft).repo);
+  if (!path.isAbsolute(url)) return false;
+  try {
+    return realpathSync(url) === realpathSync(project.root);
+  } catch {
+    return false;
+  }
+}
+
+/** The project's graft files (without caches and reports), relative to the grafts directory. */
+async function graftFiles(project: Project): Promise<{ rel: string; abs: string; executable: boolean }[]> {
+  const skip = new Set(['.cache', '.report', '.vendor']);
+  const out: { rel: string; abs: string; executable: boolean }[] = [];
+  const walk = async (dir: string, rel: string) => {
+    for (const e of await readdir(dir, { withFileTypes: true })) {
+      if (!rel && skip.has(e.name)) continue;
+      const abs = path.join(dir, e.name);
+      const r = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) await walk(abs, r);
+      else if (e.isFile()) out.push({ rel: r, abs, executable: ((await stat(abs)).mode & 0o111) !== 0 });
+    }
+  };
+  await walk(project.graftsDir, '');
+  return out;
+}
 
 async function fetchRepos(project: Project, graft: Graft): Promise<string> {
   const cfg = forkConfig(graft);
@@ -115,6 +158,12 @@ async function loadVariant(graft: Graft, variant: ResolvedVariant): Promise<Fork
 }
 
 async function upstreamRev(dir: string, cfg: ForkConfig, version: string): Promise<string> {
+  const sha = commitOf(version);
+  if (sha) {
+    const rev = await resolveUpstreamRef(dir, sha);
+    if (!rev) throw new GraftError(`upstream commit ${sha} (from version ${version}) not found in ${cfg.upstream}`, 'fork/no-commit');
+    return rev;
+  }
   const tag = tagFor(cfg, version);
   const rev = await resolveTag(dir, tag);
   if (!rev) {
@@ -191,7 +240,7 @@ async function materialize(project: Project, graft: Graft, version: string, chan
   const fail = async (reason: string): Promise<never> => {
     await co.dispose();
     throw new GraftError(
-      `graft "${graft.id}": the fork's change (${change.variant.ref} on ${change.baseTag}) does not rebase onto ${tagFor(cfg, version)}: ${reason}`,
+      `graft "${graft.id}": the fork's change (${change.variant.ref} on ${change.baseTag}) does not rebase onto ${targetLabel(cfg, version)}: ${reason}`,
       'fork/rebase',
     );
   };
@@ -331,7 +380,7 @@ export function createForkAdapter(): MechanismAdapter {
         if (p.oldFile === null) absorbed &&= content !== undefined && applyPatch('', p.raw, { fuzzFactor: 0 }) === content;
         else if (p.newFile === null) absorbed &&= content === undefined;
         else absorbed &&= content !== undefined && applyPatch(content, reversePatch(p.raw), { fuzzFactor: 0 }) !== false;
-        if (absorbed) evidence.push(`${file}: upstream ${tagFor(cfg, version)} already contains the fork's change`);
+        if (absorbed) evidence.push(`${file}: upstream ${targetLabel(cfg, version)} already contains the fork's change`);
       }
       for (const b of change.binaries) {
         const oid = await blobId(repoDir(project, graft), targetRev, inPkg(cfg, b.file));
@@ -344,7 +393,7 @@ export function createForkAdapter(): MechanismAdapter {
           ...(matched ? {} : { error: 'binary file changed upstream since the base' }),
         });
         absorbed &&= oid === b.refOid;
-        if (oid === b.refOid) evidence.push(`${b.file}: upstream ${tagFor(cfg, version)} already has the fork's version`);
+        if (oid === b.refOid) evidence.push(`${b.file}: upstream ${targetLabel(cfg, version)} already has the fork's version`);
       }
       if (absorbed && report.anchors.some((a) => !a.matched)) report.upstreamed = { evidence };
 
@@ -352,7 +401,7 @@ export function createForkAdapter(): MechanismAdapter {
       if (installed?.version === version && report.anchors.every((a) => a.matched)) {
         const vctx = vendorContext(project);
         report.errors.push(
-          ...(await vendoredTarballProblems(vctx, pkg, version, tarballBuilder(project, graft, version, change), `the fork's ${change.variant.ref} rebased onto ${tagFor(cfg, version)}`)),
+          ...(await vendoredTarballProblems(vctx, pkg, version, tarballBuilder(project, graft, version, change), `the fork's ${change.variant.ref} rebased onto ${targetLabel(cfg, version)}`)),
         );
         // Whatever the configuration says, the installed files must be the vendored package's.
         const tarball = path.join(vctx.graftRoot, VENDOR_DIR, vendorFileName(pkg, version));
@@ -417,7 +466,7 @@ export function createForkAdapter(): MechanismAdapter {
       const cfg = forkConfig(graft);
       const pkg = graft.frontmatter.rootstock.package;
       const dir = await fetchRepos(project, graft);
-      const label = (v: string) => `${pkg}@${v} (${tagFor(cfg, v)})`;
+      const label = (v: string) => `${pkg}@${v} (${targetLabel(cfg, v)})`;
       const fromVariant = project.selectVariant(graft, from);
       const fromChange = fromVariant ? await forkChange(project, graft, fromVariant).catch(() => undefined) : undefined;
       const patches = fromChange?.patches ?? [];
@@ -463,7 +512,7 @@ export function createForkAdapter(): MechanismAdapter {
       const tree = await materialize(project, graft, version, change);
       const branch = resultBranch(graft, version);
       try {
-        await commitTo(tree.root, branch, `${graft.id}: ${change.variant.ref} (on ${change.baseTag}) rebased onto ${tagFor(forkConfig(graft), version)}\n\nMaterialized by graft; not pushed.`);
+        await commitTo(tree.root, branch, `${graft.id}: ${change.variant.ref} (on ${change.baseTag}) rebased onto ${targetLabel(forkConfig(graft), version)}\n\nMaterialized by graft; not pushed.`);
       } catch (err) {
         await tree.dispose();
         throw err;
@@ -472,9 +521,46 @@ export function createForkAdapter(): MechanismAdapter {
       return { dir: tree.pkgDir, result: `branch \`${branch}\` in ${cache} (\`git fetch ${cache} ${branch}\`)`, dispose: tree.dispose };
     },
 
+    async afterVerified(ctx: GraftContext, version: string) {
+      // Repo mode with the graft living in the fork: the result carries the graft's own files
+      // (with the just-recorded verification), so adopting it doesn't drop or revert them.
+      const { project, graft } = ctx;
+      if (!isStandalone(graft) || !graftLivesInFork(project, graft)) return;
+      const dir = repoDir(project, graft);
+      const branch = resultBranch(graft, version);
+      if (!(await resolveForkRef(dir, `refs/heads/${branch}`))) return;
+      await replaceSubtree(dir, branch, path.relative(project.root, project.graftsDir).split(path.sep).join('/'), await graftFiles(project));
+    },
+
+    async prepareAgent(ctx: GraftContext, version: string) {
+      const { project, graft } = ctx;
+      const variant = project.selectVariant(graft, version) ?? project.selectVariant(graft, graft.frontmatter.rootstock.verified);
+      if (!variant) return undefined;
+      const change = await forkChange(project, graft, variant);
+      const dir = repoDir(project, graft);
+      const target = await upstreamRev(dir, forkConfig(graft), version);
+      const base = await baseRevision(dir, graft, change.variant.base);
+      const branch = `${resultBranch(graft, version)}-agent`;
+      const label = targetLabel(forkConfig(graft), version);
+      const conflicted = await mergeToBranch(
+        dir,
+        base.rev,
+        target,
+        change.refRev,
+        branch,
+        `${graft.id}: ${change.variant.ref} (on ${change.baseTag}) merged onto ${label} for an agent\n\nPrepared by graft; not pushed.`,
+      );
+      const cache = path.relative(project.root, dir) || '.';
+      const where = `branch \`${branch}\` in ${cache} (\`git fetch ${cache} ${branch}\`): git's merge of the fork's change onto ${label}`;
+      return conflicted.length
+        ? `${where}, with conflict markers in ${conflicted.length} file(s): ${conflicted.join(', ')}`
+        : `${where}; it merges without conflicts, so check the oracle output and the anchors that missed`;
+    },
+
     async beforeInstall(ctx: GraftContext, version: string) {
       const { project, graft } = ctx;
       if (isStandalone(graft)) throw new GraftError(`graft "${graft.id}": fork.install is "none"; nothing is installed`, 'fork/standalone');
+      if (commitOf(version)) throw new GraftError(`graft "${graft.id}": commit targets (${version}) are only for repo mode (fork.install: none); installs need a release tag`, 'fork/commit-target');
       const variant = project.selectVariant(graft, version);
       if (!variant) throw new GraftError(`graft "${graft.id}": no variant covers ${version}`, 'variant/none');
       const change = await forkChange(project, graft, variant);

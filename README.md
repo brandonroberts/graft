@@ -288,6 +288,10 @@ Verified end to end against the real `vercel/ms` repository with a local fork (a
 
 Some forks aren't dependencies at all: a translated docs site, a tool run from source. With `install: none`, nothing is packed or installed. `sync` rebases the fork's change onto the target tag in a fresh checkout and runs the oracle *there*, then leaves the result as the local branch `graft/<id>/<version>` in `.grafts/.cache/fork/<id>` for you to fetch. The graft can live in the fork itself (`repo: .`), and `base` may be any upstream commit, because these forks often sit between releases.
 
+- **Commit targets.** `graft sync --version 22.3.0-next.3+57905ca4e6` syncs to that upstream commit. The version part is what variant ranges match; the build metadata names the commit.
+- **The result keeps the graft.** When the graft lives in the fork, the result branch includes `.grafts/` with the new verification, so adopting it is one tree swap: `git fetch .grafts/.cache/fork/<id> graft/<id>/<version> && git read-tree -u --reset FETCH_HEAD && git commit`.
+- **A starting point for the agent.** On `needs-agent`, Graft prepares `graft/<id>/<version>-agent`: git's merge of the change onto the target, with conflict markers only in the files that conflict (the report lists them). Every other file is already merged.
+
 ```yaml
 mechanism: fork
 fork:
@@ -300,7 +304,7 @@ oracle:
 
 Checked against the real [angular-tr](https://github.com/erkamyaman/angular-tr) (the Turkish angular.dev translation: 525 files over upstream, including 461 pages). The checks below ran on a local, history-free copy of its trees:
 - **At its own base,** `sync` materialized a tree identical to the fork's branch (text, a binary image, an executable bit).
-- **Onto `v22.3.0-next.3`,** 2,833 hunks were checked. The 7 files that miss are exactly the ones `git apply --3way` conflicts on. One is a page the fork rewrote whole, where upstream appended a section right after it. The agent is handed a 364-line diff of what upstream changed in the 10 translated files it touched; the full upstream diff for that range is about 51,000 changed lines.
+- **Onto `v22.3.0-next.3`** (also given as the commit `22.3.0-next.3+<sha>`), 2,833 hunks were checked. The 7 files that miss are exactly the ones `git apply --3way` conflicts on, and the prepared `-agent` branch has conflict markers in just those 7. One is a page the fork rewrote whole, where upstream appended a section right after it. The agent is handed a 364-line diff of what upstream changed in the 10 translated files it touched; the full upstream diff for that range is about 51,000 changed lines.
 - **Upstream English that rebases cleanly** into a translated page (a 63-line addition to `i18n/deploy.md`) is left to the oracle, the project's untranslated-page check.
 
 ## Dogfood validation
