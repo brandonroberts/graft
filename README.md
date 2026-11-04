@@ -56,7 +56,6 @@ The full, normative description of this layout and of `graft.md` is in [`docs/sp
   <graft-id>/
     graft.md             # intent file (frontmatter + body)
     variants/            # one mechanism implementation per upstream version range
-    cache/               # cached derived artifacts
   .cache/                # fetched upstream tarballs (gitignored)
   .report/               # sync reports for CI and agents (gitignored)
 ```
