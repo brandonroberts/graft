@@ -114,3 +114,31 @@ describe('graft CLI: bookkeeping commands', () => {
     expect(existsSync(path.join(g, 'graft.md'))).toBe(true);
   });
 });
+
+describe('graft init --agent', () => {
+  const run = (cwd: string, ...args: string[]) => spawnSync(process.execPath, [BIN, 'init', ...args, '--root', cwd], { encoding: 'utf8' });
+
+  it('fails without creating anything when no agent skills folder is detected', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'graft-init-'));
+    const r = run(root, '--agent');
+    expect(r.status).toBe(2);
+    expect(r.stderr).toMatch(/no agent skills folder found.*--skills-dir/);
+    expect(existsSync(path.join(root, '.grafts'))).toBe(false);
+  });
+
+  it('installs into the detected agent folder, or into --skills-dir', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'graft-init-'));
+    await mkdir(path.join(root, '.cursor'));
+    const r = run(root, '--agent');
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain('.cursor/skills (agent folder)');
+    expect(existsSync(path.join(root, '.cursor/skills/graft-sync/SKILL.md'))).toBe(true);
+    expect(existsSync(path.join(root, '.grafts'))).toBe(true);
+    expect(existsSync(path.join(root, '.claude'))).toBe(false);
+
+    const explicit = run(root, '--agent', '--skills-dir', '.agents/skills,.codex/skills');
+    expect(explicit.status).toBe(0);
+    expect(existsSync(path.join(root, '.agents/skills/graft-sync/SKILL.md'))).toBe(true);
+    expect(existsSync(path.join(root, '.codex/skills/graft-sync/SKILL.md'))).toBe(true);
+  });
+});

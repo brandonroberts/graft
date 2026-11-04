@@ -159,7 +159,12 @@ The [skill](packages/skill/SKILL.md) (`graft-sync`) teaches any agent the loop a
 - know when to stop and mark `conflicted`;
 - write the PR description in the given format.
 
-To set it up in a project, run **`graft init --agent`**. It installs the skill at `.claude/skills/graft-sync/SKILL.md` from the `@graftsync/skill` package (re-running updates it when Graft ships a new version), and notes if `@graftsync/cli` isn't a dependency yet. For agents that don't read that location, point them at the file.
+To set it up in a project, run **`graft init --agent`**. It installs the skill as `graft-sync/SKILL.md` into the skills folders the project's agents already use, from the `@graftsync/skill` package:
+- every existing skills folder among `.claude/skills`, `.agents/skills`, `.codex/skills`, `.cursor/skills`, `.gemini/skills` and `.github/skills`;
+- failing that, `skills/` under each existing agent folder (`.claude/`, `.agents/`, `.codex/`, `.cursor/`, `.gemini/`). `.github/` alone doesn't count, since most repos have it just for workflows;
+- with no agent detected, it stops before creating anything and asks for `--skills-dir <path>` (comma-separated for several), rather than guessing. `--skills-dir` always overrides detection.
+
+Re-running updates the skill when Graft ships a new version. It also notes if `@graftsync/cli` isn't a dependency yet.
 
 The CLI runs in the agent's shell, so it inherits the usual proxy settings (`HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY`, and `NODE_EXTRA_CA_CERTS` for a proxy that re-signs TLS) for its registry fetches.
 

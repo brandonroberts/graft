@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import semver from 'semver';
@@ -38,14 +38,32 @@ export async function initProject(root: string): Promise<string[]> {
   return created;
 }
 
-export const AGENT_SKILL_PATH = '.claude/skills/graft-sync/SKILL.md';
+/** Directory name of the skill inside a skills folder. */
+export const SKILL_NAME = 'graft-sync';
+
+/**
+ * Skills folders that coding agents read, relative to the project root. If one exists, the
+ * project uses that agent's skills.
+ */
+export const KNOWN_SKILLS_DIRS = ['.claude/skills', '.agents/skills', '.codex/skills', '.cursor/skills', '.gemini/skills', '.github/skills'];
+
+/**
+ * Agent config folders whose `skills/` subfolder the agent reads. A project that has one of these
+ * but no skills folder yet uses that agent. (`.github/` is not here: most repos have it for
+ * workflows, not Copilot.)
+ */
+export const KNOWN_AGENT_DIRS = ['.claude', '.agents', '.codex', '.cursor', '.gemini'];
 
 export interface SetupAgentInput {
   /** Contents of the graft-sync SKILL.md to install (the CLI reads it from @graftsync/skill). */
   skill: string;
+  /** Install into these skills folders (relative to root) instead of detecting them. */
+  skillsDirs?: string[];
 }
 
 export interface SetupAgentResult {
+  /** Skills folders the skill was installed into, relative to the root, and how they were chosen. */
+  skillsDirs: { dir: string; reason: 'existing skills folder' | 'agent folder' | 'requested' }[];
   /** Files created or updated, with what happened to each. */
   files: { file: string; action: 'created' | 'updated' | 'unchanged' }[];
   /** Things the user still has to do. */
@@ -53,20 +71,49 @@ export interface SetupAgentResult {
 }
 
 /**
- * Onboard coding agents to a project: install the graft-sync skill, which teaches an agent
- * the sync loop through the `graft` CLI. Rewritten only when its content differs. Idempotent.
+ * The skills folders this project's agents read: every existing known skills folder; failing
+ * that, `skills/` under every existing known agent folder. Empty when nothing is detected.
+ */
+export function detectSkillsDirs(root: string): SetupAgentResult['skillsDirs'] {
+  const isDir = (rel: string) => {
+    try {
+      return statSync(path.join(root, rel)).isDirectory();
+    } catch {
+      return false;
+    }
+  };
+  const existing = KNOWN_SKILLS_DIRS.filter(isDir).map((dir) => ({ dir, reason: 'existing skills folder' as const }));
+  if (existing.length) return existing;
+  return KNOWN_AGENT_DIRS.filter(isDir).map((d) => ({ dir: `${d}/skills`, reason: 'agent folder' as const }));
+}
+
+/**
+ * Onboard coding agents to a project: install the graft-sync skill (which drives Graft through
+ * the `graft` CLI) into the skills folders the project's agents read. Detected unless given;
+ * fails rather than guessing when no agent is detected. Idempotent.
  */
 export async function setupAgent(root: string, input: SetupAgentInput): Promise<SetupAgentResult> {
-  const result: SetupAgentResult = { files: [], notes: [] };
-
-  const skillFile = path.join(root, AGENT_SKILL_PATH);
-  const current = existsSync(skillFile) ? await readFile(skillFile, 'utf8') : undefined;
-  if (current === input.skill) {
-    result.files.push({ file: skillFile, action: 'unchanged' });
-  } else {
-    await mkdir(path.dirname(skillFile), { recursive: true });
-    await writeFile(skillFile, input.skill);
-    result.files.push({ file: skillFile, action: current === undefined ? 'created' : 'updated' });
+  const skillsDirs = input.skillsDirs?.length
+    ? input.skillsDirs.map((dir) => ({ dir: dir.replace(/\/+$/, ''), reason: 'requested' as const }))
+    : detectSkillsDirs(root);
+  if (!skillsDirs.length) {
+    throw new GraftError(
+      `no agent skills folder found in ${root} (looked for ${KNOWN_SKILLS_DIRS.join(', ')} and agent folders ${KNOWN_AGENT_DIRS.join(', ')}). ` +
+        'Pass --skills-dir <path> to choose where to install the graft-sync skill.',
+      'agent/no-skills-dir',
+    );
+  }
+  const result: SetupAgentResult = { skillsDirs, files: [], notes: [] };
+  for (const { dir } of skillsDirs) {
+    const skillFile = path.join(root, dir, SKILL_NAME, 'SKILL.md');
+    const current = existsSync(skillFile) ? await readFile(skillFile, 'utf8') : undefined;
+    if (current === input.skill) {
+      result.files.push({ file: skillFile, action: 'unchanged' });
+    } else {
+      await mkdir(path.dirname(skillFile), { recursive: true });
+      await writeFile(skillFile, input.skill);
+      result.files.push({ file: skillFile, action: current === undefined ? 'created' : 'updated' });
+    }
   }
 
   const manifest = path.join(root, 'package.json');
@@ -75,7 +122,6 @@ export async function setupAgent(root: string, input: SetupAgentInput): Promise<
     const has = (name: string) => ['dependencies', 'devDependencies'].some((f) => json[f]?.[name] !== undefined);
     if (!has('@graftsync/cli')) result.notes.push('add @graftsync/cli as a devDependency so agents can run `graft`');
   }
-  result.notes.push(`agents that don't read ${AGENT_SKILL_PATH}: point them at that file; it uses the \`graft\` CLI (all commands take --json)`);
   return result;
 }
 

@@ -79,7 +79,11 @@ const init = defineCommand({
     ...common,
     agent: {
       type: 'boolean',
-      description: 'Also onboard coding agents: install the graft-sync skill (it drives Graft through this CLI)',
+      description: "Also onboard coding agents: install the graft-sync skill (it drives Graft through this CLI) into the project's agent skills folders",
+    },
+    'skills-dir': {
+      type: 'string',
+      description: 'With --agent: install into this skills folder instead of detecting (comma-separated for several), e.g. .agents/skills',
     },
     package: { type: 'string', description: 'Upstream package for a starter graft' },
     id: { type: 'string', description: 'Starter graft id (default: <package>-graft)' },
@@ -87,15 +91,18 @@ const init = defineCommand({
   },
   run: guarded(async (args) => {
     const root = path.resolve(args.root ?? process.cwd());
+    // Agent setup first: if no skills folder can be found, fail before creating anything.
+    const skillsDirs = args['skills-dir']?.split(',').map((d) => d.trim()).filter(Boolean);
+    const agent = args.agent ? await setupAgent(root, { skill: await readBundledSkill(), skillsDirs }) : undefined;
     const created = await initProject(root);
     if (args.package) {
       const project = await open(root);
       const id = args.id ?? `${args.package.replace(/^@/, '').replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-graft`;
       created.push(...(await addGraft(project, { id, package: args.package, mechanism: args.mechanism })));
     }
-    const agent = args.agent ? await setupAgent(root, { skill: await readBundledSkill() }) : undefined;
     print(args.json, { created, agent }, () => {
       for (const f of created) console.log(`created ${path.relative(process.cwd(), f)}`);
+      for (const d of agent?.skillsDirs ?? []) if (d.reason !== 'requested') console.log(`skills    ${d.dir} (${d.reason})`);
       for (const f of agent?.files ?? []) {
         const what = { created: 'created', updated: 'updated', unchanged: 'up to date' }[f.action];
         console.log(`${what.padEnd(10)} ${path.relative(process.cwd(), f.file)}`);
