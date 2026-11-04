@@ -20,7 +20,7 @@ The flow below has been tested end to end on a real project (`ms`, adding a `for
 
 ```sh
 pnpm add -D @graftsync/cli @graftsync/mcp
-pnpm exec graft init
+pnpm exec graft init --agent                                      # .grafts/, plus the MCP server and skill for agents
 pnpm exec graft add ms-fortnight --package ms --target index.js   # graft.md + variant stub + oracle stub
 pnpm patch ms@2.1.2                                               # edit the printed directory
 pnpm patch-commit <dir> --patches-dir .grafts/tmp                 # then move the .patch onto variants/v2.patch

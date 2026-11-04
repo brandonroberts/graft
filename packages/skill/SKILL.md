@@ -83,7 +83,7 @@ Reports from `sync` land in `.grafts/.report/` (`sync.md`, `sync.json`, and per 
 
 When asked to capture a modification as a graft (new, or migrating an existing patch):
 
-1. **Scaffold:** `graft init` (once), then `graft add <id> --package <pkg> --target <file>`.
+1. **Scaffold:** `graft init --agent` (once; it also registers this MCP server and skill), then `graft add <id> --package <pkg> --target <file>`.
    This creates `graft.md`, an empty variant stub (which fails loudly until written), and an
    oracle stub that exits 1.
 2. **Write the intent first,** with the person who owns the modification if you can: *Why*,
