@@ -2,7 +2,7 @@
 
 > Agent-first tooling for keeping local modifications to upstream software in sync, automatically.
 
-This is the current handoff for the project as built (November 2026). It replaces the original design brief, which is in git history ([`docs/handoff.md` at `458f321`](https://github.com/brandonroberts/graft/blob/458f321/docs/handoff.md)). The *Decisions since the original brief* section lists every place the build differs from that plan, with the reason. The normative format is in [`docs/spec.md`](spec.md) (draft v1).
+This is the current handoff for the project as built (November 2026, after the 0.1.1 release). It replaces the original design brief, which is in git history ([`docs/handoff.md` at `458f321`](https://github.com/brandonroberts/graft/blob/458f321/docs/handoff.md)). The *Decisions since the original brief* section lists every place the build differs from that plan, with the reason. The normative format is in [`docs/spec.md`](spec.md) (draft v1, ready to freeze: #6).
 
 ## 1. Problem
 
@@ -33,8 +33,8 @@ Coding agents can do the fixing, but nothing triggers them, nothing tells them *
 **Non-goals:**
 - Graft doesn't ship an agent or call an LLM.
 - No hosted service.
-- npm ecosystem only.
-- No ordering between overlapping grafts. Two active patch grafts on one package are now an error instead (§6).
+- npm packages only, for installed dependencies. (A fork in repo mode is any git repository: its oracle is any command, so the product can be a docs site or a tool in any language.)
+- No ordering between overlapping grafts. Two active `patch` (or two `fork`) grafts on one package are an error instead (§6).
 - Graft never sets `upstreamed` itself; it only *flags* likely absorption for a person to confirm.
 
 ## 4. Architecture
@@ -45,11 +45,13 @@ packages/
   core/             @graftsync/core           project loading, adapter interface, upstream sources, oracle runner,
                                               scoped diffs, sync, replay, outdated, record/update, init/add, applyInstalled
   adapters/patch/   @graftsync/adapter-patch  the patch mechanism and its appliers
-  adapters/fork/    @graftsync/adapter-fork   the fork mechanism: rebase a fork's commits per upstream tag, build, pack
+  adapters/fork/    @graftsync/adapter-fork   the fork mechanism: rebase a fork's commits per upstream tag; build and
+                                              pack, or (repo mode) verify the rebased checkout in place
   cli/              @graftsync/cli            the `graft` command, for people, CI and agents
   skill/            @graftsync/skill          SKILL.md teaching agents the sync loop through the CLI
-  action/           (private)                 composite GitHub Action, plain ESM .mjs, no build step
+  action/           (private)                 composite GitHub Action, plain ESM .mjs, no build step; used from main
 tools/cjs-to-esm/                             converter used as the generator for the dogfood grafts
+examples/angular-tr/                          a drop-in repo-mode setup for a real fork, tested against it (§6)
 .grafts/                                      this repo's own grafts (dogfood, §10)
 ```
 
@@ -85,16 +87,17 @@ Validation fails loudly on:
 - an `id` that doesn't match its directory;
 - overlapping variant ranges, compared with prereleases included;
 - a duplicate variant module;
-- an unknown mechanism;
-- two active patch grafts on the same package.
+- an unknown mechanism, or `mechanism: fork` without a `fork:` block;
+- two active grafts on the same package whose mechanism allows only one (`patch`, `fork`).
 
 Variant selection is the first range that satisfies the version, prereleases included; use a `-0` floor for prerelease targets. Registering a variant narrows overlapping open-ended older ranges and never edits existing variants. A verify version must lie inside the new range.
 
-The oracle runs once per mode, through a shell in the project root, with these environment variables set:
+The oracle runs once per mode, through a shell, with these environment variables set:
 - `GRAFT_ID`, `GRAFT_DIR` and `GRAFT_MODE`;
-- `GRAFT_PACKAGE` and `GRAFT_UPSTREAM_VERSION`.
+- `GRAFT_PACKAGE` and `GRAFT_UPSTREAM_VERSION`;
+- `GRAFT_PROJECT_ROOT`, and for standalone grafts `GRAFT_WORKSPACE`.
 
-Exit 0 is a pass.
+It runs in the project root, except a standalone graft's, which runs in the materialized upstream (so its command uses `$GRAFT_DIR`). Exit 0 is a pass.
 
 ## 6. Mechanism adapters
 
@@ -107,10 +110,18 @@ interface MechanismAdapter {
   beforeInstall?(ctx, version): Promise<void | { install?: 'reinstall' }>;
   afterInstall?(ctx, version): Promise<void>;
   applyInstalled?(ctx): Promise<InstalledApplyReport>;         // the built-in postinstall applier
+  // Standalone grafts (fork repo mode): nothing installed, oracle runs in a workspace.
+  standalone?(graft): boolean;
+  workspace?(ctx, version): Promise<Workspace>;                 // { dir, result?, fetch?, dispose }
+  recordsInResult?(ctx, version): Promise<boolean>;            // record a green sync in the result, not graft.md
+  afterVerified?(ctx, version, update?): Promise<void>;
+  newerVersion?(ctx): Promise<{ version, tag } | undefined>;   // `outdated` without dist-tags
+  prepareAgent?(ctx, version): Promise<AgentStart | undefined>; // e.g. the -agent branch with conflict markers
   validateVariant?(ctx, variant): Promise<void>;
-  exclusivePerPackage?: boolean;                                // patch: one graft per package
-  variantExtension?: string;                                    // patch: '.patch'
-  variantTemplate?(graft): string;
+  exclusivePerPackage?: boolean;                                // patch, fork: one graft per package
+  variantExtension?: string;                                    // patch: '.patch', fork: '.json'
+  variantTemplate?(input): string;                              // input: id, package, targets, root, modes, options
+  scaffoldFrontmatter?(input): Record<string, unknown>;         // e.g. the fork: block (graft add flags)
 }
 ```
 
@@ -158,7 +169,7 @@ The modification lives as commits on a fork (`fork: { repo, upstream, tag, dir?,
   3. `npm pack --ignore-scripts`, checking that it packs as `<package>@<version>`.
   4. Commit the tarball as `.grafts/.vendor/<pkg>-<version>.tgz` and install it through the same override logic as the `vendor` applier (shared code).
 - **Graft never pushes to the fork.**
-- **Agent path:** on a conflict, the agent re-applies the change on a new fork branch cut from the new tag, then registers a new variant.
+- **Agent path:** on a conflict, sync prepares `graft/<id>/<version>-agent` in the cache clone: git's merge of the change onto the target, with conflict markers in just the conflicting files. The agent resolves them on a fork branch, then registers a new variant.
 
 Verified against the real `vercel/ms` repo, with a local fork, on npm and pnpm:
 - `sync --version 2.1.3 --install` rebased the fork from 2.1.2 automatically and went green;
@@ -171,14 +182,16 @@ Verified against the real `vercel/ms` repo, with a local fork, on npm and pnpm:
 - Hunks at the start or end of a file miss when upstream added lines right against them, matching git's merge.
 - Targets can be upstream commits (`X+<sha>`, semver build metadata); a green result carries the fork's own `.grafts/`; a needs-agent sync prepares `graft/<id>/<version>-agent`, git's merge with conflict markers (new hooks `afterVerified` / `prepareAgent`).
 - In place: one permanent variant `{ "ref": "@worktree", "base": "@verified" }`; a green sync records the verification in the result only (`recordsInResult`), and the `-agent` branch's graft.md is at the target (status conflicted), so it verifies in place. `outdated` lists repo-mode grafts from upstream tags or `fork.track` (`newerVersion`). The Action adopts results and agent branches into PRs.
+- Scaffold: `graft add <id> --package <name> --mechanism fork --in-place --version <X[+sha]>` from the fork's checkout (upstream from its `upstream` remote).
 - On angular-tr's real trees: a byte-identical result at its base, and exactly git's 7 conflicting files onto `v22.3.0-next.3`, with a 364-line scoped diff for the agent.
+- [`examples/angular-tr`](../examples/angular-tr) is a drop-in setup, tested with the published CLI on a shallow clone against real angular/angular. Its oracle fails when a translated page reverts to English, gains English headings or prose, loses upstream structure, or keeps conflict markers, baselined on the fork's last commit. It caught a careless conflict resolution (English merged cleanly into `deploy.md`, sections dropped from `ssr.md` and `locale-id.md`). What no oracle catches: an upstream wording change inside a paragraph replaced by stale Turkish.
 
 ## 7. CLI
 
 | Command | Behavior |
 |---|---|
 | `graft init [--package P] [--agent] [--skills-dir D]` | Create `.grafts/`. With `--agent`, install the skill into the project's agent skills folders (detected; fails rather than guesses) |
-| `graft add <id> --package P [--target F]` | Scaffold `graft.md`, a variant stub that fails loudly, and an oracle stub that exits 1 |
+| `graft add <id> --package P [--target F] [--mechanism fork [--in-place \| --repo-mode] [--upstream U] [--fork-repo R] [--tag T] [--track B]]` | Scaffold `graft.md`, a variant stub that fails loudly, and an oracle stub that exits 1; fork flags fill in the `fork:` block |
 | `graft status` · `graft check [<id>] [--version X]` | Anchor, config and installed-copy health |
 | `graft show <id>` | Intent sections, variants with resolved paths, the variant selected for the installed version |
 | `graft diff <id> [from] [to]` | Scoped upstream diff |
@@ -188,18 +201,18 @@ Verified against the real `vercel/ms` repo, with a local fork, on npm and pnpm:
 | `graft verify <id>` | Run the oracle in all modes |
 | `graft mark <id> [--status S] [--verified X] [--history H]` | Bookkeeping |
 | `graft sync [--version X] [--install] [--dry-run]` | The deterministic first pass; writes `.grafts/.report/sync.{json,md}` |
-| `graft outdated` · `graft replay <id> [--range R]` | Newer dist-tagged versions (latest, next, rc, beta; not canary) · static checks across every published version |
+| `graft outdated` · `graft replay <id> [--range R]` | Newer dist-tagged versions (latest, next, rc, beta; not canary), or for repo-mode forks the newest upstream tag or `fork.track` tip · static checks across every published version |
 
 All commands take `--json` and `--root`. Exit codes: `0` ok, `1` needs attention, `2` tooling error.
 
 ## 8. The sync loop
 
 1. **Deterministic first pass** (`graft sync`), per package:
-   1. **Static checks** against the pristine target: variant selection, anchors, apply. If they fail and the graft has a `generator`, it regenerates a variant, registers it, and re-checks.
+   1. **Static checks** against the pristine target: variant selection, anchors, apply. If they fail and the graft has a `generator`, it regenerates a variant, registers it, and re-checks. A generator that exits `GRAFT_EXIT_UPSTREAMED` (3) says upstream already does the graft's job; the graft is then flagged "likely upstreamed".
    2. **Install** (`--install`), only if every graft on that package passed its static checks. Before installing, `beforeInstall` rewires the applier.
    3. **Oracle** in every mode.
 
-   Green grafts get `verified` bumped and a History entry. Everything else is `needs-agent`, with reasons and a scoped diff, flagged "likely upstreamed" when that applies. A regenerated variant that doesn't end green is rolled back.
+   Green grafts get `verified` bumped and a History entry (in place, in the materialized result). Everything else is `needs-agent`, with reasons (missed anchors grouped by file), a scoped diff, a starting point from the adapter (`agentStart`) and the "likely upstreamed" flag when that applies. A regenerated variant that doesn't end green is rolled back. Standalone grafts sync on their own, with no install.
 2. **Agent path,** taught by the skill:
    1. Read the intent with `graft show`, the anchor report, the diff and the oracle output.
    2. Write a new variant.
@@ -216,8 +229,10 @@ All commands take `--json` and `--root`. Exit codes: `0` ok, `1` needs attention
    - **Green:** a PR.
    - **Needs an agent, with `agent-command` set:** run the agent with `GRAFT_PROMPT_FILE`, `GRAFT_SKILL_PATH`, `GRAFT_COMMAND`, the report paths and `GRAFT_PR_BODY_FILE`. Then **re-run sync** rather than trusting the agent. Green opens a PR; still failing opens a draft PR.
    - **Nothing to commit:** an issue, created only once.
+   - **Repo-mode forks:** sync by graft id with no install; the PR branch takes Graft's rebased result (green) or the `-agent` branch (conflicts; the agent resolves in place, or a draft PR lists the files).
+   - **PRs refused** (Actions may not open PRs, #18): the branch is pushed and an issue links a one-click compare page; not an error. A GitHub App token or fine-grained PAT as `github-token` avoids that and makes the PRs trigger CI.
 
-Existing branches and issues are skipped. This repo's workflow (`.github/workflows/graft-sync.yml`) is manual-trigger only.
+Existing branches and issues are skipped. This repo's workflow (`.github/workflows/graft-sync.yml`) is manual-trigger only. Its first real run (#3) found `yaml@3.0.0-2` and opened #17.
 
 ## 10. Dogfood
 
@@ -229,7 +244,7 @@ Graft keeps three of its own CommonJS dependencies converted to native ESM, as r
 | `semver-esm` | 50 files | 14,060-case comparison against pristine CommonJS |
 | `yaml-esm` | 75 files | comparison against pristine `dist/`, including `!!binary` and warnings |
 
-`tools/cjs-to-esm` is their `generator`. It keeps live bindings, makes export-then-require cycles lazy, avoids the dual-package hazard via `createRequire`, and refuses unfaithful cases. Every oracle uses `module.registerHooks` to fail if anything loads as CommonJS. yaml 3.0.0-2 (on `next`) is already native ESM, so `yaml-esm` will be flagged "likely upstreamed" when 3.x lands.
+`tools/cjs-to-esm` is their `generator`. It keeps live bindings, makes export-then-require cycles lazy, avoids the dual-package hazard via `createRequire`, and refuses unfaithful cases. Every oracle uses `module.registerHooks` to fail if anything loads as CommonJS. yaml 3.0.0-2 (on `next`) is already native ESM: the generator exits `GRAFT_EXIT_UPSTREAMED`, so sync flags `yaml-esm` "likely upstreamed" (#17). When 3.0.0 is stable: upgrade Graft's `yaml`, confirm, mark it `upstreamed` and remove it.
 
 ## 11. Decisions since the original brief
 
@@ -246,7 +261,9 @@ Graft keeps three of its own CommonJS dependencies converted to native ESM, as r
 | Agent-only handling of every non-green sync | Optional `generator` regenerates mechanical variants first | Generated variants (e.g. the ESM conversions) break on most releases and need no judgment |
 | "Second mechanism" left for M4 | `fork` mechanism built | Forks are a common way teams carry modifications, and they test the abstraction: anchors on upstream *source* tags instead of the published package |
 | Scheduled Action + publish on push | Both manual-trigger only | Maintainer preference: no unattended PRs, issues or publishes yet |
-| Node 20+ | Node ≥ 22.22 / 24.15 / 26, ESM only, TypeScript 7 | Dependency requirements (pacote 22, vitest 5); Node 20 is end-of-life |
+| Node 20+ | Node ≥ 22.22 / 24.15 / 26, ESM only, TypeScript 7; CI on 22, 24 and 26 with Node 24 action runtimes | Dependency requirements (pacote 22, vitest 5); Node 20 is end-of-life |
+| Forks as dependencies only | Repo mode: forks that are the product, verified in place with one permanent variant (`@worktree` / `@verified`) | Translated docs sites and the like are long-lived forks with no consumer to install into (angular-tr) |
+| Publish with provenance, tags per package | No provenance; one `v<version>` tag and GitHub release per release | Maintainer preference; the packages share one version |
 
 ## 12. Milestones
 
@@ -254,9 +271,9 @@ Graft keeps three of its own CommonJS dependencies converted to native ESM, as r
 |---|---|
 | M0: spec and skeleton | Done (spec draft v1 in `docs/spec.md`) |
 | M1: first mechanism with a design partner | `patch` done and dogfooded on pacote/semver/yaml and tested on real `ms` projects across pnpm, npm 10/12, yarn 1/4 (PnP and node-modules), bun and upm. **Design partner pending (#5)** |
-| M2: deterministic pass in CI | Done: CLI, reports, `graft check` in CI, the Action. **First real Action run pending (#3)** |
+| M2: deterministic pass in CI | Done: CLI, reports, `graft check` in CI, the Action, its first real run (#3, which produced #17) |
 | M3: agent path | CLI commands, skill and Action hand-off done. **Real-agent evaluation pending (#4)** |
-| M4: second, unrelated mechanism | The `fork` mechanism is done (#15), through the same adapter interface; it needed only small optional hooks (`scaffoldFrontmatter`, a `fork:` frontmatter block). **Freezing spec v1 is still open (#6)** |
+| M4: second, unrelated mechanism | Done: `fork` (#15) with repo mode (#16), through the same adapter interface plus optional hooks. Spec reviewed and brought in line with the code; **freezing v1 is the open decision (#6)** |
 
 ## 13. Success metrics (unchanged)
 
@@ -269,25 +286,28 @@ Graft keeps three of its own CommonJS dependencies converted to native ESM, as r
 
 - **Weak oracles** let agents produce passing-but-wrong variants. Mitigation: invariant-driven oracles, differential oracles where possible (as in the dogfood), and review during the eval.
 - **Package-manager drift.** The silent failures in §6 are each tool's real behavior as of pnpm 10.28, npm 12.2, bun 1.4, yarn 4.18 and upm 1.5. New versions can change them. `graft check` (installed-copy comparison) in CI is the backstop.
-- **Premature generalization.** The spec mustn't be frozen before a second mechanism exists (#6).
+- **Premature generalization.** A second mechanism now exists; the remaining risk is freezing hooks that only repo mode uses (#6).
 - **Incumbents** (Renovate, Dependabot) adding agent-driven patch rebasing. Mitigation: the open spec; make them consumers of graft files.
 
 ## 15. Open work
 
-- **#1:** publish 0.1.0. The org and `NPM_TOKEN` are ready; run the Release workflow manually.
-- **#3:** first real run of the sync Action. It needs "Allow GitHub Actions to create and approve pull requests".
-- **#4:** real-agent evaluation (needs agent and API credentials). This is the most important unanswered question.
-- **#5:** a design partner.
-- **#6:** freeze spec v1, now that a second mechanism (`fork`, #15, with repo mode #16) exists. Review whether the adapter interface held up for both.
-- **angular-tr as a live test case:** run repo mode on the real fork with its maintainer (their `list-untranslated.sh` plus the docs build as the oracle). Not contacted yet.
+**Released:** 0.1.0 and 0.1.1 are on npm (`@graftsync/*`, tags `v0.1.0`, `v0.1.1`). #1, #3, #15, #16 and #18 are done.
+
+- **#4:** real-agent evaluation (needs agent and API credentials). This is the most important unanswered question. angular-tr's 7 conflicting pages are a ready test case.
+- **#5:** a design partner. angular-tr is ready to pitch (`examples/angular-tr`, 0.1.1); contacting its maintainer is the owner's call.
+- **#6:** freeze spec v1. The spec matches the code; the decision is whether to keep the repo-mode hooks flat or group them (see the spec review in #6).
+- **#17:** waiting for yaml 3.0.0 stable (retire `yaml-esm`).
 - **Known gaps:**
   - regeneration when the target is already installed under pnpm falls back to an agent;
   - the built-in and patch-package appliers are untested on yarn 2+ with node-modules;
   - the skills-folder list in `graft init --agent` comes from my knowledge, not each agent's docs;
-  - the Action README's Claude Code `--allowedTools` example is untested.
+  - the Action's Claude Code `agent-command` example is untested;
+  - repo mode fetches the whole upstream (angular/angular: ~680 MB, ~1 min) on every Action run; a cache or a partial clone would help;
+  - the angular-tr oracle has no docs-build mode yet (it needs a full install per run).
 - **Open questions carried over:**
   - Can one graft target several packages, or is that two grafts? (Today: one package per graft, one patch graft per package.)
   - Should upstream-authored migration notes feed the agent?
+  - `graft capture`: turn a change an agent made (in `node_modules` or a fork) into a graft in one command.
 
 ## 16. Working in this repo
 
@@ -299,6 +319,6 @@ node packages/cli/dist/bin.js check          # the dogfood grafts must be applie
 node packages/cli/dist/bin.js sync --quiet   # and green
 ```
 
-- **CI** (`.github/workflows/ci.yml`) runs exactly that on Node 22 and 24 for every push and PR.
-- **Releases** use Changesets. All `@graftsync/*` packages are versioned together. The Release workflow is run manually; see the README's *Releasing* section.
+- **CI** (`.github/workflows/ci.yml`) runs exactly that on Node 22, 24 and 26 for every push and PR.
+- **Releases** use Changesets; all `@graftsync/*` packages share one version. Add a changeset, version (`pnpm version-packages`, or let the Release workflow open a "Version packages" PR), then run **Release** manually: it publishes (npm stages new publishes for a few minutes), then tags `v<version>` and creates the GitHub release from the CLI changelog. Re-running Release backfills a missing tag. See the README's *Releasing* section.
 - **Dogfood:** `pnpm install` applies the dogfood patches through pnpm. Don't edit a variant by hand; regenerate with the generator, or add a new variant with `graft variant add`.

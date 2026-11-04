@@ -1,9 +1,12 @@
 # Graft spec — draft v1
 
-> **Status: draft.** This spec describes what the reference implementation (`@graftsync/spec`,
-> `@graftsync/core`, `@graftsync/adapter-patch`) does today. It stays a draft, and may change
-> without a version bump, until a second, unrelated mechanism has been implemented against it
-> ([#6](https://github.com/brandonroberts/graft/issues/6)). Only then is v1 frozen.
+> **Status: draft, ready to freeze.** This spec describes what the reference implementation
+> (`@graftsync/spec`, `@graftsync/core`, `@graftsync/adapter-patch`, `@graftsync/adapter-fork`,
+> published as 0.1.x) does today. The freeze condition, a second, unrelated mechanism implemented
+> against it, is met: `fork` (§9.2) uses the same adapter interface as `patch` (§9.1), with only
+> optional hooks added. v1 is frozen once
+> [#6](https://github.com/brandonroberts/graft/issues/6) closes; until then it may change
+> without a version bump.
 
 The key words MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119. Where this document
 says MUST, the reference tooling enforces it (by an error diagnostic, a refusal, or a failing
@@ -22,7 +25,7 @@ project root by walking up from the working directory to the nearest directory t
     graft.md               # the intent file (§2), REQUIRED
     variants/              # variant modules, by convention (paths are listed in graft.md)
     ...                    # anything else the graft needs (oracle scripts, fixtures)
-  .cache/                  # tool-owned: pristine upstream contents and registry cache (gitignored)
+  .cache/                  # tool-owned: pristine upstream contents, registry cache, fork clones (gitignored)
   .report/                 # tool-owned: sync reports (gitignored) (§6)
   .vendor/                 # patch mechanism, vendor applier: patched tarballs (committed)
   .patch-package/          # patch mechanism, patch-package applier: derived patches (committed)
@@ -54,8 +57,8 @@ YAML, is an error.
 |---|---|---|---|---|
 | `id` | string matching `^[a-z0-9][a-z0-9-]*$` | yes | — | Graft id (lowercase kebab-case). MUST equal the graft's directory name. |
 | `rootstock` | object | yes | — | The upstream package. |
-| `rootstock.package` | non-empty string | yes | — | npm package name of the upstream. |
-| `rootstock.verified` | semver version | yes | — | Last upstream version the oracle passed against. |
+| `rootstock.package` | non-empty string | yes | — | npm package name of the upstream. For a standalone graft (§9), any name for the upstream. |
+| `rootstock.verified` | semver version | yes | — | Last upstream version the oracle passed against. In fork repo mode it may name a commit as build metadata (`22.3.0-next.2+e36a63e20e`, §9.2). |
 | `mechanism` | non-empty string | yes | — | Name of the mechanism adapter that applies the graft (e.g. `patch`). MUST name an adapter the tooling has registered. |
 | `targets` | array of non-empty strings | no | — | Upstream files the mechanism operates on, relative to the package root. |
 | `variants` | array of variant objects, at least one | yes | — | One mechanism implementation per upstream version range. |
@@ -115,6 +118,8 @@ A graft is valid when it has no error diagnostics. Diagnostics, by code:
 | `variants/overlap` | error | Two variant ranges intersect (with `includePrerelease: true`). Every version MUST select at most one variant. |
 | `variants/duplicate-module` | error | The same `module` path is listed by more than one variant. |
 | `variants/verified-uncovered` | warning | `rootstock.verified` is not satisfied by any variant range. |
+| `frontmatter/fork-missing` | error | `mechanism: fork` without a `fork` block. |
+| `graft/duplicate-rootstock` | error | Two active grafts with an `exclusivePerPackage` mechanism (§9) target the same package. Reported on both. |
 
 ## 4. Variants and status
 
@@ -167,8 +172,12 @@ has passed against.
 The oracle is the only proof that a graft holds. Anchors matching, or a clean apply, is not
 success.
 
-- `oracle.command` is run **once per mode**, in the order of `oracle.modes`, through a shell,
-  with the **project root** (the directory containing `.grafts/`) as working directory.
+- `oracle.command` is run **once per mode**, in the order of `oracle.modes`, through a shell.
+  The working directory is the **project root** (the directory containing `.grafts/`), except
+  for a *standalone* graft (one whose mechanism installs nothing, §9): it runs in the workspace
+  its adapter materializes for the version, which has no `.grafts/`, so its command SHOULD refer
+  to its files through `$GRAFT_DIR`. If the workspace can't be materialized, every mode fails
+  with the reason as its output.
 - Every occurrence of `{mode}` in the command is replaced by the mode name.
 - The process inherits the caller's environment, plus:
 
@@ -182,9 +191,6 @@ success.
   | `GRAFT_PROJECT_ROOT` | Absolute path of the project root. |
   | `GRAFT_WORKSPACE` | Standalone grafts only: the materialized upstream with the graft applied, which is also the working directory. |
 
-- The oracle runs in the project root, except for a *standalone* graft (one whose mechanism
-  installs nothing, §9), which runs in the workspace its adapter materializes for the version.
-
 - A mode **passes** when the command exits 0 before the timeout (`oracle.timeout` seconds,
   default 600). On timeout the process receives `SIGTERM` and the mode fails. A command that
   fails to start fails.
@@ -197,7 +203,8 @@ success.
 
 `sync` is the deterministic first pass. For each active graft (optionally filtered by id or
 package), grouped by `rootstock.package`, with target version `T` (the given version, else
-the installed version):
+the installed version). A standalone graft (§9) is a group of its own: its default `T` is
+`rootstock.verified` (a re-verification), and it has no install step.
 
 1. **Static checks, before anything is installed**, against the pristine published contents
    of `T`: select the variant (§4.1), check its anchors, and apply it into
@@ -206,9 +213,11 @@ the installed version):
    `T` (only when installing was requested; otherwise the grafts get `error`). The adapter's
    `beforeInstall` runs first and `afterInstall` after. If some grafts on the package need an
    agent, nothing is installed and the passing ones are `skipped`.
-3. **Oracle,** against the installed `T`, in every mode. Failure marks the graft
-   `needs-agent`. On success, unless it's a dry run, `rootstock.verified` becomes `T`,
-   `status` becomes `applied`, and a History entry is appended.
+3. **Oracle,** against the installed `T` (for a standalone graft, in its workspace), in every
+   mode. Failure marks the graft `needs-agent`. On success, unless it's a dry run,
+   `rootstock.verified` becomes `T`, `status` becomes `applied`, and a History entry is
+   appended, in `graft.md`, or, when the adapter's `recordsInResult` says so, only in the
+   materialized result (§9.2, in place). The adapter's `afterVerified` then runs.
 
 **Generators.** A graft with a `generator` that fails step 1 gets one regeneration attempt: the
 command runs from the project root with `GRAFT_ID`, `GRAFT_DIR`, `GRAFT_PACKAGE`,
@@ -220,9 +229,14 @@ modification itself): nothing is registered, and the graft is reported `needs-ag
 *likely upstreamed*, for a human to confirm and set `status: upstreamed`. Any other exit is a
 failure, reported with the command's error message.
 
-When a graft is marked `needs-agent` and `T` differs from `rootstock.verified`, a scoped
-upstream diff from `verified` to `T` is written to `.grafts/.report/<id>/diff.patch` (and
-`diff.json`).
+When a graft is marked `needs-agent`, the adapter's `prepareAgent` (if any) prepares a starting
+point, reported as the graft's `agentStart` ("Start from" in `sync.md`). When `T` also differs
+from `rootstock.verified`, a scoped upstream diff from `verified` to `T` is written to
+`.grafts/.report/<id>/diff.patch` (and `diff.json`).
+
+A graft is reported *likely upstreamed* (`likelyUpstreamed`) when its adapter finds the target
+already contains its change, or its generator says so. The outcome stays `needs-agent`: a human
+confirms and sets `status: upstreamed`.
 
 Outcomes per graft: `green`, `needs-agent`, `skipped`, `error`. Invalid grafts are always
 reported as `error`.
@@ -237,7 +251,14 @@ reported as `error`.
 
 **Report files:** `.grafts/.report/sync.json` (the full machine-readable report) and
 `.grafts/.report/sync.md` (a human/agent summary with reasons, missed anchors, failing oracle
-output and the diff path).
+output, the diff path and the agent's starting point).
+
+### 6.1 Finding new versions (`outdated`)
+
+For each rootstock package, the newest version above every graft's `verified` among the npm
+dist-tags considered (default `latest`, `next`, `rc`, `beta`; prereleases included). A
+standalone graft has no dist-tags: its adapter's `newerVersion` supplies the candidate, one
+entry per graft (`standalone: true`).
 
 ## 7. `.grafts/config.json`
 
@@ -283,11 +304,11 @@ under the name used in `mechanism`.
 | `afterInstall?(ctx, version)` | no | Run right after `sync` installs `version`, for mechanisms that apply themselves. |
 | `applyInstalled?(ctx)` | no | Apply selected variants to installed package copies (from `postinstall`). MUST be idempotent, work offline, and never modify files shared with a package-manager store (write new inodes). |
 | `standalone?(graft)` | no | True when the graft installs nothing into the project. Its current version is `rootstock.verified`, `sync` skips the install step (and defaults to re-verifying `verified`), and the oracle runs in `workspace`. |
-| `workspace?(ctx, version)` | with `standalone` | Materialize the upstream at `version` with the graft applied, in a directory the oracle runs in; returns `{ dir, result?, dispose }`. Throw when it can't be done. |
+| `workspace?(ctx, version)` | with `standalone` | Materialize the upstream at `version` with the graft applied, in a directory the oracle runs in; returns `{ dir, result?, fetch?, dispose }` (`result`/`fetch`: where to get the materialized result afterwards). Throw when it can't be done. |
 | `afterVerified?(ctx, version, update?)` | no | Called by `sync` after a green result (not on dry runs); `update` is the graft.md change when `recordsInResult` said to record it in the result. |
 | `recordsInResult?(ctx, version)` | no | True when a green sync at `version` is recorded in the materialized result instead of graft.md; `afterVerified` then receives the update. |
 | `newerVersion?(ctx)` | no | For standalone grafts (no dist-tags): the newest upstream version above `verified`, with where it came from. `outdated` lists one entry per such graft (`standalone: true`). |
-| `prepareAgent?(ctx, version)` | no | Called by `sync` when a graft needs an agent: prepare a starting point and return a sentence for the report (`agentStart`, shown as "Start from"). |
+| `prepareAgent?(ctx, version)` | no | Called by `sync` when a graft needs an agent: prepare a starting point and return `{ description, repo?, ref?, conflicts? }` (`agentStart`; `description` is shown as "Start from"). |
 | `validateVariant?(ctx, variant)` | no | Validate a new variant before it is registered; throw to reject. |
 | `exclusivePerPackage?` | no | When true, at most one active graft with this mechanism may target a package; more is a validation error. |
 | `variantExtension?` | no | File extension for scaffolded variant modules (default `.ts`). |
@@ -322,8 +343,9 @@ The modification lives as commits on a fork of the upstream source repository (`
 on top of an upstream release tag.
 
 - A variant is a JSON file `{ "ref": "<fork branch, fork tag or commit>", "base": "<upstream
-  version>" }`. The graft's change is the diff from `tag(base)` to `ref`, limited to `fork.dir`.
-  A ref with no changes is an error.
+  version>" }` (repo mode also allows commits and the `@worktree` / `@verified` sentinels,
+  below). The graft's change is the diff from `tag(base)` to `ref`, limited to `fork.dir`.
+  A ref with no changes is an error. Fork grafts are `exclusivePerPackage`.
 - Anchors are that diff's hunks, located in the upstream source at `tag(version)` (fuzz 0). The
   change is "likely upstreamed" when its reverse applies to the target tag.
 - To install a version, the tooling rebases the change onto `tag(version)`, runs `fork.build`
