@@ -267,7 +267,7 @@ Optional. MUST be valid JSON if present. All keys are optional.
 | Key | Type | Meaning |
 |---|---|---|
 | `upstream` | `{ [package]: string }` | Spec template used instead of the npm registry to fetch and install the package. `{version}` is substituted; relative `file:` paths resolve against `.grafts/`. Example: `{ "lib": "file:../mirror/lib-{version}" }`. |
-| `resolveFrom` | `{ [package]: string }` | Directory, relative to the project root, whose `node_modules` resolution determines the installed version (for monorepos where a workspace package declares the dependency). Example: `{ "pacote": "packages/core" }`. |
+| `resolveFrom` | `{ [package]: string }` | Directory, relative to the project root, whose `node_modules` resolution determines the installed version (for monorepos where a workspace package declares the dependency). Example: `{ "semver": "packages/core" }`. |
 | `mechanisms` | `{ [mechanism]: object }` | Mechanism-specific options. |
 | `mechanisms.patch.applier` | `pnpm` \| `npm` \| `bun` \| `graft` \| `patch-package` \| `vendor` | Forces the `patch` mechanism's applier instead of choosing one from the package manager. Any other value is an error. |
 

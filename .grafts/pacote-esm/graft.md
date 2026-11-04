@@ -12,7 +12,7 @@ variants:
     module: ./variants/v22.patch
 oracle:
   command: node .grafts/pacote-esm/oracle.mjs
-  modes: [esm, cjs]
+  modes: [ esm, cjs ]
 generator:
   command: node tools/cjs-to-esm/make-variant.mjs pacote {version} {out}
 status: applied
@@ -72,3 +72,4 @@ The package's version is read with `require('../package.json')` in `lib/registry
   requires an Arborist constructor).
 - 2026-11-04: Added `generator:`, so `graft sync` regenerates the variant with the converter
   when a release misses and verifies it with the oracle before handing off to an agent.
+- 2026-11-04: pacote is no longer a dependency of the published packages (#20): Graft fetches pristine packages with npm. It stays a root devDependency of this repo to keep this conversion, the hardest of the three, verified; resolveFrom now points at the repo root.

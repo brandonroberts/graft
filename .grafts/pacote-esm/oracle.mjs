@@ -9,7 +9,7 @@ import { assert, assertNoCommonJS, consumerRequire, installedDir, repoRoot, run,
 
 const formats = trackFormats();
 const mode = process.env.GRAFT_MODE ?? 'esm';
-const require = consumerRequire('packages/core');
+const require = consumerRequire('.');
 const dir = installedDir(require, 'pacote');
 const { version } = require('pacote/package.json');
 if (process.env.GRAFT_UPSTREAM_VERSION) assert.equal(version, process.env.GRAFT_UPSTREAM_VERSION);

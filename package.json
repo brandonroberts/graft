@@ -24,6 +24,7 @@
     "@types/semver": "^7.8.0",
     "acorn": "^8.19.0",
     "diff": "^9.0.0",
+    "pacote": "^22.0.1",
     "typescript": "~7.0.2",
     "vitest": "^5.1.0"
   }

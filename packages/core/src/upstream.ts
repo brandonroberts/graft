@@ -1,8 +1,9 @@
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, realpath, rename, rm, stat } from 'node:fs/promises';
+import { mkdir, readdir, readFile, realpath, rename, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import { extract as tarExtract } from 'tar';
 import { GraftError } from './errors.js';
 
 export interface InstalledPackage {
@@ -137,7 +138,33 @@ export async function findInstalledPackage(pkg: string, from: string): Promise<I
   }
 }
 
-/** Default source: pristine package contents from the npm registry (via pacote), cached per version. */
+/**
+ * Run the project's npm, from the project root, so the project's `.npmrc` applies (registries,
+ * scoped registries, auth, proxies). Asking npm itself keeps Graft's own dependencies small.
+ */
+async function npm(args: string[], cwd: string): Promise<string> {
+  try {
+    const { stdout } = await promisify(execFile)('npm', args, {
+      cwd,
+      maxBuffer: 64 * 1024 * 1024,
+      timeout: 5 * 60_000,
+      shell: process.platform === 'win32',
+      // A project pinned to another package manager must not stop us from asking npm.
+      env: { ...process.env, COREPACK_ENABLE_STRICT: '0', npm_config_update_notifier: 'false', npm_config_fund: 'false' },
+    });
+    return stdout;
+  } catch (err) {
+    const e = err as { stderr?: string; message: string; code?: string };
+    if (e.code === 'ENOENT') throw new Error('npm was not found on PATH (Graft uses it to fetch pristine packages)');
+    const detail = (e.stderr || e.message).trim().split('\n').filter((l) => !/^npm (notice|warn)/.test(l)).slice(-3).join(' ');
+    throw new Error(detail || e.message);
+  }
+}
+
+/** JSON from npm's stdout, ignoring any lines printed before it. */
+const npmJson = (stdout: string): unknown => JSON.parse(stdout.slice(Math.min(...['[', '{'].map((c) => stdout.indexOf(c)).filter((i) => i >= 0))));
+
+/** Default source: pristine package contents from the npm registry (fetched by npm), cached per version. */
 export class NpmUpstreamSource implements UpstreamSource {
   constructor(private readonly options: NpmUpstreamOptions) {}
 
@@ -175,10 +202,18 @@ export class NpmUpstreamSource implements UpstreamSource {
     await mkdir(path.dirname(dest), { recursive: true });
     const tmp = `${dest}.tmp-${process.pid}`;
     try {
-      const { default: pacote } = await import('pacote');
-      await pacote.extract(spec, tmp, { cache: path.join(this.options.cacheDir, 'pacote') });
+      // npm downloads the tarball (through its own cache) without running any scripts.
+      await mkdir(path.join(tmp, 'tgz'), { recursive: true });
+      await npm(['pack', spec, '--json', '--ignore-scripts', '--pack-destination', path.join(tmp, 'tgz')], this.options.root);
+      const tgz = (await readdir(path.join(tmp, 'tgz'))).find((f) => f.endsWith('.tgz'));
+      if (!tgz) throw new Error('npm pack wrote no tarball');
+      const out = path.join(tmp, 'package');
+      await mkdir(out);
+      await tarExtract({ file: path.join(tmp, 'tgz', tgz), cwd: out, strip: 1 });
+      if (!existsSync(path.join(out, 'package.json'))) throw new Error('the tarball has no package.json');
       await rm(dest, { recursive: true, force: true });
-      await rename(tmp, dest);
+      await rename(out, dest);
+      await rm(tmp, { recursive: true, force: true });
     } catch (err) {
       await rm(tmp, { recursive: true, force: true });
       throw new GraftError(`could not fetch ${spec}: ${(err as Error).message}`, 'upstream/fetch');
@@ -188,9 +223,12 @@ export class NpmUpstreamSource implements UpstreamSource {
 
   async versions(pkg: string): Promise<PackageVersions> {
     try {
-      const { default: pacote } = await import('pacote');
-      const packument = await pacote.packument(pkg, { cache: path.join(this.options.cacheDir, 'pacote') });
-      return { versions: Object.keys(packument.versions), distTags: { ...packument['dist-tags'] } };
+      const info = npmJson(await npm(['view', pkg, 'versions', 'dist-tags', '--json'], this.options.root)) as {
+        versions?: string | string[];
+        'dist-tags'?: Record<string, string>;
+      };
+      const versions = typeof info.versions === 'string' ? [info.versions] : (info.versions ?? []);
+      return { versions, distTags: { ...info['dist-tags'] } };
     } catch (err) {
       throw new GraftError(`could not read versions of ${pkg}: ${(err as Error).message}`, 'upstream/versions');
     }

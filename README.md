@@ -223,7 +223,7 @@ To set it up in a project, run **`graft init --agent`**. It installs the skill a
 
 Re-running updates the skill when Graft ships a new version. It also notes if `@graftsync/cli` isn't a dependency yet.
 
-The CLI runs in the agent's shell, so it inherits the usual proxy settings (`HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY`, and `NODE_EXTRA_CA_CERTS` for a proxy that re-signs TLS) for its registry fetches.
+The CLI runs in the agent's shell, so it inherits the usual proxy settings (`HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY`, and `NODE_EXTRA_CA_CERTS` for a proxy that re-signs TLS). Pristine packages are fetched by the project's own `npm` (run from the project root, so its `.npmrc` registries, scoped registries and auth apply), which must be on `PATH`.
 
 This repo uses it on itself: [`.claude/skills/graft-sync`](.claude/skills/graft-sync/SKILL.md) links the skill.
 
@@ -301,7 +301,7 @@ yarn 4.18 was verified the same way, under both Plug'n'Play and `nodeLinker: nod
 In a monorepo where the upstream package is declared by a workspace package rather than the root, tell Graft where to resolve it from in `.grafts/config.json`:
 
 ```json
-{ "resolveFrom": { "pacote": "packages/core", "yaml": "packages/spec" } }
+{ "resolveFrom": { "semver": "packages/core", "yaml": "packages/spec" } }
 ```
 
 ### `fork` (modification kept as commits on a fork)
@@ -372,7 +372,7 @@ A ready-to-use setup for it, with its translation oracle and workflow, is in [`e
 
 ## Dogfood validation
 
-Graft validates itself on its own CommonJS dependencies. Three grafts convert **pacote**, **semver** and **yaml** to native ESM in this repo, so no CommonJS loads from those packages. Each is a whole-package `patch` variant. Graft's own build, tests and CLI run on the converted packages.
+Graft validates itself on its own CommonJS dependencies. Three grafts convert **pacote**, **semver** and **yaml** to native ESM in this repo, so no CommonJS loads from those packages. Each is a whole-package `patch` variant. Graft's own build, tests and CLI run on the converted semver and yaml. pacote is no longer a dependency of the published packages (#20); it stays a dev dependency of this repo because it is the hardest of the three conversions, and its graft keeps proving that.
 
 | Graft | Package | Files converted | Oracle |
 |---|---|---|---|
@@ -421,7 +421,7 @@ What the dogfood run found:
 `@graftsync/core` contains:
 
 - the `MechanismAdapter` interface and the project loader,
-- upstream sources: pristine package contents from the npm registry via pacote (cached), or local directories,
+- upstream sources: pristine package contents fetched by the project's own npm (`npm pack`, `npm view`, so `.npmrc` registries and auth apply; cached), or local directories,
 - the oracle runner,
 - scoped diffs,
 - `recordVariant`, which narrows ranges and never edits existing variants,

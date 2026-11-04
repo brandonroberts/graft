@@ -37,11 +37,8 @@
     "@graftsync/spec": "workspace:*",
     "diff": "^9.0.0",
     "jiti": "^2.7.0",
-    "pacote": "^22.0.1",
-    "semver": "^7.8.6"
-  },
-  "devDependencies": {
-    "@types/pacote": "^11.1.8"
+    "semver": "^7.8.6",
+    "tar": "^7.5.22"
   },
   "publishConfig": {
     "access": "public"
