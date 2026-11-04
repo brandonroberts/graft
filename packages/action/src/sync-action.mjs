@@ -86,7 +86,8 @@ export function renderPrBody({ candidate, report, agentBody, outcome }) {
     for (const g of report.grafts) lines.push(`| ${g.id} | ${g.from} → ${g.to ?? '?'} | ${g.outcome} |`);
     lines.push('');
     for (const g of report.grafts.filter((g) => g.outcome !== 'green' && g.outcome !== 'skipped')) {
-      lines.push(`<details><summary>${g.id}: ${g.outcome}</summary>`, '');
+      lines.push(`<details><summary>${g.id}: ${g.outcome}${g.likelyUpstreamed ? ' (likely upstreamed)' : ''}</summary>`, '');
+      if (g.likelyUpstreamed) lines.push(`**Likely upstreamed:** \`${g.package}@${g.to}\` already contains this graft's change. Confirm, then set its status to \`upstreamed\`.`, '');
       for (const r of g.reasons ?? []) lines.push(`- ${r}`);
       const failed = (g.oracle?.modes ?? []).filter((m) => !m.passed);
       for (const m of failed) lines.push('', `Oracle output (${m.mode}):`, '', '```', String(m.output ?? '').trim().slice(-3000), '```');
