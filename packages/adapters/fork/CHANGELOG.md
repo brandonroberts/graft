@@ -1,5 +1,14 @@
 # @graftsync/adapter-fork
 
+## 0.1.2
+
+### Patch Changes
+
+- Updated dependencies [3a0ffbb]
+  - @graftsync/core@0.1.2
+  - @graftsync/adapter-patch@0.1.2
+  - @graftsync/spec@0.1.2
+
 ## 0.1.1
 
 ### Patch Changes

@@ -1,6 +1,6 @@
 {
   "name": "@graftsync/spec",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "The Graft spec: schema, parser and validator for graft intent files and manifests.",
   "type": "module",
   "license": "MIT",
