@@ -16,7 +16,11 @@ import {
   type ScopedFileDiff,
 } from '@graftsync/core';
 import { applyFilePatch, describeHunk, locateHunk, parsePatchFile, patchTarget, type FilePatch } from './patchfile.js';
-import { configurePnpmPatch, pnpmConfigProblems } from './pnpm.js';
+import { selectApplier } from './appliers.js';
+import type { Project } from '@graftsync/core';
+
+/** The applier for this project (config `mechanisms.patch.applier`, else from the lockfile). */
+const applierFor = (project: Project) => selectApplier(project.root, project.config.mechanisms?.patch?.applier as string | undefined);
 
 export const MECHANISM = 'patch';
 
@@ -107,8 +111,22 @@ export function createPatchAdapter(): MechanismAdapter {
           report.errors.push(`${patchTarget(p)}: hunks match individually but the patch does not apply as a whole`);
         }
       }
-      if (version === (await project.installedVersion(pkg))) {
-        report.errors.push(...(await pnpmConfigProblems(project.root, pkg, report.variant.path)));
+      const installed = await project.upstream.installed(pkg);
+      if (installed?.version === version) {
+        report.errors.push(...(await applierFor(project).problems(project.root, pkg, version, report.variant.path)));
+        // Whatever the configuration says, check what actually got installed: each patched file
+        // must equal pristine upstream + this variant. Catches patches dropped silently.
+        if (report.anchors.every((a) => a.matched) && installed.dir !== dir) {
+          for (const p of patches) {
+            if (!p.newFile) continue;
+            const pristine = p.oldFile ? await readIn(dir, p.oldFile) : '';
+            const expected = pristine === undefined ? false : applyFilePatch(pristine, p);
+            const actual = await readIn(installed.dir, p.newFile);
+            if (expected !== false && actual !== expected) {
+              report.errors.push(`installed ${pkg}@${version} ${p.newFile} is not patched with ${report.variant.module}; run \`graft apply\` (or reinstall)`);
+            }
+          }
+        }
       }
       report.ok = report.errors.length === 0 && report.anchors.every((a) => a.matched);
       return report;
@@ -182,7 +200,7 @@ export function createPatchAdapter(): MechanismAdapter {
     async beforeInstall(ctx: GraftContext, version: string): Promise<void> {
       const variant = ctx.project.selectVariant(ctx.graft, version);
       if (!variant) throw new GraftError(`graft "${ctx.graft.id}": no variant covers ${version}`, 'variant/none');
-      await configurePnpmPatch(ctx.project.root, ctx.graft.frontmatter.rootstock.package, variant.path);
+      await applierFor(ctx.project).configure(ctx.project.root, ctx.graft.frontmatter.rootstock.package, version, variant.path);
     },
 
     async validateVariant(ctx: GraftContext, variant: ResolvedVariant): Promise<void> {

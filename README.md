@@ -16,7 +16,7 @@ Graft does not ship its own agent or call an LLM, and there is no hosted service
 
 ## Quick start
 
-The flow below has been tested end to end on a real project (`ms`, adding a `fortnight` unit). The packages aren't on npm yet; until they are, install `@graftsync/cli` from packed tarballs.
+The flow below has been tested end to end on a real project (`ms`, adding a `fortnight` unit) with pnpm, bun and npm. The packages aren't on npm yet; until they are, install `@graftsync/cli` from packed tarballs. With bun, make the patch with `bun patch ms` / `bun patch --commit`. With npm, add `patch-package` as a devDependency and make the patch any way you like; Graft converts the variant for patch-package.
 
 ```sh
 pnpm add -D @graftsync/cli @graftsync/mcp
@@ -186,12 +186,21 @@ This repo runs it on itself, triggered manually ([`.github/workflows/graft-sync.
 
 ## Mechanisms
 
-### `patch` (pnpm)
+### `patch` (pnpm, bun, npm, yarn)
 
-Variants are git-style `.patch` files, as written by `pnpm patch-commit`, and pnpm applies them at install time through `patchedDependencies`.
+Variants are git-style `.patch` files with package-relative paths, the format `pnpm patch-commit` and `bun patch --commit` write. The same variant works with every package manager; Graft wires whichever one the project uses. It reads `packageManager` in package.json, then `pnpm-workspace.yaml` and lockfiles. To force one, set `{ "mechanisms": { "patch": { "applier": "patch-package" } } }` in `.grafts/config.json`.
+
+| Package manager | How the selected variant is applied | Silent failure Graft prevents |
+|---|---|---|
+| pnpm | `pnpm-workspace.yaml` `patchedDependencies[<pkg>]` (name-only key) | Without `ignorePatchFailures: false`, a patch that stops applying is only a *warning*, and the package installs unmodified |
+| bun | `package.json` `patchedDependencies["<pkg>@<installed>"]` | bun ignores name-only keys and keys for other versions, so an upgrade installs unpatched. Graft rewrites the key before every version change |
+| npm, yarn classic | A generated `.grafts/.patch-package/<pkg>+<version>.patch` (paths rewritten for patch-package), applied by `patch-package --patch-dir .grafts/.patch-package --error-on-fail --error-on-warn` in `postinstall` | Plain `patch-package` exits 0 on a failed patch outside CI, and only warns on a version mismatch. Graft renames the derived file on every version change and re-runs the bare install that triggers `postinstall` |
 
 - **Anchors:** every hunk is an anchor. Its context and removed lines must appear exactly in the target version's file, with no fuzz, though the line position may shift. A file the patch creates must not already exist upstream.
-- **Config checks:** `graft check` also verifies that `pnpm-workspace.yaml` points `patchedDependencies[<pkg>]` (name-only key) at the variant selected for the installed version. It also verifies `ignorePatchFailures: false`. Without that setting, pnpm only *warns* when a patch stops applying and installs the package unmodified. `sync --install` writes both settings before installing.
+- **Config checks:** at the installed version, `graft check` reports any configuration that would apply something other than the selected variant, or fail silently. `graft apply` and `sync --install` write the configuration.
+- **Installed-copy check:** at the installed version, `graft check` also compares each patched file in `node_modules` with *pristine upstream + the selected variant*. It fails if they differ, whatever the configuration says.
+
+Each row of the table was verified against the real package manager on a real project (`ms`): install, `graft apply`, `sync`, an upgrade to a new `ms` version with `--install`, and a tampered install. The silent failures in the table are each package manager's real behavior today: pnpm 10.28, bun 1.4.4, patch-package 8.0.1.
 
 In a monorepo where the upstream package is declared by a workspace package rather than the root, tell Graft where to resolve it from in `.grafts/config.json`:
 

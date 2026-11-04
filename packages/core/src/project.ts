@@ -20,6 +20,8 @@ export interface ProjectConfig {
    * determines the installed version (e.g. `{ "pacote": "packages/core" }` in a monorepo).
    */
   resolveFrom?: Record<string, string>;
+  /** Mechanism-specific options, e.g. `{ "patch": { "applier": "patch-package" } }`. */
+  mechanisms?: Record<string, Record<string, unknown>>;
 }
 
 export interface ProjectOptions {

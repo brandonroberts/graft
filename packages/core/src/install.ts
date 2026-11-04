@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { GraftError } from './errors.js';
@@ -6,11 +6,23 @@ import { runCommand } from './oracle.js';
 
 export type PackageManager = 'pnpm' | 'yarn' | 'npm' | 'bun';
 
-/** Detect the package manager from lockfiles, walking up from `root`. */
+/**
+ * Detect the package manager, walking up from `root`: package.json `packageManager`
+ * (e.g. "pnpm@10.0.0"), pnpm-workspace.yaml, then lockfiles. Defaults to npm.
+ */
 export function detectPackageManager(root: string): PackageManager {
   let dir = path.resolve(root);
   for (;;) {
-    if (existsSync(path.join(dir, 'pnpm-lock.yaml'))) return 'pnpm';
+    const manifest = path.join(dir, 'package.json');
+    if (existsSync(manifest)) {
+      try {
+        const declared = /^(pnpm|yarn|npm|bun)@/.exec(String(JSON.parse(readFileSync(manifest, 'utf8')).packageManager ?? ''));
+        if (declared) return declared[1] as PackageManager;
+      } catch {
+        // unreadable manifest: fall through to lockfile detection
+      }
+    }
+    if (existsSync(path.join(dir, 'pnpm-lock.yaml')) || existsSync(path.join(dir, 'pnpm-workspace.yaml'))) return 'pnpm';
     if (existsSync(path.join(dir, 'yarn.lock'))) return 'yarn';
     if (existsSync(path.join(dir, 'bun.lockb')) || existsSync(path.join(dir, 'bun.lock'))) return 'bun';
     if (existsSync(path.join(dir, 'package-lock.json'))) return 'npm';
@@ -38,6 +50,9 @@ export async function installPackage(root: string, pkg: string, spec: string): P
   }[pm];
   const result = await runCommand(command, { cwd: root, timeoutMs: 10 * 60_000 });
   if (!result.passed) throw new GraftError(`\`${command}\` failed:\n${result.output}`, 'install/failed');
+  // npm and yarn run the project's own lifecycle scripts (e.g. a patch-package postinstall)
+  // only on a bare install, not when adding a specific package.
+  if (pm === 'npm' || pm === 'yarn') return `${command} && ${await reinstall(root)}`;
   return command;
 }
 

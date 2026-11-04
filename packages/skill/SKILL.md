@@ -128,19 +128,24 @@ When asked to capture a modification as a graft (new, or migrating an existing p
 
 ## Mechanisms
 
-### `patch` (pnpm `patchedDependencies`)
+### `patch` (pnpm, bun, npm/yarn via patch-package)
 
 - A variant is a git-style patch (`diff --git a/<file> b/<file>`, paths relative to the
   package root). Every hunk is an anchor: its context and removed lines must appear exactly
   in the target version (position may shift; no fuzz). Files the patch creates must not
-  already exist upstream.
-- Make one with `pnpm patch <pkg>@<version>`, edit the printed directory, then
-  `pnpm patch-commit <dir> --patches-dir <tmp>` and move the result into the graft's
-  `variants/`. Or diff pristine vs modified copies yourself.
-- At the installed version, `graft check` also verifies `pnpm-workspace.yaml`: `patchedDependencies[<pkg>]` (name-only
-  key) must point at the variant selected for the installed version, and
-  `ignorePatchFailures: false` must be set — otherwise pnpm only warns and installs the
-  package *unmodified*. `graft sync --install` writes both.
+  already exist upstream. The same variant works with every package manager.
+- Make one with the project's package manager: `pnpm patch <pkg>@<version>` then
+  `pnpm patch-commit <dir> --patches-dir <tmp>`, or `bun patch <pkg>` then
+  `bun patch --commit node_modules/<pkg>`. Move the generated file into the graft's
+  `variants/`. For npm, diff a pristine copy (under `.grafts/.cache/upstream/`) against your
+  modified copy, using package-relative paths.
+- Don't hand-edit the package manager's patch configuration. `graft apply` / `apply_to_project`
+  wires the selected variant (pnpm `patchedDependencies`, bun's version-pinned key, or a
+  generated `.grafts/.patch-package/<pkg>+<version>.patch` plus a strict `postinstall`), and
+  `graft sync --install` rewires it for the new version before installing. At the installed
+  version, `check_anchors` reports any configuration that would apply something else or fail
+  silently, and any patched file in `node_modules` that doesn't match pristine upstream + the
+  variant.
 - Keep hunk context away from lines that change every release (`"version"` in package.json).
 - If the graft's *Where to look* or History names a generator for its variants (e.g.
   `tools/cjs-to-esm/make-variant.mjs`), regenerate the variant with it against the new
