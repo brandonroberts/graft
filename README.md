@@ -359,7 +359,7 @@ The packages start at 0.1.0, which is not on npm yet, so the first manual run wi
 - **M3 — Agent path:** agent-facing CLI commands, skill file, and the action's hand-off to an agent. Evaluated by replaying historical prereleases. *(The CLI commands, skill and Action hand-off are done; the historical-prerelease eval is pending. The brief's MCP server was built and then removed: agents use the CLI.)*
 - **M4 — Second, unrelated mechanism,** to prove the abstraction generalizes. Spec v1 is frozen only after this.
 
-The original design brief is in [`docs/handoff.md`](docs/handoff.md). Since that brief was written, the Vite transform adapter and the `@graft/vite` runtime plugin it describes have been taken out of scope.
+[`docs/handoff.md`](docs/handoff.md) is the current project handoff: architecture, the decisions that changed the original design brief (and why), milestone status and open work. The original brief is in git history.
 
 ## License
 
