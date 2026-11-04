@@ -8,7 +8,7 @@ import { detectInstallCommand, parseInputs, renderPrBody, runAction, sh } from '
 
 const FAKE_GRAFT = path.join(import.meta.dirname, 'fake-graft.mjs');
 
-type Scenario = { outdated: unknown[]; sync: Record<string, string>; issues?: { title: string; url: string }[]; check?: 'ok' | 'fail' | 'error' };
+type Scenario = { outdated: unknown[]; sync: Record<string, string>; issues?: { title: string; url: string }[]; check?: 'ok' | 'fail' | 'error'; refusePr?: 'actions' | 'other' };
 
 function setup(scenario: Scenario) {
   const root = mkdtempSync(path.join(os.tmpdir(), 'graft-action-'));
@@ -30,6 +30,8 @@ const args = process.argv.slice(2);
 const bodyIdx = args.indexOf('--body-file');
 fs.appendFileSync(process.env.FAKE_LOG, 'gh ' + JSON.stringify(args) + '\\n');
 if (bodyIdx !== -1) fs.appendFileSync(process.env.FAKE_LOG, 'BODY ' + JSON.stringify(fs.readFileSync(args[bodyIdx + 1], 'utf8')) + '\\n');
+if (args[0] === 'pr' && args[1] === 'create' && s.refusePr === 'actions') { console.error('pull request create failed: GraphQL: GitHub Actions is not permitted to create or approve pull requests (createPullRequest)'); process.exit(1); }
+if (args[0] === 'pr' && args[1] === 'create' && s.refusePr === 'other') { console.error('pull request create failed: GraphQL: Head sha cannot be blank'); process.exit(1); }
 if (args[0] === 'pr' && args[1] === 'create') console.log('https://github.com/o/r/pull/' + (fs.readFileSync(process.env.FAKE_LOG, 'utf8').split('pr\\",\\"create').length - 1));
 if (args[0] === 'issue' && args[1] === 'list') console.log(JSON.stringify(s.issues || []));
 if (args[0] === 'issue' && args[1] === 'create') console.log('https://github.com/o/r/issues/7');
@@ -57,6 +59,7 @@ if (args[0] === 'issue' && args[1] === 'create') console.log('https://github.com
       writeSummary: (md: string) => (summary += md),
       tmpDir: path.join(root, 'tmp'),
       actionPath: path.join(import.meta.dirname, '..'),
+      env: { GITHUB_REPOSITORY: 'o/r', GITHUB_SERVER_URL: 'https://github.com' },
     });
   const calls = () => readFileSync(log, 'utf8');
   const remoteBranches = () => git(work, 'ls-remote', '--heads', 'origin').trim();
@@ -144,6 +147,36 @@ describe('graft GitHub Action', () => {
     expect(results[0]).toMatchObject({ outcome: 'pr', agent: true, agentExitCode: 0, syncExitCode: 0 });
     expect(t.git('show', 'origin/graft/sync-docs-2.0.0:content/page.md')).toBe('Yeni Türkçe.\n');
     expect(t.git('show', 'origin/graft/sync-docs-2.0.0:.grafts/tr/graft.md')).toContain('status: applied');
+  });
+
+  it('when Actions may not open PRs, pushes the branch and opens an issue with a one-click PR link instead', async () => {
+    const t = setup({ outdated: [entry('lib', '1.1.0')], sync: { lib: 'green' }, refusePr: 'actions' });
+    const { results, failed } = await t.run();
+    expect(failed).toBe(false);
+    expect(results[0]).toMatchObject({
+      outcome: 'pr-refused-issue',
+      issue: 'https://github.com/o/r/issues/7',
+      compareUrl: 'https://github.com/o/r/compare/main...graft%2Fsync-lib-1.1.0?expand=1',
+    });
+    expect(t.remoteBranches()).toContain('refs/heads/graft/sync-lib-1.1.0'); // the work is there
+    const issueBody = t.calls().split('\n').filter((l) => l.startsWith('BODY ')).pop()!;
+    expect(issueBody).toContain('GitHub Actions may not open pull requests in this repository');
+    expect(issueBody).toContain('[Open the pull request](https://github.com/o/r/compare/main...graft%2Fsync-lib-1.1.0?expand=1)');
+    expect(issueBody).toContain('github-token');
+    expect(t.summary()).toContain('📝 pr-refused-issue');
+  });
+
+  it('a draft PR that may not be opened says so in its issue; other gh failures stay errors', async () => {
+    const draft = setup({ outdated: [entry('lib', '2.0.0')], sync: { lib: 'needs-agent' }, refusePr: 'actions' });
+    const r = await draft.run({ 'agent-command': 'echo partial > notes.txt; exit 3' });
+    expect(r.results[0]).toMatchObject({ outcome: 'pr-refused-issue' });
+    expect(draft.calls()).toContain('(as a draft: grafts still need attention)');
+
+    const other = setup({ outdated: [entry('lib', '1.1.0')], sync: { lib: 'green' }, refusePr: 'other' });
+    const o = await other.run();
+    expect(o.failed).toBe(true);
+    expect(o.results[0].outcome).toBe('error');
+    expect(o.results[0].reasons.join('\n')).toContain("Head sha cannot be blank");
   });
 
   it('skips packages whose sync branch already exists, and isolates tooling errors', async () => {

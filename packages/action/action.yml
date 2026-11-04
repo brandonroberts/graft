@@ -7,7 +7,10 @@ branding:
 
 inputs:
   github-token:
-    description: Token used by `gh` to open pull requests and issues. Needs contents:write, pull-requests:write and issues:write.
+    description: >
+      Token used by `gh` to open pull requests and issues. Needs contents, pull-requests and issues write.
+      A GitHub App token (or fine-grained PAT) lets the action open PRs where Actions may not, and its
+      PRs trigger your CI. If PRs are refused, the action opens an issue with a link to open the PR instead.
     default: ${{ github.token }}
   working-directory:
     description: Project root (the directory containing .grafts/).

@@ -165,6 +165,17 @@ You are running inside the Graft GitHub Action on branch ${files.branch}:
 `;
 }
 
+/** gh's way of saying GitHub Actions (or this token) may not open pull requests here. */
+export const isPrRefusal = (output) =>
+  /not permitted to create or approve pull requests|Resource not accessible by integration|HTTP 403|must have (push|write) access/i.test(output);
+
+/** https://github.com/<owner>/<repo>, from the Actions environment or the origin remote. */
+export function repoWebUrl(env, originUrl) {
+  if (env.GITHUB_REPOSITORY) return `${(env.GITHUB_SERVER_URL || 'https://github.com').replace(/\/$/, '')}/${env.GITHUB_REPOSITORY}`;
+  const m = /github\.com[:/]([^/]+\/[^/]+?)(\.git)?$/.exec(originUrl ?? '');
+  return m ? `https://github.com/${m[1]}` : undefined;
+}
+
 /**
  * Run the action. `deps` is injectable for tests: { sh, git, gh, log, writeOutput, writeSummary, tmpDir, cwd }.
  */
@@ -175,6 +186,17 @@ export async function runAction(options, deps) {
     const r = await deps.sh(`git ${args.map(quote).join(' ')}`, { cwd });
     if (r.code !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr || r.stdout}`);
     return r.stdout.trim();
+  };
+  /** Open an issue once per title. Returns { url, existing }. */
+  const openIssue = async (title, body, file) => {
+    const existing = await run(`gh issue list --state open --search ${quote(`in:title "${title}"`)} --json title,url`);
+    const open = existing.code === 0 ? JSON.parse(existing.stdout || '[]').find((i) => i.title === title) : undefined;
+    if (open) return { url: open.url, existing: true };
+    const bodyFile = path.join(deps.tmpDir, file);
+    await writeFile(bodyFile, body);
+    const issue = await run([`gh issue create --title ${quote(title)} --body-file ${quote(bodyFile)}`, ...options.labels.map((l) => `--label ${quote(l)}`)].join(' '));
+    if (issue.code !== 0) throw new Error(`gh issue create failed: ${issue.stderr || issue.stdout}`);
+    return { url: issue.stdout.trim().split('\n').pop(), existing: false };
   };
   const [authorName, authorEmail] = (() => {
     const m = /^(.*?)\s*<(.+)>$/.exec(options.author);
@@ -345,20 +367,12 @@ export async function runAction(options, deps) {
           result.body = body;
           continue;
         }
-        const existing = await run(`gh issue list --state open --search ${quote(`in:title "${title}"`)} --json title,url`);
-        const open = existing.code === 0 ? JSON.parse(existing.stdout || '[]').find((i) => i.title === title) : undefined;
-        if (open) {
+        const issue = await openIssue(title, body, `issue-${slug(candidate.package)}.md`);
+        result.issue = issue.url;
+        if (issue.existing) {
           result.outcome = 'skipped-existing';
-          result.issue = open.url;
-          result.reasons.push(`issue already open: ${open.url}`);
-          continue;
-        }
-        const bodyFile = path.join(deps.tmpDir, `issue-${slug(candidate.package)}.md`);
-        await writeFile(bodyFile, body);
-        const issue = await run([`gh issue create --title ${quote(title)} --body-file ${quote(bodyFile)}`, ...options.labels.map((l) => `--label ${quote(l)}`)].join(' '));
-        if (issue.code !== 0) throw new Error(`gh issue create failed: ${issue.stderr || issue.stdout}`);
-        result.issue = issue.stdout.trim().split('\n').pop();
-        result.outcome = 'issue';
+          result.reasons.push(`issue already open: ${issue.url}`);
+        } else result.outcome = 'issue';
         continue;
       }
       if (options.dryRun) {
@@ -377,6 +391,25 @@ export async function runAction(options, deps) {
       const pr = await run(
         ['gh pr create', `--base ${quote(base)}`, `--head ${quote(branch)}`, `--title ${quote(title)}`, `--body-file ${quote(bodyFile)}`, outcome === 'needs-agent' ? '--draft' : '', ...options.labels.map((l) => `--label ${quote(l)}`)].filter(Boolean).join(' '),
       );
+      if (pr.code !== 0 && isPrRefusal(`${pr.stderr}\n${pr.stdout}`)) {
+        // Actions (or this token) may not open PRs here. The work is pushed; hand it over through
+        // an issue with a one-click link to open the PR, rather than failing.
+        const web = repoWebUrl(deps.env ?? process.env, (await run('git remote get-url origin')).stdout.trim());
+        const compare = web ? `${web}/compare/${encodeURIComponent(base)}...${encodeURIComponent(branch)}?expand=1` : undefined;
+        const note = [
+          '> [!NOTE]',
+          `> GitHub Actions may not open pull requests in this repository, so the change is on branch \`${branch}\`.`,
+          compare ? `> **[Open the pull request](${compare})**${outcome === 'needs-agent' ? ' (as a draft: grafts still need attention)' : ''}.` : `> Open a pull request from \`${branch}\` into \`${base}\`${outcome === 'needs-agent' ? ' (as a draft: grafts still need attention)' : ''}.`,
+          '> To let the action open pull requests itself, allow it under Settings → Actions → General, or pass a GitHub App token or a fine-grained PAT as `github-token` (PRs opened with those also trigger CI).',
+          '',
+        ].join('\n');
+        const issue = await openIssue(title, `${note}\n${body}`, `pr-refused-${slug(candidate.package)}.md`);
+        result.issue = issue.url;
+        result.compareUrl = compare;
+        result.outcome = 'pr-refused-issue';
+        result.reasons.push(`pull request not allowed from Actions; branch ${branch} pushed, ${issue.existing ? 'issue already open' : 'issue opened'}: ${issue.url}`);
+        continue;
+      }
       if (pr.code !== 0) throw new Error(`gh pr create failed: ${pr.stderr || pr.stdout}`);
       result.pullRequest = pr.stdout.trim().split('\n').pop();
       result.outcome = outcome === 'green' ? 'pr' : 'draft-pr';
@@ -443,7 +476,7 @@ export function renderCheck(check, mode) {
   return `${lines.join('\n')}\n\n`;
 }
 
-const ICON = { pr: '✅', 'draft-pr': '🛠️', issue: '🛠️', 'would-open-issue': '🛠️ (dry run)', 'needs-agent': '🛠️', 'skipped-existing': '⏭️', 'up-to-date': '✔️', 'no-changes': '➖', 'would-open-pr': '✅ (dry run)', 'would-open-draft-pr': '🛠️ (dry run)', error: '❌' };
+const ICON = { 'pr-refused-issue': '📝', pr: '✅', 'draft-pr': '🛠️', issue: '🛠️', 'would-open-issue': '🛠️ (dry run)', 'needs-agent': '🛠️', 'skipped-existing': '⏭️', 'up-to-date': '✔️', 'no-changes': '➖', 'would-open-pr': '✅ (dry run)', 'would-open-draft-pr': '🛠️ (dry run)', error: '❌' };
 
 export function renderSummary(results) {
   const lines = ['## Graft sync', '', '| Package | Verified → Candidate | Outcome | Link |', '|---|---|---|---|'];

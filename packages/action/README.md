@@ -8,6 +8,7 @@ Graft's deterministic first pass and then does one of the following:
 | ✅ every graft green (anchors match, oracle passes) | Opens a **PR** with the dependency bump and the updated `graft.md` files |
 | 🛠️ needs an agent, `agent-command` set | Runs your agent with the report and the skill (the agent drives Graft through its CLI). Then **re-runs `graft sync`** itself, never trusting the agent's word. Green → PR (with the agent's description). Still failing → **draft PR** |
 | 🛠️ needs an agent, no agent (or nothing to commit) | Opens an **issue** with the sync report, once per package@version |
+| 📝 a PR to open, but Actions may not open PRs here | Pushes the branch anyway and opens an **issue** with the report and a one-click "Open the pull request" link (see [Tokens](#tokens-and-pull-requests)). Not an error |
 | ❌ tooling error | Fails the job for that package and still processes the others |
 
 Each package@version gets its own branch (`graft/sync-<package>-<version>`). A branch or issue that already exists is skipped, so the action is safe to run on a schedule.
@@ -54,7 +55,29 @@ jobs:
       - uses: brandonroberts/graft/packages/action@main
 ```
 
-Enable **Settings → Actions → General → Allow GitHub Actions to create and approve pull requests**.
+Enable **Settings → Actions → General → Allow GitHub Actions to create and approve pull requests**, or use a GitHub App token (below).
+
+## Tokens and pull requests
+
+With the default `GITHUB_TOKEN`, two GitHub rules apply:
+
+- **Actions may not be allowed to open PRs.** That's the default for new repositories and organizations, and some organizations lock it. The action then still pushes the sync branch, and opens an issue linking a one-click compare page to open the PR yourself (outcome `pr-refused-issue`, not an error).
+- **PRs opened with `GITHUB_TOKEN` don't trigger other workflows.** Your `on: pull_request` CI won't run on the sync PR until someone pushes to it. (Graft has already run each graft's oracle, but you'll usually want your own CI too.)
+
+A **GitHub App token** (or a fine-grained PAT with contents, pull requests and issues write) avoids both: PR creation isn't governed by that repository setting, and its PRs trigger CI like anyone's.
+
+```yaml
+      - uses: actions/create-github-app-token@v2
+        id: app-token
+        with:
+          app-id: ${{ vars.GRAFT_APP_ID }}
+          private-key: ${{ secrets.GRAFT_APP_PRIVATE_KEY }}
+      - uses: brandonroberts/graft/packages/action@main
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+```
+
+The app needs repository permissions *Contents*, *Pull requests* and *Issues*: read and write.
 
 ## Repo mode (forks that are the product)
 
