@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error -- plain .mjs module without type declarations
-import { parseInputs, renderPrBody, runAction, sh } from '../src/sync-action.mjs';
+import { detectInstallCommand, parseInputs, renderPrBody, runAction, sh } from '../src/sync-action.mjs';
 
 const FAKE_GRAFT = path.join(import.meta.dirname, 'fake-graft.mjs');
 
@@ -206,5 +206,21 @@ describe('graft check in the Action', () => {
     expect(failed).toBe(false);
     expect(check).toBeUndefined();
     expect(t.calls()).not.toContain('graft check');
+  });
+});
+
+describe('detectInstallCommand', () => {
+  const dir = (files: Record<string, string>) => {
+    const d = mkdtempSync(path.join(os.tmpdir(), 'graft-action-pm-'));
+    for (const [f, c] of Object.entries(files)) writeFileSync(path.join(d, f), c);
+    return d;
+  };
+
+  it('uses --frozen-lockfile for yarn classic and --immutable for yarn 2+', () => {
+    expect(detectInstallCommand(dir({ 'yarn.lock': '# yarn lockfile v1\n' }))).toBe('yarn install --frozen-lockfile');
+    expect(detectInstallCommand(dir({ 'yarn.lock': '__metadata:\n  version: 8\n' }))).toBe('yarn install --immutable');
+    expect(detectInstallCommand(dir({ 'yarn.lock': '', '.yarnrc.yml': 'nodeLinker: pnp\n' }))).toBe('yarn install --immutable');
+    expect(detectInstallCommand(dir({ 'yarn.lock': '', 'package.json': '{"packageManager":"yarn@4.18.1"}' }))).toBe('yarn install --immutable');
+    expect(detectInstallCommand(dir({ 'yarn.lock': '', 'package.json': '{"packageManager":"yarn@1.22.22"}' }))).toBe('yarn install --frozen-lockfile');
   });
 });

@@ -65,6 +65,7 @@ function printAnchors(report: AnchorReport): void {
     console.log(`  ⇡ likely upstreamed: ${report.package}@${report.version} already contains this graft's change; confirm and set status: upstreamed`);
     for (const e of report.upstreamed.evidence) console.log(`    ${e}`);
   }
+  for (const w of report.warnings ?? []) console.log(`  ! ${w}`);
 }
 
 const init = defineCommand({

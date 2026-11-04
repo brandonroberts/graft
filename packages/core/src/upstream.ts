@@ -1,12 +1,20 @@
+import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, realpath, rename, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import { GraftError } from './errors.js';
 
 export interface InstalledPackage {
   version: string;
-  /** Real path of the installed package directory. */
+  /**
+   * Real path of the installed package directory. Under Plug'n'Play this can be a path inside
+   * a zip archive (e.g. `~/.yarn/berry/cache/<pkg>-npm-<version>-<hash>.zip/node_modules/<pkg>/`),
+   * readable only through the PnP runtime: use {@link readInstalledFiles}.
+   */
   dir: string;
+  /** The Plug'n'Play runtime (`.pnp.cjs`) the package was resolved through, if any. */
+  pnp?: string;
 }
 
 export interface PackageVersions {
@@ -45,8 +53,77 @@ export interface NpmUpstreamOptions {
   resolveFrom?: Record<string, string>;
 }
 
-/** Finds `node_modules/<pkg>/package.json` walking up from `from`. */
+/** The Plug'n'Play runtime (yarn 2+ `.pnp.cjs`) governing `from`, walking up; undefined without PnP. */
+export function findPnpRuntime(from: string): string | undefined {
+  let dir = path.resolve(from);
+  for (;;) {
+    const candidate = path.join(dir, '.pnp.cjs');
+    if (existsSync(candidate)) return candidate;
+    const parent = path.dirname(dir);
+    if (parent === dir) return undefined;
+    dir = parent;
+  }
+}
+
+// Runs under `node -r <.pnp.cjs>`, so `fs` reads through PnP's zip layer. Given a package name
+// and an issuer it resolves the package directory; given a directory it reads from it. Prints
+// { dir, version, files: { [rel]: string | null } }, or null when the package does not resolve.
+const PNP_PROBE = `
+const fs = require('fs'), path = require('path');
+const { pkg, issuer, dir: given, files } = JSON.parse(process.argv[1]);
+let dir = given;
+if (!dir) { try { dir = require('pnpapi').resolveToUnqualified(pkg, issuer); } catch { dir = null; } }
+if (!dir) { process.stdout.write('null'); process.exit(0); }
+const read = (f) => { try { return fs.readFileSync(path.join(dir, f), 'utf8'); } catch { return null; } };
+const out = { dir, version: JSON.parse(read('package.json') || '{}').version || null, files: {} };
+for (const f of files) out.files[f] = read(f);
+process.stdout.write(JSON.stringify(out));
+`;
+
+interface PnpProbe {
+  dir: string;
+  version: string | null;
+  files: Record<string, string | null>;
+}
+
+async function probePnp(runtime: string, query: { pkg?: string; issuer?: string; dir?: string; files?: string[] }): Promise<PnpProbe | null> {
+  const { stdout } = await promisify(execFile)(process.execPath, ['-r', runtime, '-e', PNP_PROBE, JSON.stringify({ files: [], ...query })], {
+    cwd: path.dirname(runtime),
+    maxBuffer: 256 * 1024 * 1024,
+  });
+  return JSON.parse(stdout) as PnpProbe | null;
+}
+
+/**
+ * Read files of an installed package (paths relative to its directory). Works for plain
+ * directories and, through the PnP runtime, for packages stored in yarn's zip cache. A missing
+ * file reads as undefined; failing to run the PnP runtime throws.
+ */
+export async function readInstalledFiles(installed: InstalledPackage, files: string[]): Promise<Record<string, string | undefined>> {
+  const out: Record<string, string | undefined> = {};
+  if (!installed.pnp) {
+    for (const f of files) {
+      const full = path.join(installed.dir, f);
+      out[f] = existsSync(full) ? await readFile(full, 'utf8') : undefined;
+    }
+    return out;
+  }
+  const probe = await probePnp(installed.pnp, { dir: installed.dir, files });
+  if (!probe) throw new Error(`could not read ${installed.dir} through the Plug'n'Play runtime ${installed.pnp}`);
+  for (const f of files) out[f] = probe.files[f] ?? undefined;
+  return out;
+}
+
+/**
+ * Finds the installed `pkg` as seen from `from`: through the Plug'n'Play runtime when the
+ * project has one (yarn 2+ `.pnp.cjs`), otherwise `node_modules/<pkg>/package.json` walking up.
+ */
 export async function findInstalledPackage(pkg: string, from: string): Promise<InstalledPackage | undefined> {
+  const pnp = findPnpRuntime(from);
+  if (pnp) {
+    const probe = await probePnp(pnp, { pkg, issuer: `${path.resolve(from)}${path.sep}` }).catch(() => null);
+    if (probe?.version) return { version: probe.version, dir: probe.dir, pnp };
+  }
   let dir = path.resolve(from);
   for (;;) {
     const candidate = path.join(dir, 'node_modules', pkg, 'package.json');

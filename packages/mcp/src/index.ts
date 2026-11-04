@@ -93,7 +93,7 @@ export function createGraftServer(options: GraftServerOptions = {}): McpServer {
       const status = await projectStatus(project);
       const grafts = status.grafts.map((g) => ({
         ...g,
-        anchors: includeAnchors === false ? undefined : g.anchors && { ok: g.anchors.ok, variant: g.anchors.variant?.module ?? null, missed: g.anchors.anchors.filter((a) => !a.matched).map((a) => a.name), errors: g.anchors.errors, upstreamed: g.anchors.upstreamed },
+        anchors: includeAnchors === false ? undefined : g.anchors && { ok: g.anchors.ok, variant: g.anchors.variant?.module ?? null, missed: g.anchors.anchors.filter((a) => !a.matched).map((a) => a.name), errors: g.anchors.errors, upstreamed: g.anchors.upstreamed, warnings: g.anchors.warnings },
       }));
       return ok({ root: project.root, grafts, invalid: status.invalid }, `${grafts.length} graft(s), ${status.invalid.length} invalid`);
     }),

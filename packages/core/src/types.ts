@@ -54,6 +54,8 @@ export interface AnchorReport {
   anchors: AnchorResult[];
   /** Problems not tied to a single anchor (missing variant, missing target, load error). */
   errors: string[];
+  /** Checks that could not be made (e.g. installed files unreadable); they do not fail the report. */
+  warnings?: string[];
   ok: boolean;
   /**
    * Set when the variant does not apply to this version but upstream already contains its

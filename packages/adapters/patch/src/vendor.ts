@@ -85,7 +85,7 @@ async function writeManifest(m: { file: string; text: string; json: Record<strin
 /** Where this package manager reads overrides from. */
 function overrideLocation(installRoot: string): { kind: 'overrides' | 'resolutions' | 'pnpm-json' | 'pnpm-yaml' } {
   const pm = detectPackageManager(installRoot);
-  if (pm === 'yarn') return { kind: 'resolutions' };
+  if (pm === 'yarn' || pm === 'yarn-berry') return { kind: 'resolutions' };
   if (pm === 'pnpm') return { kind: existsSync(path.join(installRoot, WORKSPACE_FILE)) ? 'pnpm-yaml' : 'pnpm-json' };
   return { kind: 'overrides' }; // npm, bun, upm
 }
