@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
   GraftError,
+  readInstalledFiles,
   renderPatch,
   scopeFileDiff,
   type AnchorReport,
@@ -117,13 +118,20 @@ export function createPatchAdapter(): MechanismAdapter {
         report.errors.push(...(await applierFor(project).problems(project.root, pkg, version, report.variant.path, { upstream: project.upstream })));
         // Whatever the configuration says, check what actually got installed: each patched file
         // must equal pristine upstream + this variant. Catches patches dropped silently.
+        // Under Plug'n'Play the installed copy lives in a zip archive, read through the PnP runtime.
         if (report.anchors.every((a) => a.matched) && installed.dir !== dir) {
-          for (const p of patches) {
+          const targets = patches.filter((p) => p.newFile).map((p) => p.newFile!);
+          let actual: Record<string, string | undefined> | undefined;
+          try {
+            actual = await readInstalledFiles(installed, targets);
+          } catch (err) {
+            (report.warnings ??= []).push(`cannot verify installed files of ${pkg}@${version}${installed.pnp ? " under Plug'n'Play" : ''} (${(err as Error).message}); the package-manager configuration was checked, the installed contents were not`);
+          }
+          for (const p of actual ? patches : []) {
             if (!p.newFile) continue;
             const pristine = p.oldFile ? await readIn(dir, p.oldFile) : '';
             const expected = pristine === undefined ? false : applyFilePatch(pristine, p);
-            const actual = await readIn(installed.dir, p.newFile);
-            if (expected !== false && actual !== expected) {
+            if (expected !== false && actual![p.newFile] !== expected) {
               report.errors.push(`installed ${pkg}@${version} ${p.newFile} is not patched with ${report.variant.module}; run \`graft apply\` (or reinstall)`);
             }
           }
@@ -205,6 +213,12 @@ export function createPatchAdapter(): MechanismAdapter {
       const primary = await project.upstream.installed(pkg);
       if (!primary) {
         report.warnings.push(`${pkg} is not installed; nothing to apply`);
+        return report;
+      }
+      if (primary.pnp) {
+        report.errors.push(
+          `${pkg} is installed through yarn Plug'n'Play (${primary.dir}); Graft's built-in applier patches node_modules and cannot patch PnP's zip cache — use the "yarn" applier (default for yarn 2+) or "vendor"`,
+        );
         return report;
       }
       const copies = await findInstalledCopies(project.root, pkg);

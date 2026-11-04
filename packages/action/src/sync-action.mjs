@@ -2,7 +2,7 @@
 // hand grafts that need an agent to a configurable agent command. Uses only Node builtins and
 // the git / gh CLIs, so it runs from a checkout of this repository with no build step.
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -58,13 +58,30 @@ export function sh(command, { cwd, env, onOutput } = {}) {
 const quote = (s) => `'${String(s).replaceAll("'", "'\\''")}'`;
 const slug = (s) => s.replace(/^@/, '').replace(/[^a-zA-Z0-9.-]+/g, '-');
 
+/** yarn 2+ (berry) rather than yarn classic: `packageManager: yarn@2+`, `.yarnrc.yml`, a PnP runtime, or berry's lockfile header. */
+export function isYarnBerry(cwd) {
+  try {
+    const declared = /^yarn@(\d+)/.exec(String(JSON.parse(readFileSync(path.join(cwd, 'package.json'), 'utf8')).packageManager ?? ''));
+    if (declared) return Number(declared[1]) >= 2;
+  } catch {
+    // no readable manifest
+  }
+  if (['.yarnrc.yml', '.pnp.cjs', '.pnp.js'].some((f) => existsSync(path.join(cwd, f)))) return true;
+  try {
+    return /^__metadata:/m.test(readFileSync(path.join(cwd, 'yarn.lock'), 'utf8').slice(0, 4096));
+  } catch {
+    return false;
+  }
+}
+
 /** Detect a reinstall command from the lockfile, used to reset node_modules between candidates. */
 export function detectInstallCommand(cwd) {
   // Same precedence as Graft core: pnpm, npm, upm, then yarn and bun; npm when nothing says otherwise.
   if (existsSync(path.join(cwd, 'pnpm-lock.yaml'))) return 'pnpm install --frozen-lockfile';
   if (existsSync(path.join(cwd, 'package-lock.json')) || existsSync(path.join(cwd, 'npm-shrinkwrap.json'))) return 'npm ci';
   if (existsSync(path.join(cwd, 'upm.lock'))) return 'upm install --frozen-lockfile';
-  if (existsSync(path.join(cwd, 'yarn.lock'))) return 'yarn install --frozen-lockfile';
+  // yarn 2+ (berry) has no --frozen-lockfile; its equivalent is --immutable.
+  if (existsSync(path.join(cwd, 'yarn.lock'))) return isYarnBerry(cwd) ? 'yarn install --immutable' : 'yarn install --frozen-lockfile';
   if (existsSync(path.join(cwd, 'bun.lock')) || existsSync(path.join(cwd, 'bun.lockb'))) return 'bun install --frozen-lockfile';
   return 'npm install';
 }

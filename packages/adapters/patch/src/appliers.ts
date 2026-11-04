@@ -7,11 +7,15 @@
 //   pnpm           patchedDependencies (name-only key) + ignorePatchFailures: false
 //   bun            package.json patchedDependencies["<pkg>@<installed>"]; bun silently ignores
 //                  name-only keys and keys for other versions, so the key tracks the version
+//   yarn           (default for yarn 2+ / berry, Plug'n'Play or node-modules) package.json
+//                  resolutions["<pkg>"] = "patch:<pkg>@npm%3A<version>#./<variant>"; yarn applies
+//                  the patch while fetching, records it in yarn.lock, and fails on a bad hunk
 //   vendor         (default for upm; works with any package manager that supports overrides)
 //                  pristine + variant built into .grafts/.vendor/<pkg>-<version>.tgz, installed
 //                  through overrides/resolutions and the root's own dependency
-//   graft          (default for npm, yarn classic, anything with node_modules + postinstall)
-//                  Graft applies the variants itself: `graft apply --installed` in postinstall
+//   graft          (default for npm < 12, yarn classic, anything with node_modules + postinstall)
+//                  Graft applies the variants itself: `graft apply --installed` in postinstall;
+//                  refused under Plug'n'Play (no node_modules to patch)
 //   patch-package  (opt-in) a generated <pkg>+<version>.patch in a graft-owned dir, applied by
 //                  `patch-package --error-on-fail --error-on-warn` in postinstall; without those
 //                  flags patch-package exits 0 on a failed patch (outside CI)
@@ -19,11 +23,11 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { detectPackageManager, type UpstreamSource } from '@graftsync/core';
+import { detectPackageManager, findPnpRuntime, type UpstreamSource } from '@graftsync/core';
 import { configurePnpmPatch, findPnpmWorkspaceRoot, pnpmConfigProblems } from './pnpm.js';
 import { vendorConfigure, vendorProblems } from './vendor.js';
 
-export type ApplierName = 'pnpm' | 'npm' | 'bun' | 'graft' | 'patch-package' | 'vendor';
+export type ApplierName = 'pnpm' | 'npm' | 'bun' | 'yarn' | 'graft' | 'patch-package' | 'vendor';
 
 export interface ApplierContext {
   /** Pristine upstream contents, for appliers that build the patched package themselves. */
@@ -46,9 +50,9 @@ export function selectApplier(root: string, configured?: string): PatchApplier {
   const pm = detectPackageManager(root);
   // npm 12+ patches natively; older npm silently ignores patchedDependencies, so it gets the built-in applier.
   const npmDefault = pm === 'npm' && (npmMajor(root) ?? 0) >= NPM_NATIVE_PATCH_MAJOR ? 'npm' : 'graft';
-  const name = (configured ?? { pnpm: 'pnpm', npm: npmDefault, bun: 'bun', yarn: 'graft', upm: 'vendor' }[pm]) as ApplierName;
+  const name = (configured ?? { pnpm: 'pnpm', npm: npmDefault, bun: 'bun', yarn: 'graft', 'yarn-berry': 'yarn', upm: 'vendor' }[pm]) as ApplierName;
   const applier = APPLIERS[name];
-  if (!applier) throw new Error(`unknown patch applier "${configured}" (expected pnpm | npm | bun | graft | patch-package | vendor)`);
+  if (!applier) throw new Error(`unknown patch applier "${configured}" (expected pnpm | npm | bun | yarn | graft | patch-package | vendor)`);
   return applier;
 }
 
@@ -186,6 +190,86 @@ export const bunApplier: PatchApplier = {
   },
 };
 
+/**
+ * Appliers that patch files under node_modules after install cannot work under yarn
+ * Plug'n'Play, where packages stay in zip archives and there is no node_modules.
+ */
+function pnpRefusal(installRoot: string, applier: string): string | undefined {
+  const pnp = findPnpRuntime(installRoot);
+  if (!pnp) return undefined;
+  return `the "${applier}" applier patches node_modules, but this project uses yarn Plug'n'Play (${pnp}); use the "yarn" applier (yarn's patch: protocol, the default for yarn 2+) or "vendor", or set \`nodeLinker: node-modules\` in .yarnrc.yml`;
+}
+
+/** yarn 2+ `patch:` descriptor applying `relPatch` (posix, relative to the project root) to `pkg@version` from npm. */
+export function yarnPatchSpec(pkg: string, version: string, relPatch: string): string {
+  const rel = relPatch.startsWith('../') ? relPatch : `./${relPatch}`;
+  return `patch:${pkg}@npm%3A${version}#${rel}`;
+}
+
+/** Resolution keys other than the name-only one that also select `pkg` (e.g. `ms@npm:^2`, `foo/ms`, `**\/ms@^2`). */
+const otherResolutionKeys = (resolutions: Record<string, string>, pkg: string) =>
+  Object.keys(resolutions).filter((k) => k !== pkg && (keyIsFor(k, pkg) || k.endsWith(`/${pkg}`) || k.includes(`/${pkg}@`)));
+
+/** Root dependency specs the yarn applier rewrites: plain versions/ranges, `patch:` specs, and vendored tarballs. */
+function yarnDeclaredSpec(declared: string, version: string): string | undefined {
+  const plain = /^([~^]?)\d[^\s|<>=]*$/.exec(declared);
+  if (plain) return `${plain[1]}${version}`;
+  if (declared.startsWith('patch:') || (declared.startsWith('file:') && declared.includes('.grafts/.vendor/'))) return version;
+  return undefined;
+}
+
+const DEP_FIELDS = ['dependencies', 'devDependencies', 'optionalDependencies'] as const;
+
+/**
+ * yarn 2+ native patches through the `patch:` protocol: a name-only root resolution
+ * `"<pkg>": "patch:<pkg>@npm%3A<version>#./<variant>"` makes every copy of `pkg` resolve to
+ * `pkg@version` with the variant applied, under Plug'n'Play and `nodeLinker: node-modules`
+ * alike. yarn applies the patch at fetch time (no install scripts), stores the patched
+ * package with its own checksum in yarn.lock, and fails the install on a hunk that does not
+ * apply. Like `vendor`, the resolution pins the version, so a bare reinstall follows.
+ */
+export const yarnApplier: PatchApplier = {
+  name: 'yarn',
+  async problems(root, pkg, version, variantPath) {
+    const installRoot = manifestRoot(root);
+    const problems: string[] = [];
+    if (detectPackageManager(installRoot) !== 'yarn-berry') {
+      problems.push('the "yarn" applier needs yarn 2+ (berry); yarn classic has no patch: protocol (use the "graft" or "vendor" applier)');
+    }
+    const { json } = await readManifest(installRoot);
+    const resolutions = (json.resolutions ?? {}) as Record<string, string>;
+    const expected = yarnPatchSpec(pkg, version, posix(path.relative(installRoot, variantPath)));
+    if (resolutions[pkg] !== expected) problems.push(`package.json resolutions["${pkg}"] must be "${expected}"${resolutions[pkg] ? ` (is "${resolutions[pkg]}")` : ''}`);
+    for (const k of otherResolutionKeys(resolutions, pkg)) {
+      problems.push(`package.json resolutions["${k}"] also resolves ${pkg} and can select an unpatched copy; graft manages ${pkg} with the name-only resolution — remove it`);
+    }
+    for (const field of DEP_FIELDS) {
+      const declared = json[field]?.[pkg];
+      if (typeof declared === 'string' && declared.startsWith('patch:')) {
+        problems.push(`package.json ${field}["${pkg}"] is a patch: descriptor ("${declared}"); graft patches ${pkg} through resolutions — set it to "${version}"`);
+      }
+    }
+    return problems;
+  },
+  async configure(root, pkg, version, variantPath) {
+    const installRoot = manifestRoot(root);
+    if (detectPackageManager(installRoot) !== 'yarn-berry') {
+      throw new Error('the "yarn" applier needs yarn 2+ (berry); yarn classic has no patch: protocol (use the "graft" or "vendor" applier)');
+    }
+    const m = await readManifest(installRoot);
+    const resolutions = ((m.json.resolutions ??= {}) as Record<string, string>);
+    for (const k of Object.keys(resolutions)) if (k !== pkg && keyIsFor(k, pkg)) delete resolutions[k];
+    resolutions[pkg] = yarnPatchSpec(pkg, version, posix(path.relative(installRoot, variantPath)));
+    for (const field of DEP_FIELDS) {
+      const declared = m.json[field]?.[pkg];
+      const next = typeof declared === 'string' ? yarnDeclaredSpec(declared, version) : undefined;
+      if (next) m.json[field][pkg] = next;
+    }
+    await writeManifest(m);
+    return { files: [m.file], install: 'reinstall' };
+  },
+};
+
 export const PATCH_PACKAGE_DIR = '.grafts/.patch-package';
 const PATCH_PACKAGE_FLAGS = ['--error-on-fail', '--error-on-warn'];
 const patchPackageCommand = (dir: string) => `patch-package --patch-dir ${dir} ${PATCH_PACKAGE_FLAGS.join(' ')}`;
@@ -215,6 +299,8 @@ export const patchPackageApplier: PatchApplier = {
     const dir = path.join(installRoot, PATCH_PACKAGE_DIR);
     const { json } = await readManifest(installRoot);
     const problems: string[] = [];
+    const refusal = pnpRefusal(installRoot, 'patch-package');
+    if (refusal) problems.push(refusal);
     const postinstall: string = json.scripts?.postinstall ?? '';
     const ours = postinstall.split(/&&|;/).map((s) => s.trim()).find((s) => /\bpatch-package\b/.test(s) && s.includes(PATCH_PACKAGE_DIR));
     if (!ours) problems.push(`package.json scripts.postinstall must run \`${patchPackageCommand(PATCH_PACKAGE_DIR)}\``);
@@ -241,6 +327,8 @@ export const patchPackageApplier: PatchApplier = {
   },
   async configure(root, pkg, version, variantPath) {
     const installRoot = manifestRoot(root);
+    const refusal = pnpRefusal(installRoot, 'patch-package');
+    if (refusal) throw new Error(refusal);
     const dir = path.join(installRoot, PATCH_PACKAGE_DIR);
     await mkdir(dir, { recursive: true });
     const prefix = patchPackageFileName(pkg, '').replace(/\.patch$/, '');
@@ -272,6 +360,8 @@ export const graftApplier: PatchApplier = {
     const installRoot = manifestRoot(root);
     const { json } = await readManifest(installRoot);
     const problems: string[] = [];
+    const refusal = pnpRefusal(installRoot, 'graft');
+    if (refusal) problems.push(refusal);
     const postinstall: string = json.scripts?.postinstall ?? '';
     if (!hasGraftPostinstall(postinstall)) problems.push(`package.json scripts.postinstall must run \`${GRAFT_POSTINSTALL}\` (Graft's built-in applier)`);
     if (!json.devDependencies?.['@graftsync/cli'] && !json.dependencies?.['@graftsync/cli']) problems.push('@graftsync/cli must be a (dev)dependency so postinstall can run `graft`');
@@ -291,6 +381,8 @@ export const graftApplier: PatchApplier = {
   },
   async configure(root, pkg) {
     const installRoot = manifestRoot(root);
+    const refusal = pnpRefusal(installRoot, 'graft');
+    if (refusal) throw new Error(refusal);
     // Remove graft-owned patch-package artifacts for this package (switching appliers).
     const dir = path.join(installRoot, PATCH_PACKAGE_DIR);
     const prefix = patchPackageFileName(pkg, '').replace(/\.patch$/, '');
@@ -319,6 +411,6 @@ export const vendorApplier: PatchApplier = {
   },
 };
 
-const APPLIERS: Record<ApplierName, PatchApplier> = { pnpm: pnpmApplier, npm: npmApplier, bun: bunApplier, graft: graftApplier, 'patch-package': patchPackageApplier, vendor: vendorApplier };
+const APPLIERS: Record<ApplierName, PatchApplier> = { pnpm: pnpmApplier, npm: npmApplier, bun: bunApplier, yarn: yarnApplier, graft: graftApplier, 'patch-package': patchPackageApplier, vendor: vendorApplier };
 
 export { findPnpmWorkspaceRoot };

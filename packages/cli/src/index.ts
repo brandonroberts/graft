@@ -61,6 +61,7 @@ function printAnchors(report: AnchorReport): void {
     console.log(`  ${a.matched ? '✓' : '✗'} ${a.name} ${a.file}${where}${a.description ? ` — ${a.description}` : ''}${a.error ? ` (${a.error})` : ''}`);
   }
   for (const e of report.errors) console.log(`  ✗ ${e}`);
+  for (const w of report.warnings ?? []) console.log(`  ! ${w}`);
 }
 
 const init = defineCommand({
