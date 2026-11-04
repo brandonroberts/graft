@@ -100,6 +100,15 @@ describe('graft CLI: bookkeeping commands', () => {
     expect(r.err).toMatch(/overlaps existing variant/);
   });
 
+  it('check fails on an invalid graft instead of skipping it', async () => {
+    const { graft, g } = await fixture();
+    const md = await readFile(path.join(g, 'graft.md'), 'utf8');
+    await writeFile(path.join(g, 'graft.md'), md.replace('## Anchors\nThe const block.\n', ''));
+    const r = graft('check', '--json');
+    expect(r.code).toBe(1);
+    expect(r.json()).toEqual([expect.objectContaining({ graft: 'add-c', ok: false, errors: [expect.stringMatching(/invalid graft\.md: .*Anchors/)] })]);
+  });
+
   it('mark sets status / verified and appends History, and rejects bad input', async () => {
     const { g, graft } = await fixture();
     const r = graft('mark', 'add-c', '--status', 'upstreamed', '--history', 'lib 3.0 ships this natively.', '--json');

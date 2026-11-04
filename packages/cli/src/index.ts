@@ -200,10 +200,14 @@ const check = defineCommand({
   },
   run: guarded(async (args) => {
     const project = await open(args.root);
-    const ids = args.id
-      ? [args.id]
-      : (await project.loadAll()).grafts.filter((g) => ['applied', 'conflicted'].includes(g.frontmatter.status)).map((g) => g.id);
+    const { grafts, invalid } = await project.loadAll();
+    const ids = args.id ? [args.id] : grafts.filter((g) => ['applied', 'conflicted'].includes(g.frontmatter.status)).map((g) => g.id);
     const reports: AnchorReport[] = [];
+    // An invalid graft is never skipped: it fails the check (a graft must not silently apply nothing).
+    for (const g of invalid.filter((g) => !args.id || g.id === args.id)) {
+      const errors = g.diagnostics.filter((d) => d.severity === 'error').map((d) => `invalid graft.md: ${d.message}`);
+      reports.push({ graft: g.id, package: '?', version: '?', variant: null, anchors: [], errors, ok: false });
+    }
     for (const id of ids) reports.push(await checkAnchors(project, id, args.version));
     print(args.json, reports, () => reports.forEach(printAnchors));
     return reports.every((r) => r.ok) ? EXIT.ok : EXIT.attention;
