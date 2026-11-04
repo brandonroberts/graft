@@ -168,6 +168,15 @@ It also warns when `rootstock.verified` isn't covered by any variant. Prerelease
 
 Reports go to `.grafts/.report/sync.json` and `sync.md`. Exit codes: `0` all green, `1` one or more grafts need an agent, `2` tooling error.
 
+### Writing an oracle
+
+The oracle is the only proof, so it has to be able to fail:
+- **Prove it fails without the graft,** and test one behavior the graft must not break.
+- **In a browser, fail on console errors and 5xx responses too,** not only uncaught exceptions: Angular, React and Vue catch errors and log them. Assert something visible that depends on the graft.
+- **Give each place the bug can appear its own mode** (e.g. `dev` and `build`), and stop any server the oracle starts on every exit.
+
+[`examples/angular-tr`](examples/angular-tr) has a content oracle, and the skill covers browser oracles in more detail.
+
 ## CLI
 
 ```sh

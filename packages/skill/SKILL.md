@@ -106,6 +106,19 @@ When asked to capture a modification as a graft (new, or migrating an existing p
 5. **Write the oracle** so it fails before the modification and passes after. Check that it
    fails without the graft. An oracle that can't fail proves nothing. Test the Invariants,
    plus at least one pre-existing behavior the graft must not break.
+   - **Browser oracles** (Playwright etc.) fail on uncaught page errors, **`console.error`**
+     messages, and failed (5xx) requests. Frameworks catch errors and only log them:
+     Angular's `ErrorHandler`, React error boundaries, Vue's `errorHandler`. Listening only
+     for page errors lets a broken page pass.
+   - **Assert something visible that depends on the graft,** not only "no errors": a page can
+     fail to render without throwing.
+   - **Clean up what you start:** stop a dev server on *every* exit (`process.on('exit', …)`),
+     because `process.exit` skips `finally` blocks and leaves the port taken.
+   - **Test the code path, not the whole stack,** when the rest isn't what the graft changes.
+     For a dependency's browser behavior, load it through the dev server (e.g. a one-line
+     module importing it) instead of rendering pages through a framework's dev SSR.
+   - **Cover the modes the bug lives in.** A dev-only bug needs a `dev` mode; a production
+     build may behave differently (e.g. Vite replaces `process.env` only there).
 6. **Prove it:** `graft verify <id>`, then `graft sync` (green).
 7. **Find the variant's real range:** `graft replay <id>` checks every published version.
    Record what you learn in *History*.
