@@ -4,3 +4,4 @@ dist/
 .grafts/.cache/
 .grafts/.report/
 coverage/
+.claude/worktrees/
