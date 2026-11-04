@@ -17,8 +17,8 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4      # a shallow checkout is enough
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7      # a shallow checkout is enough
+      - uses: actions/setup-node@v7
         with: { node-version: 24 }
       - uses: brandonroberts/graft/packages/action@main
         # env:

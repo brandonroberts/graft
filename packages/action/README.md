@@ -48,9 +48,9 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 22 }
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with: { node-version: 24 }
       - run: npm ci            # the project must depend on @graftsync/cli
       - uses: brandonroberts/graft/packages/action@main
 ```
@@ -67,7 +67,7 @@ With the default `GITHUB_TOKEN`, two GitHub rules apply:
 A **GitHub App token** (or a fine-grained PAT with contents, pull requests and issues write) avoids both: PR creation isn't governed by that repository setting, and its PRs trigger CI like anyone's.
 
 ```yaml
-      - uses: actions/create-github-app-token@v2
+      - uses: actions/create-github-app-token@v3
         id: app-token
         with:
           app-id: ${{ vars.GRAFT_APP_ID }}
