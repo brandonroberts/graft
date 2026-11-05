@@ -1,5 +1,20 @@
 # @graftsync/cli
 
+## 0.2.1
+
+### Patch Changes
+
+Repo mode keeps upstream in the fork's history, and refuses partial clones with a clear reason.
+
+- A repo-mode result (`materialized.fetch`, `agentStart`) now names the upstream commit it sits on (`upstream`). The report's adopt command, the README, the skill and the GitHub Action adopt it as a merge of that commit, with the result's tree. Adopting by tree swap left upstream out of the fork's history, so a fork that also merges upstream itself replayed it on its next merge and hit the resolved conflicts again (#22).
+- A local `fork.repo` or `upstream` that is a partial clone (`--filter=blob:none`) is refused with `fork/partial-clone`, naming the cause and the fix, instead of git's "repository corruption" error after a full fetch attempt (#23). Shallow clones still work.
+- Updated dependencies [275c71b]
+  - @graftsync/core@0.2.1
+  - @graftsync/adapter-fork@0.2.1
+  - @graftsync/skill@0.2.1
+  - @graftsync/adapter-patch@0.2.1
+  - @graftsync/spec@0.2.1
+
 ## 0.2.0
 
 ### Minor Changes

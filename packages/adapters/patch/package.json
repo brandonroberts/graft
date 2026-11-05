@@ -1,6 +1,6 @@
 {
   "name": "@graftsync/adapter-patch",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Graft mechanism adapter for unified-diff patches, for any package manager.",
   "type": "module",
   "license": "MIT",
