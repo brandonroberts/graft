@@ -239,6 +239,40 @@ describe('graft GitHub Action', () => {
     expect(existsSync(path.join(t.work, '.grafts/lib-graft/graft.md'))).toBe(false); // back on main, clean
   });
 
+  it('refuses to sync over uncommitted work, dry run included, and leaves it in place (#24)', async () => {
+    for (const inputs of [{}, { 'dry-run': 'true' }]) {
+      const t = setup({ outdated: [entry('lib', '1.1.0')], sync: { lib: 'green' } });
+      writeFileSync(path.join(t.work, 'package.json'), JSON.stringify({ name: 'app', edited: true }));
+      mkdirSync(path.join(t.work, '.github/workflows'), { recursive: true });
+      writeFileSync(path.join(t.work, '.github/workflows/new.yml'), 'name: new\n');
+      await expect(t.run(inputs)).rejects.toThrow(
+        /the working tree has uncommitted changes or untracked files: package\.json, \.github\/workflows\/new\.yml\. Syncing switches branches/,
+      );
+      expect(t.calls()).not.toContain('graft sync');
+      expect(t.git('branch', '--list', 'graft/*').trim()).toBe('');
+      expect(readFileSync(path.join(t.work, 'package.json'), 'utf8')).toContain('"edited":true');
+      expect(readFileSync(path.join(t.work, '.github/workflows/new.yml'), 'utf8')).toBe('name: new\n');
+    }
+  });
+
+  it('ignored files, check-only runs and up-to-date runs do not need a clean tree', async () => {
+    const dirtyWork = (t: ReturnType<typeof setup>) => writeFileSync(path.join(t.work, 'notes.txt'), 'mine\n');
+    const ignored = setup({ outdated: [entry('lib', '1.1.0')], sync: { lib: 'green' } });
+    mkdirSync(path.join(ignored.work, '.grafts/.report'), { recursive: true });
+    writeFileSync(path.join(ignored.work, '.grafts/.report/sync.md'), 'old report\n');
+    expect((await ignored.run()).results[0]).toMatchObject({ outcome: 'pr' });
+
+    const checkOnly = setup({ outdated: [entry('lib', '1.1.0')], sync: { lib: 'green' }, check: 'ok' });
+    dirtyWork(checkOnly);
+    expect((await checkOnly.run({ sync: 'false' })).failed).toBe(false);
+    expect(readFileSync(path.join(checkOnly.work, 'notes.txt'), 'utf8')).toBe('mine\n');
+
+    const upToDate = setup({ outdated: [{ package: 'lib', grafts: ['lib-graft'], verified: '1.1.0', distTags: { latest: '1.1.0' } }], sync: {} });
+    dirtyWork(upToDate);
+    expect((await upToDate.run()).results[0]).toMatchObject({ outcome: 'up-to-date' });
+    expect(readFileSync(path.join(upToDate.work, 'notes.txt'), 'utf8')).toBe('mine\n');
+  });
+
   it('renders PR bodies with per-graft failure details', () => {
     const body = renderPrBody({
       candidate: { package: 'lib', verified: '1.0.0', version: '2.0.0', tag: 'next' },

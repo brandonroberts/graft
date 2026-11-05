@@ -238,6 +238,27 @@ export async function runAction(options, deps) {
     .map((e) => ({ package: e.package, from: e.verified, outcome: 'up-to-date' }));
   if (!candidates.length) log('graft: all rootstock packages are up to date');
 
+  // Syncing switches branches and resets the working tree (`checkout -f`, `clean -fd`), and
+  // commits everything it finds with `add -A`. On anything but a clean checkout that would
+  // silently discard work, or carry stray files into the sync PR (#24), so refuse first.
+  if (candidates.length) {
+    const tmpRel = path.relative(cwd, deps.tmpDir).split(path.sep).join('/');
+    const tmpTop = tmpRel && !tmpRel.startsWith('..') ? tmpRel.split('/')[0] : undefined;
+    const status = await run('git status --porcelain --untracked-files=all');
+    if (status.code !== 0) throw new Error(`git status failed: ${status.stderr || status.stdout}`);
+    const pending = status.stdout
+      .split('\n')
+      .filter((l) => l.trim() && !(tmpTop && (l.slice(3) === tmpTop || l.slice(3).startsWith(`${tmpTop}/`))));
+    if (pending.length) {
+      const shown = pending.slice(0, 10).map((l) => l.slice(3)).join(', ');
+      throw new Error(
+        `the working tree has uncommitted changes or untracked files: ${shown}${pending.length > 10 ? ` and ${pending.length - 10} more` : ''}. ` +
+          'Syncing switches branches and resets the working tree, so it would discard them (or commit them into a sync PR). ' +
+          'Commit, stash or gitignore them, or run the action on a fresh checkout, as in CI.',
+      );
+    }
+  }
+
   let dirty = false;
   for (const candidate of candidates) {
     const result = { package: candidate.package, from: candidate.verified, to: candidate.version, tag: candidate.tag, outcome: 'error', reasons: [] };

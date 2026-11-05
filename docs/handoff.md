@@ -228,7 +228,7 @@ All commands take `--json` and `--root`. Exit codes: `0` ok, `1` needs attention
    - **Repo-mode forks:** sync by graft id with no install; the PR branch takes Graft's rebased result (green) or the `-agent` branch (conflicts; the agent resolves in place, or a draft PR lists the files).
    - **PRs refused** (Actions may not open PRs, #18): the branch is pushed and an issue links a one-click compare page; not an error. A GitHub App token or fine-grained PAT as `github-token` avoids that and makes the PRs trigger CI.
 
-Existing branches and issues are skipped. This repo's workflow (`.github/workflows/graft-sync.yml`) is manual-trigger only. Its first real run (#3) found `yaml@3.0.0-2` and opened #17.
+Existing branches and issues are skipped. When there is something to sync, the action first requires a clean working tree (#24). Its branch switching and `checkout -f` / `clean -fd` otherwise discarded uncommitted work, even in `dry-run` (found running it locally on the blog), and `add -A` would commit stray files into the sync PR. This repo's workflow (`.github/workflows/graft-sync.yml`) is manual-trigger only. Its first real run (#3) found `yaml@3.0.0-2` and opened #17.
 
 ## 10. Dogfood
 
