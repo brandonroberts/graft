@@ -85,8 +85,8 @@ For a `fork` graft with `install: none` that lives in the fork itself (e.g. a tr
 
 - finds the target with `graft outdated`: the newest upstream release tag, or the tip of `fork.track` as `<version>+<commit>`;
 - runs `graft sync --version <target> --id <graft>` (nothing is installed);
-- **green:** takes Graft's rebased result (`graft/<id>/<version>` in the cache clone) as the whole tree of the PR branch, graft.md included, and opens a PR;
-- **conflicts:** takes Graft's `-agent` branch (git's merge, conflict markers in the listed files, graft.md at the new version). With `agent-command`, the agent resolves the markers in place and the action re-runs `graft sync`; green → PR with Graft's result. Otherwise → a **draft PR** listing the files to resolve.
+- **green:** takes Graft's rebased result (`graft/<id>/<version>` in the cache clone) as the whole tree of the PR branch, graft.md included, and opens a PR. The commit is a **merge** of the upstream commit the result sits on (with the result's tree), so the fork keeps upstream in its history, as a manual `git merge upstream/main` would, and later syncs, by Graft or by hand, start from there;
+- **conflicts:** takes Graft's `-agent` branch (git's merge, conflict markers in the listed files, graft.md at the new version), as the same merge. With `agent-command`, the agent resolves the markers in place and the action re-runs `graft sync`; green → PR with Graft's result. Otherwise → a **draft PR** listing the files to resolve.
 
 The project must gitignore `.grafts/.cache/` and `.grafts/.report/`.
 

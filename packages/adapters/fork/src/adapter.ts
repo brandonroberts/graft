@@ -114,6 +114,13 @@ const resultBranch = (graft: Graft, version: string) => `graft/${graft.id}/${ver
 const remoteUrl = (project: Project, url: string) =>
   /^[a-z][a-z0-9+.-]*:\/\//i.test(url) || /^[^/\s]+@[^/\s:]+:/.test(url) ? url : path.resolve(project.root, url);
 
+/**
+ * How to adopt a repo-mode result into the fork's branch: as a merge of the upstream commit it
+ * sits on (so the fork keeps upstream in its history), with the result's tree.
+ */
+const adoptHint = (cache: string, branch: string, upstream: string) =>
+  `adopt it as a merge of upstream: \`git fetch ${cache} ${branch} && git merge --no-ff --no-commit -s ours --allow-unrelated-histories ${upstream} && git read-tree -u --reset FETCH_HEAD\`, then commit`;
+
 /** True when `fork.repo` is the project's own checkout (`repo: .`): the graft lives in the fork. */
 function graftLivesInFork(project: Project, graft: Graft): boolean {
   const url = remoteUrl(project, forkConfig(graft).repo);
@@ -342,7 +349,7 @@ async function materialize(project: Project, graft: Graft, version: string, chan
     await chmod(file, m.executable ? mode | 0o111 : mode & ~0o111);
     if (!files.includes(m.file)) files.push(m.file);
   }
-  return { root: co.path, pkgDir, files, dispose: co.dispose };
+  return { root: co.path, pkgDir, files, targetRev, dispose: co.dispose };
 }
 
 /** A builder that rebases, builds and packs the fork for `version` into a temp dir. */
@@ -594,8 +601,8 @@ export function createForkAdapter(): MechanismAdapter {
       const cache = path.relative(project.root, repoDir(project, graft)) || '.';
       return {
         dir: tree.pkgDir,
-        result: `branch \`${branch}\` in ${cache} (\`git fetch ${cache} ${branch}\`)`,
-        fetch: { repo: cache, ref: branch },
+        result: `branch \`${branch}\` in ${cache}, on upstream ${tree.targetRev.slice(0, 12)} (${adoptHint(cache, branch, tree.targetRev)})`,
+        fetch: { repo: cache, ref: branch, upstream: tree.targetRev },
         dispose: tree.dispose,
       };
     },
@@ -653,10 +660,11 @@ export function createForkAdapter(): MechanismAdapter {
         }
       }
       const cache = path.relative(project.root, dir) || '.';
-      const where = `branch \`${branch}\` in ${cache} (\`git fetch ${cache} ${branch}\`): git's merge of the fork's change onto ${label}`;
+      const where = `branch \`${branch}\` in ${cache} (${adoptHint(cache, branch, target)}): git's merge of the fork's change onto ${label}`;
       return {
         repo: cache,
         ref: branch,
+        upstream: target,
         conflicts,
         description: conflicts.length
           ? `${where}, with conflict markers in ${conflicts.length} file(s): ${conflicts.join(', ')}`

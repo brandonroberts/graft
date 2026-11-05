@@ -194,6 +194,11 @@ export interface FetchableRef {
   /** Repository path, relative to the project root. */
   repo: string;
   ref: string;
+  /**
+   * The upstream commit the result sits on (repo mode). Adopting the result into the fork records
+   * it as a second parent, a merge, so the fork keeps upstream in its history.
+   */
+  upstream?: string;
 }
 
 /** Where an agent should start on a graft that needs one (see `MechanismAdapter.prepareAgent`). */

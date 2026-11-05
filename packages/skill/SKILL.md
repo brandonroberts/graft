@@ -217,8 +217,12 @@ When asked to capture a modification as a graft (new, or migrating an existing p
 - To create one in a fork that is the product: `graft add <id> --package <name> --mechanism fork
   --in-place --version <upstream version or version+commit>` from the fork's checkout.
 - **In place** (variant `{ "ref": "@worktree", "base": "@verified" }`): never write a new
-  variant. A green sync puts the new `verified` only in the result branch; adopt it with
-  `git fetch <repo> <ref> && git read-tree -u --reset FETCH_HEAD`. On the `-agent` branch,
+  variant. A green sync puts the new `verified` only in the result branch; adopt it as a merge
+  of the upstream commit it sits on (`upstream` in the report's `materialized.fetch` /
+  `agentStart`), so the fork keeps upstream in its history: `git fetch <repo> <ref> && git merge
+  --no-ff --no-commit -s ours --allow-unrelated-histories <upstream> && git read-tree -u --reset
+  FETCH_HEAD`, then commit. Never adopt by a plain tree swap or by checking out the result branch
+  (that drops the fork's history). On the `-agent` branch,
   graft.md already says the target version (`status: conflicted`): resolve, then
   `graft sync --version <target>` checks the working tree as it is; then run the project's checks.
 - **Start from the prepared branch.** On `needs-agent`, the report's "Start from" line names

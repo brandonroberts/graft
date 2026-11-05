@@ -214,11 +214,16 @@ describe('fork repo mode (install: none)', () => {
 });
 
 describe('fork repo mode, in place (@worktree / @verified)', () => {
-  const adopt = (fork: string, ref: string) => {
-    gitIn(fork, 'fetch', '-q', '.grafts/.cache/fork/tr', ref);
+  // Adopt a result the way the docs and the Action do: a merge of the upstream commit it sits on,
+  // with the result's tree. `commit: false` leaves the merge open (an agent resolves first).
+  const adopt = (fork: string, start: { ref?: string; upstream?: string } | undefined, opts: { commit?: boolean } = {}) => {
+    expect(start?.upstream).toMatch(/^[0-9a-f]{40}$/);
+    gitIn(fork, 'fetch', '-q', '.grafts/.cache/fork/tr', start!.ref!);
+    gitIn(fork, 'merge', '-q', '--no-ff', '--no-commit', '-s', 'ours', '--allow-unrelated-histories', start!.upstream!);
     gitIn(fork, 'read-tree', '-u', '--reset', 'FETCH_HEAD');
-    gitIn(fork, 'commit', '-q', '-m', `adopt ${ref}`);
+    if (opts.commit !== false) gitIn(fork, 'commit', '-q', '-m', `adopt ${start!.ref}`);
   };
+  const parents = (dir: string, rev = 'HEAD') => gitIn(dir, 'rev-list', '--parents', '-n1', rev).trim().split(' ').slice(1);
 
   it('records a green sync in the result, not the checkout; adopting it moves the fork forward', async () => {
     const { project, fork } = await setup({ inPlace: true });
@@ -226,12 +231,20 @@ describe('fork repo mode, in place (@worktree / @verified)', () => {
     const report = await sync(project, { version: '1.0.1' });
     expect(report.exitCode, JSON.stringify(report.grafts)).toBe(0);
     expect(report.grafts[0]).toMatchObject({ outcome: 'green', recordedInResult: true });
-    expect(report.grafts[0]?.materialized?.fetch).toEqual({ repo: '.grafts/.cache/fork/tr', ref: 'graft/tr/1.0.1' });
+    const v101 = gitIn(path.join(fork, '.grafts/.cache/fork/tr'), 'rev-parse', 'v1.0.1^{commit}').trim();
+    // The result sits on upstream 1.0.1, and the report names that commit for the adoption.
+    expect(report.grafts[0]?.materialized?.fetch).toEqual({ repo: '.grafts/.cache/fork/tr', ref: 'graft/tr/1.0.1', upstream: v101 });
+    expect(report.grafts[0]?.materialized?.description).toContain(`git merge --no-ff --no-commit -s ours --allow-unrelated-histories ${v101} && git read-tree -u --reset FETCH_HEAD`);
     // The checkout still is the fork at its old base, and says so.
     expect(await readFile(path.join(fork, '.grafts/tr/graft.md'), 'utf8')).toBe(before);
-    adopt(fork, 'graft/tr/1.0.1');
+    const forkHead = gitIn(fork, 'rev-parse', 'HEAD').trim();
+    adopt(fork, report.grafts[0]?.materialized?.fetch);
     expect(await readFile(path.join(fork, '.grafts/tr/graft.md'), 'utf8')).toMatch(/verified: 1\.0\.1/);
     expect(await readFile(path.join(fork, 'README.md'), 'utf8')).toBe('upstream 1.0.1\n');
+    // A merge: the fork keeps its own history and now has upstream 1.0.1 in it too (#22).
+    expect(parents(fork)).toEqual([forkHead, v101]);
+    expect(gitIn(fork, 'rev-parse', 'HEAD^{tree}').trim()).toBe(gitIn(fork, 'rev-parse', 'FETCH_HEAD^{tree}').trim());
+    expect(gitIn(fork, 'merge-base', 'HEAD', v101).trim()).toBe(v101);
     // The same permanent variant now describes the adopted fork: re-verifying is green.
     const again = await sync(await Project.open({ root: fork, adapters: [forkAdapter] }));
     expect(again.targets[0]?.version).toBe('1.0.1');
@@ -249,8 +262,11 @@ describe('fork repo mode, in place (@worktree / @verified)', () => {
     const { project, fork } = await setup({ inPlace: true });
     const report = await sync(project, { version: '1.2.0' });
     expect(report.exitCode).toBe(1);
-    expect(report.grafts[0]?.agentStart).toMatchObject({ ref: 'graft/tr/1.2.0-agent', conflicts: ['content/guide.md'] });
-    adopt(fork, 'graft/tr/1.2.0-agent');
+    const v120 = gitIn(path.join(fork, '.grafts/.cache/fork/tr'), 'rev-parse', 'v1.2.0^{commit}').trim();
+    expect(report.grafts[0]?.agentStart).toMatchObject({ ref: 'graft/tr/1.2.0-agent', conflicts: ['content/guide.md'], upstream: v120 });
+    expect(report.grafts[0]?.agentStart?.description).toContain(`--allow-unrelated-histories ${v120} && git read-tree -u --reset FETCH_HEAD`);
+    const forkHead = gitIn(fork, 'rev-parse', 'HEAD').trim();
+    adopt(fork, report.grafts[0]?.agentStart, { commit: false });
     const md = await readFile(path.join(fork, '.grafts/tr/graft.md'), 'utf8');
     expect(md).toMatch(/verified: 1\.2\.0/);
     expect(md).toMatch(/status: conflicted/);
@@ -266,6 +282,34 @@ describe('fork repo mode, in place (@worktree / @verified)', () => {
     const cache = path.join(fork, '.grafts/.cache/fork/tr');
     expect(gitIn(cache, 'show', 'graft/tr/1.2.0:.grafts/tr/graft.md')).toMatch(/status: applied/);
     expect(gitIn(cache, 'show', 'graft/tr/1.2.0:content/guide.md')).toContain('olayları');
+    // Committing the resolved work concludes the merge begun on adoption.
+    gitIn(fork, 'add', '-A');
+    gitIn(fork, 'commit', '-q', '-m', 'sync upstream 1.2.0');
+    expect(parents(fork)).toEqual([forkHead, v120]);
+  });
+
+  it('refuses a fork checkout that is a partial clone, saying so instead of git\'s "corruption" error (#23)', async () => {
+    const { root, fork } = await setup({ inPlace: true });
+    gitIn(fork, 'config', 'uploadpack.allowFilter', 'true');
+    const partial = path.join(root, 'partial');
+    gitIn(root, 'clone', '-q', '--filter=blob:none', '--branch', 'turkish-doc', `file://${fork}`, partial);
+    expect(gitIn(partial, 'config', '--get', 'remote.origin.promisor').trim()).toBe('true');
+    const project = await Project.open({ root: partial, adapters: [forkAdapter] });
+    const report = await sync(project, { version: '1.0.1' });
+    expect(report.exitCode).not.toBe(0);
+    expect(report.grafts[0]?.outcome).not.toBe('green');
+    const reasons = report.grafts[0]!.reasons.join('\n');
+    expect(reasons).toMatch(/the fork repository .*partial is a partial clone \(--filter=blob:none\)/);
+    expect(reasons).toMatch(/Use a full clone \(a shallow one is fine\)/);
+    expect(reasons).not.toMatch(/corruption/);
+  });
+
+  it('a shallow fork checkout still syncs', async () => {
+    const { root, fork } = await setup({ inPlace: true });
+    const shallow = path.join(root, 'shallow');
+    gitIn(root, 'clone', '-q', '--depth=1', '--branch', 'turkish-doc', `file://${fork}`, shallow);
+    const report = await sync(await Project.open({ root: shallow, adapters: [forkAdapter] }), { version: '1.0.1' });
+    expect(report.exitCode, JSON.stringify(report.grafts)).toBe(0);
   });
 
   it('outdated offers the newest upstream tag, or the tip of a tracked branch', async () => {

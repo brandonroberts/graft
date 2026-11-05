@@ -42,6 +42,7 @@ export async function ensureRepo(dir: string, forkUrl: string, upstreamUrl: stri
           await git(dir, ['init', '--quiet']);
         }
         for (const [name, url] of [['fork', forkUrl], ['upstream', upstreamUrl]] as const) {
+          await refusePartialClone(name, url);
           const has = await git(dir, ['remote', 'get-url', name], { allowFail: true });
           if (!has.ok) await git(dir, ['remote', 'add', name, url]);
           else if (has.stdout.trim() !== url) await git(dir, ['remote', 'set-url', name, url]);
@@ -55,6 +56,30 @@ export async function ensureRepo(dir: string, forkUrl: string, upstreamUrl: stri
     );
   }
   return fetched.get(key);
+}
+
+/**
+ * A local repository that is a partial clone (`--filter=blob:none`) lacks objects, and git can't
+ * fetch everything from it: it fails with "possible repository corruption on the remote side".
+ * Say what it is instead. (A shallow clone is fine.)
+ */
+async function refusePartialClone(name: string, url: string): Promise<void> {
+  if (!path.isAbsolute(url) || !existsSync(url)) return;
+  // `extensions.partialClone` names the promisor remote; git also marks it `remote.<name>.promisor`
+  // (the only mark older clones carry).
+  const ext = (await git(url, ['config', '--get', 'extensions.partialClone'], { allowFail: true })).stdout.trim();
+  const marked = (await git(url, ['config', '--bool', '--get-regexp', '^remote\\..*\\.promisor$'], { allowFail: true })).stdout
+    .split('\n')
+    .map((l) => l.trim().split(/\s+/))
+    .find(([, v]) => v === 'true')?.[0]
+    ?.replace(/^remote\.|\.promisor$/g, '');
+  const promisor = ext || marked;
+  if (!promisor) return;
+  const filter = (await git(url, ['config', '--get', `remote.${promisor}.partialCloneFilter`], { allowFail: true })).stdout.trim();
+  throw new GraftError(
+    `the ${name} repository ${url} is a partial clone${filter ? ` (--filter=${filter})` : ''}, so it is missing objects the cache clone needs, and git can't fetch them from it. Use a full clone (a shallow one is fine): with actions/checkout, drop \`filter\``,
+    'fork/partial-clone',
+  );
 }
 
 /** Forget fetch state (tests, or after the fork was updated). */

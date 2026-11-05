@@ -175,10 +175,12 @@ Verified against the real `vercel/ms` repo, with a local fork, on npm and pnpm:
 - `base` may be any upstream commit; `fork.repo` may be a local path (`.`); `.grafts/` is excluded; binary files and executable bits carry over.
 - Hunks at the start or end of a file miss when upstream added lines right against them, matching git's merge.
 - Targets can be upstream commits (`X+<sha>`, semver build metadata); a green result carries the fork's own `.grafts/`; a needs-agent sync prepares `graft/<id>/<version>-agent`, git's merge with conflict markers (new hooks `afterVerified` / `prepareAgent`).
-- In place: one permanent variant `{ "ref": "@worktree", "base": "@verified" }`; a green sync records the verification in the result only (`recordsInResult`), and the `-agent` branch's graft.md is at the target (status conflicted), so it verifies in place. `outdated` lists repo-mode grafts from upstream tags or `fork.track` (`newerVersion`). The Action adopts results and agent branches into PRs.
+- In place: one permanent variant `{ "ref": "@worktree", "base": "@verified" }`; a green sync records the verification in the result only (`recordsInResult`), and the `-agent` branch's graft.md is at the target (status conflicted), so it verifies in place. `outdated` lists repo-mode grafts from upstream tags or `fork.track` (`newerVersion`). The Action adopts results and agent branches into PRs, as a **merge** of the upstream commit the result sits on (named as `upstream` in the report), so the fork keeps upstream in its history (#22).
+- A local `fork.repo` (or `upstream`) that is a partial clone is refused with `fork/partial-clone` instead of git's "repository corruption" error (#23). Like other fetch failures it reports as `needs-agent`, not as a tooling error.
 - Scaffold: `graft add <id> --package <name> --mechanism fork --in-place --version <X[+sha]>` from the fork's checkout (upstream from its `upstream` remote).
 - On angular-tr's real trees: a byte-identical result at its base, and exactly git's 7 conflicting files onto `v22.3.0-next.3`, with a 364-line scoped diff for the agent.
 - [`examples/angular-tr`](../examples/angular-tr) is a drop-in setup, tested with the published CLI on a shallow clone against real angular/angular. Its `check-pages.mjs` (run by the agent, and in PR checks) fails when a translated page reverts to English, gains English headings or prose, loses upstream structure, or keeps conflict markers, baselined on the fork's last commit. It caught a careless conflict resolution (English merged cleanly into `deploy.md`, sections dropped from `ssr.md` and `locale-id.md`). What no check catches: an upstream wording change inside a paragraph replaced by stale Turkish.
+- Also run on [ScriptedAlchemy/t3code](https://github.com/ScriptedAlchemy/t3code), a product fork of pingdotgg/t3code: 435 commits ahead, 1,635 files, and it merges upstream every day or two. In place at the merge base: `check` matched 3,975 anchors (20s). `sync` to upstream main 240 commits later was needs-agent, with markers in exactly git's 50 conflicting files (42s); even +5 commits conflicts in 2. A fork like this always takes the agent path. It showed that adopting by tree swap dropped upstream from the fork's history (fixed in #22) and that partial clones failed cryptically (#23).
 
 ## 7. CLI
 
@@ -257,6 +259,7 @@ Graft keeps three of its own CommonJS dependencies converted to native ESM, as r
 | Scheduled Action + publish on push | Both manual-trigger only | Maintainer preference: no unattended PRs, issues or publishes yet |
 | Node 20+ | Node ≥ 22.22 / 24.15 / 26, ESM only, TypeScript 7; CI on 22, 24 and 26 with Node 24 action runtimes | Dependency requirements (vitest 5); Node 20 is end-of-life |
 | pacote for pristine packages | The project's own `npm` (`npm pack`, `npm view`) | pacote was 92 of the CLI's 103 packages (#20); npm also applies the project's `.npmrc`. The CLI installs 18 packages |
+| Adopt a repo-mode result by tree swap | A merge of the upstream commit the result sits on, with the result's tree (#22) | Forks that sync by merging (t3code) need upstream in their history, or the next manual merge replays it |
 | Forks as dependencies only | Repo mode: forks that are the product, verified in place with one permanent variant (`@worktree` / `@verified`) | Translated docs sites and the like are long-lived forks with no consumer to install into (angular-tr) |
 | The oracle: a per-graft command, run by sync, as the only proof | Removed (0.2). Sync checks fit (anchors, apply, install); the agent verifies the Invariants with the project's own tests | Projects already have verification tests, and a separate oracle duplicated them heavily (the blog's needed Playwright, a build and a dev server). Behavior belongs to the project's tests and CI; Graft's job is the mechanical part |
 | Publish with provenance, tags per package | No provenance; one `v<version>` tag and GitHub release per release | Maintainer preference; the packages share one version |
@@ -299,6 +302,7 @@ Graft keeps three of its own CommonJS dependencies converted to native ESM, as r
   - the skills-folder list in `graft init --agent` comes from my knowledge, not each agent's docs;
   - the Action's Claude Code `agent-command` example is untested;
   - repo mode fetches the whole upstream (angular/angular: ~680 MB, ~1 min) on every Action run; a cache or a partial clone would help;
+  - fetch failures in the fork adapter (including `fork/partial-clone`) report as `needs-agent`, not `error`, so the Action may hand an environment problem to the agent;
   - the angular-tr example's `check-pages.mjs` doesn't run the docs build (it needs a full install).
 - **Open questions carried over:**
   - Can one graft target several packages, or is that two grafts? (Today: one package per graft, one patch graft per package.)

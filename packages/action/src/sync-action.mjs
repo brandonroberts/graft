@@ -269,9 +269,16 @@ export async function runAction(options, deps) {
         ? `${options.graftCommand} sync --json --version ${quote(candidate.version)} --id ${quote(candidate.grafts.join(','))}`
         : `${options.graftCommand} sync --json --version ${quote(candidate.version)} --package ${quote(candidate.package)} --install`;
       // Repo mode: Graft leaves its result (or, for an agent, git's merge with conflict markers)
-      // as a branch in its cache clone; the PR branch takes that whole tree.
+      // as a branch in its cache clone; the PR branch takes that whole tree. When Graft names the
+      // upstream commit the result sits on, the commit is a merge of it (with the result's tree),
+      // so the fork keeps upstream in its history, as `git merge upstream/main` would.
       const adopt = async (ref) => {
         await git('fetch', '--quiet', ref.repo, ref.ref);
+        if (ref.upstream) {
+          const merging = (await run('git rev-parse -q --verify MERGE_HEAD')).stdout.trim();
+          if (!merging) await git('-c', `user.name=${authorName}`, '-c', `user.email=${authorEmail}`, 'merge', '--quiet', '--no-ff', '--no-commit', '-s', 'ours', '--allow-unrelated-histories', ref.upstream);
+          else if (merging !== ref.upstream) throw new Error(`adopting ${ref.ref}: already merging ${merging}, not upstream ${ref.upstream}`);
+        }
         await git('read-tree', '-u', '--reset', 'FETCH_HEAD');
       };
       const adoptFrom = async (report, code) => {

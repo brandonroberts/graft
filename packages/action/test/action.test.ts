@@ -8,7 +8,7 @@ import { detectInstallCommand, parseInputs, renderPrBody, runAction, sh } from '
 
 const FAKE_GRAFT = path.join(import.meta.dirname, 'fake-graft.mjs');
 
-type Scenario = { outdated: unknown[]; sync: Record<string, string>; issues?: { title: string; url: string }[]; check?: 'ok' | 'fail' | 'error'; refusePr?: 'actions' | 'other' };
+type Scenario = { outdated: unknown[]; sync: Record<string, string>; issues?: { title: string; url: string }[]; check?: 'ok' | 'fail' | 'error'; refusePr?: 'actions' | 'other'; noUpstream?: boolean; changeUpstream?: boolean };
 
 function setup(scenario: Scenario) {
   const root = mkdtempSync(path.join(os.tmpdir(), 'graft-action-'));
@@ -129,6 +129,35 @@ describe('graft GitHub Action', () => {
     expect(t.git('show', 'origin/graft/sync-docs-1.1.0:content/page.md')).toBe('çevrildi 1.1.0\n');
     expect(t.git('show', 'origin/graft/sync-docs-1.1.0:.grafts/tr/graft.md')).toContain('verified: 1.1.0');
     expect(t.calls()).toContain('this branch is the fork rebased onto it');
+    // A merge of the upstream commit the result sits on, with the result's tree: the fork keeps
+    // upstream in its history. (Here the fork's main is behind upstream: still a merge, not a fast-forward.)
+    const pr = 'origin/graft/sync-docs-1.1.0';
+    const upstream = t.git('rev-parse', 'refs/fake-upstream/1.1.0').trim();
+    expect(t.git('rev-list', '--parents', '-n1', pr).trim().split(' ').slice(1)).toEqual([t.git('rev-parse', 'main').trim(), upstream]);
+    expect(t.git('rev-parse', `${pr}^{tree}`)).toBe(t.git('rev-parse', 'graft/tr/1.1.0^{tree}'));
+  });
+
+  it('repo mode: a fork that has diverged from upstream gets a real merge commit (#22)', async () => {
+    const t = setup({ outdated: [repoEntry('1.1.0')], sync: { tr: 'repo-green' } });
+    writeFileSync(path.join(t.work, 'fork.txt'), 'fork work\n');
+    t.git('add', '-A');
+    t.git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'fork work');
+    t.git('push', '-q', 'origin', 'main');
+    const { results } = await t.run();
+    expect(results[0]).toMatchObject({ outcome: 'pr' });
+    const pr = 'origin/graft/sync-docs-1.1.0';
+    const upstream = t.git('rev-parse', 'refs/fake-upstream/1.1.0').trim();
+    expect(t.git('rev-list', '--parents', '-n1', pr).trim().split(' ').slice(1)).toEqual([t.git('rev-parse', 'main').trim(), upstream]);
+    // Upstream is now in the fork's history: a later `git merge upstream` has nothing to replay.
+    expect(t.git('merge-base', pr, upstream).trim()).toBe(upstream);
+    expect(t.git('show', `${pr}:upstream.txt`)).toBe('upstream 1.1.0\n');
+  });
+
+  it('repo mode: a result without an upstream commit is adopted as a plain commit, as before', async () => {
+    const t = setup({ outdated: [repoEntry('1.1.0')], sync: { tr: 'repo-green' }, noUpstream: true });
+    const { results } = await t.run();
+    expect(results[0]).toMatchObject({ outcome: 'pr' });
+    expect(t.git('rev-list', '--parents', '-n1', 'origin/graft/sync-docs-1.1.0').trim().split(' ')).toHaveLength(2);
   });
 
   it('repo mode: without an agent, opens a draft PR holding git\'s merge with conflict markers', async () => {
@@ -147,6 +176,18 @@ describe('graft GitHub Action', () => {
     expect(results[0]).toMatchObject({ outcome: 'pr', agent: true, agentExitCode: 0, syncExitCode: 0 });
     expect(t.git('show', 'origin/graft/sync-docs-2.0.0:content/page.md')).toBe('Yeni Türkçe.\n');
     expect(t.git('show', 'origin/graft/sync-docs-2.0.0:.grafts/tr/graft.md')).toContain('status: applied');
+    // The merge begun when the -agent branch was adopted is the one committed.
+    const upstream = t.git('rev-parse', 'refs/fake-upstream/2.0.0').trim();
+    expect(t.git('rev-list', '--parents', '-n1', 'origin/graft/sync-docs-2.0.0').trim().split(' ').slice(1)).toEqual([t.git('rev-parse', 'main').trim(), upstream]);
+  });
+
+  it('repo mode: fails loudly when the re-verified result sits on a different upstream than the merge begun for the agent', async () => {
+    const t = setup({ outdated: [repoEntry('2.0.0')], sync: { tr: 'repo-conflict' }, changeUpstream: true });
+    const { results, failed } = await t.run({ 'agent-command': `printf 'Yeni Türkçe.\\n' > content/page.md` });
+    expect(failed).toBe(true);
+    expect(results[0]).toMatchObject({ outcome: 'error' });
+    expect(results[0].reasons.join('\n')).toMatch(/already merging [0-9a-f]{40}, not upstream [0-9a-f]{40}/);
+    expect(t.remoteBranches()).not.toContain('graft/sync-docs-2.0.0');
   });
 
   it('when Actions may not open PRs, pushes the branch and opens an issue with a one-click PR link instead', async () => {

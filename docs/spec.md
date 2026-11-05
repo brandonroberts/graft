@@ -363,7 +363,17 @@ a tool run from source), not a dependency:
   part is what variant ranges match. Commit targets are for repo mode only.
 - `sync` rebases the change onto `tag(version)` in a fresh checkout.
   The result is committed as the local branch `graft/<id>/<version>` in the cache clone
-  (`.grafts/.cache/fork/<id>`), for the user to fetch. The tooling MUST NOT push it.
+  (`.grafts/.cache/fork/<id>`), for the user to fetch. The tooling MUST NOT push it. The
+  result's parent is the upstream target commit, which the report names (`upstream` on the
+  fetchable ref; likewise for the `-agent` branch).
+- **Adopting a result** into the fork SHOULD record that upstream commit as a second parent: a
+  merge whose tree is the result (`git merge --no-ff --no-commit -s ours <upstream>`, then the
+  tree swap). A single-parent commit would leave upstream out of the fork's history, so a later
+  merge from upstream would replay it. The reference Action does this.
+- The cache clone fetches every object of `fork.repo` and `fork.upstream`. When either is a
+  local partial clone (`remote.<name>.promisor` or `extensions.partialClone`), the tooling MUST
+  refuse it with a reason naming the cause (`fork/partial-clone`), not git's "repository
+  corruption" error. A shallow clone is fine.
 - When the graft lives in the fork (`fork.repo` is the project's own checkout), a green
   result also carries the project's `.grafts/` (without `.cache`, `.report` and `.vendor`),
   including the just-recorded verification, so adopting the result keeps the graft files.
