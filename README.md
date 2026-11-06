@@ -12,7 +12,7 @@ Coding agents can do that fix. What's missing is something to start them, and a 
 
 Graft does not ship its own agent or call an LLM, and there is no hosted service.
 
-The format and tooling contract are specified in [`docs/spec.md`](docs/spec.md) (draft v1).
+The format and tooling contract are specified in [`docs/spec.md`](docs/spec.md) (draft v1). For how this compares with handing every upgrade to an agent, see [`docs/why-graft.md`](docs/why-graft.md).
 
 > **Status: early development.** The spec, core, `patch` mechanism and `graft` CLI work. Graft keeps its own CommonJS dependencies converted to native ESM through its own sync loop ([dogfood](#dogfood-validation)). The agent skill and GitHub Action are built. See [Roadmap](#roadmap).
 
