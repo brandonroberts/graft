@@ -62,7 +62,8 @@ const sources = new Map();
 for (const file of toConvert) sources.set(file, await readFile(path.join(dir, file), 'utf8'));
 const graph = new Map(toConvert.map((f) => [path.join(dir, f), requireEdges(path.join(dir, f), sources.get(f))]));
 const lazy = lazyEdges(graph);
-for (const [file, specs] of lazy) console.log(`  lazy (cyclic export-then-require): ${path.relative(dir, file)} -> ${[...specs].join(', ')}`);
+for (const [file, specs] of lazy)
+  console.log(`  lazy (cyclic export-then-require): ${path.relative(dir, file)} -> ${[...specs].join(', ')}`);
 
 let converted = 0;
 for (const file of toConvert) {

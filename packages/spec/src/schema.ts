@@ -14,15 +14,11 @@ export type RequiredSection = (typeof REQUIRED_SECTIONS)[number];
 
 export const GRAFT_ID_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
 
-const semverVersion = z
-  .string()
-  .refine((v) => semver.valid(v) !== null, { message: 'must be a valid semver version (e.g. "4.2.0")' });
+const semverVersion = z.string().refine((v) => semver.valid(v) !== null, { message: 'must be a valid semver version (e.g. "4.2.0")' });
 
-const semverRange = z
-  .string()
-  .refine((r) => semver.validRange(r, { includePrerelease: true }) !== null, {
-    message: 'must be a valid semver range (e.g. ">=4.0.0 <5.0.0")',
-  });
+const semverRange = z.string().refine((r) => semver.validRange(r, { includePrerelease: true }) !== null, {
+  message: 'must be a valid semver range (e.g. ">=4.0.0 <5.0.0")',
+});
 
 export const RootstockSchema = z.object({
   /** npm package name of the upstream. */

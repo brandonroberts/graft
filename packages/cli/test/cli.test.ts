@@ -10,12 +10,17 @@ const BIN = path.resolve(import.meta.dirname, '../dist/bin.js');
 
 const PRISTINE = 'const a = 1\nconst b = 2\nmodule.exports = { a, b }\n';
 const V2 = 'const a = 1\nmodule.exports = { a }\n';
-const PATCH_V1 = 'diff --git a/index.js b/index.js\n--- a/index.js\n+++ b/index.js\n@@ -1,3 +1,4 @@\n const a = 1\n const b = 2\n+const c = 3\n module.exports = { a, b }\n';
-const PATCH_V2 = 'diff --git a/index.js b/index.js\n--- a/index.js\n+++ b/index.js\n@@ -1,2 +1,3 @@\n const a = 1\n+const c = 3\n module.exports = { a }\n';
+const PATCH_V1 =
+  'diff --git a/index.js b/index.js\n--- a/index.js\n+++ b/index.js\n@@ -1,3 +1,4 @@\n const a = 1\n const b = 2\n+const c = 3\n module.exports = { a, b }\n';
+const PATCH_V2 =
+  'diff --git a/index.js b/index.js\n--- a/index.js\n+++ b/index.js\n@@ -1,2 +1,3 @@\n const a = 1\n+const c = 3\n module.exports = { a }\n';
 
 async function fixture() {
   const root = await mkdtemp(path.join(os.tmpdir(), 'graft-cli-'));
-  for (const [v, code] of [['1.0.0', PRISTINE], ['2.0.0', V2]] as const) {
+  for (const [v, code] of [
+    ['1.0.0', PRISTINE],
+    ['2.0.0', V2],
+  ] as const) {
     const dir = path.join(root, 'upstream', v);
     await mkdir(dir, { recursive: true });
     await writeFile(path.join(dir, 'index.js'), code);
@@ -66,7 +71,20 @@ describe('graft CLI: bookkeeping commands', () => {
   it('variant add registers a new variant, narrowing older ranges, verified against anchors', async () => {
     const { g, graft } = await fixture();
     await writeFile(path.join(g, 'variants/v2.patch'), PATCH_V2);
-    const r = graft('variant', 'add', 'add-c', '--range', '>=2.0.0', '--module', './variants/v2.patch', '--verify-version', '2.0.0', '--note', 'upstream removed b.', '--json');
+    const r = graft(
+      'variant',
+      'add',
+      'add-c',
+      '--range',
+      '>=2.0.0',
+      '--module',
+      './variants/v2.patch',
+      '--verify-version',
+      '2.0.0',
+      '--note',
+      'upstream removed b.',
+      '--json',
+    );
     expect(r.code).toBe(0);
     expect(r.json().narrowed).toEqual([{ module: './variants/v1.patch', from: '>=1.0.0', to: '>=1.0.0 <2.0.0' }]);
     const md = await readFile(path.join(g, 'graft.md'), 'utf8');
@@ -74,7 +92,9 @@ describe('graft CLI: bookkeeping commands', () => {
     expect(md).toMatch(/Added variant \.\/variants\/v2\.patch for ">=2\.0\.0".*upstream removed b\./);
 
     // Existing variants are never re-registered; a variant that doesn't match is refused and rolled back.
-    expect(graft('variant', 'add', 'add-c', '--range', '>=3.0.0', '--module', './variants/v1.patch').err).toMatch(/never edit an existing variant/);
+    expect(graft('variant', 'add', 'add-c', '--range', '>=3.0.0', '--module', './variants/v1.patch').err).toMatch(
+      /never edit an existing variant/,
+    );
     await writeFile(path.join(g, 'variants/bad.patch'), PATCH_V1);
     const outside = graft('variant', 'add', 'add-c', '--range', '>=3.0.0', '--module', './variants/bad.patch', '--verify-version', '2.0.0');
     expect(outside.code).toBe(2);
@@ -106,7 +126,9 @@ describe('graft CLI: bookkeeping commands', () => {
     await writeFile(path.join(g, 'graft.md'), md.replace('## Anchors\nThe const block.\n', ''));
     const r = graft('check', '--json');
     expect(r.code).toBe(1);
-    expect(r.json()).toEqual([expect.objectContaining({ graft: 'add-c', ok: false, errors: [expect.stringMatching(/invalid graft\.md: .*Anchors/)] })]);
+    expect(r.json()).toEqual([
+      expect.objectContaining({ graft: 'add-c', ok: false, errors: [expect.stringMatching(/invalid graft\.md: .*Anchors/)] }),
+    ]);
   });
 
   it('mark sets status / verified and appends History, and rejects bad input', async () => {

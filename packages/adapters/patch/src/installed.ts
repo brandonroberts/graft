@@ -65,7 +65,10 @@ type Planned = { file: string; content?: string; remove?: boolean; already?: boo
  * Plan (and then apply) one variant to one installed copy. All files are checked before any is
  * written, so a copy is never left half-patched.
  */
-export async function applyToInstalledCopy(copy: InstalledCopy, patches: FilePatch[]): Promise<Pick<InstalledCopyResult, 'action' | 'files' | 'reason'>> {
+export async function applyToInstalledCopy(
+  copy: InstalledCopy,
+  patches: FilePatch[],
+): Promise<Pick<InstalledCopyResult, 'action' | 'files' | 'reason'>> {
   const plan: Planned[] = [];
   for (const p of patches) {
     const target = patchTarget(p);
@@ -98,7 +101,11 @@ export async function applyToInstalledCopy(copy: InstalledCopy, patches: FilePat
       plan.push({ file, already: true });
       continue;
     }
-    return { action: 'failed', files: [], reason: `${target}: the patch does not apply to the installed copy (and it is not already applied)` };
+    return {
+      action: 'failed',
+      files: [],
+      reason: `${target}: the patch does not apply to the installed copy (and it is not already applied)`,
+    };
   }
   const writes = plan.filter((x) => !x.already);
   for (const w of writes) {

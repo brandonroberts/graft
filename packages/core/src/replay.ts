@@ -46,7 +46,9 @@ export async function replay(project: Project, id: string, options: ReplayOption
       else {
         entry.apply = await adapter.apply(ctx, { version });
         entry.ok = entry.apply.ok;
-        entry.summary = entry.ok ? 'ok' : [...entry.apply.errors, ...entry.apply.files.filter((f) => f.error).map((f) => `${f.file}: ${f.error}`)].join('; ');
+        entry.summary = entry.ok
+          ? 'ok'
+          : [...entry.apply.errors, ...entry.apply.files.filter((f) => f.error).map((f) => `${f.file}: ${f.error}`)].join('; ');
       }
     }
     entries.push(entry);

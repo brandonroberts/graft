@@ -45,7 +45,9 @@ const commitRef = (ref, files, version) => {
     const root = run('git rev-list --max-parents=0 HEAD');
     run(`git read-tree ${root}`, env);
     write('upstream.txt', `upstream ${version}\n`);
-    upstream = run(`git -c user.name=u -c user.email=u@u commit-tree ${run('git write-tree', env)} -p ${root} -m upstream-${version}${nonce}`);
+    upstream = run(
+      `git -c user.name=u -c user.email=u@u commit-tree ${run('git write-tree', env)} -p ${root} -m upstream-${version}${nonce}`,
+    );
     run(`git update-ref ${upstreamRef} ${upstream}`);
   }
   run('git read-tree HEAD', env);
@@ -65,15 +67,44 @@ if (args[0] === 'sync' && arg('--id') && arg('--id') !== 'sync') {
   const version = arg('--version');
   const mode = scenario.sync[id];
   const page = existsSync('content/page.md') ? readFileSync('content/page.md', 'utf8') : '';
-  const report = (outcome, extra = {}) => ({ exitCode: 0, targets: [{ package: 'docs', version, standalone: true }], grafts: [{ id, package: 'docs', from: '1.0.0', to: version, outcome, reasons: outcome === 'green' ? [] : ['anchors: content/page.md#1 missed'], ...extra }] });
+  const report = (outcome, extra = {}) => ({
+    exitCode: 0,
+    targets: [{ package: 'docs', version, standalone: true }],
+    grafts: [
+      {
+        id,
+        package: 'docs',
+        from: '1.0.0',
+        to: version,
+        outcome,
+        reasons: outcome === 'green' ? [] : ['anchors: content/page.md#1 missed'],
+        ...extra,
+      },
+    ],
+  });
   if (mode === 'repo-green' || (mode === 'repo-conflict' && page && !page.includes('<<<<<<<'))) {
-    const fetch = commitRef(`graft/${id}/${version}`, { 'content/page.md': page || `çevrildi ${version}\n`, [`.grafts/${id}/graft.md`]: `verified: ${version}\nstatus: applied\n` }, version);
+    const fetch = commitRef(
+      `graft/${id}/${version}`,
+      { 'content/page.md': page || `çevrildi ${version}\n`, [`.grafts/${id}/graft.md`]: `verified: ${version}\nstatus: applied\n` },
+      version,
+    );
     console.log(JSON.stringify(report('green', { materialized: { fetch } })));
     process.exit(0);
   }
   if (mode === 'repo-conflict') {
-    const start = commitRef(`graft/${id}/${version}-agent`, { 'content/page.md': '<<<<<<< upstream\nNew English.\n=======\nTürkçe.\n>>>>>>> fork\n', [`.grafts/${id}/graft.md`]: `verified: ${version}\nstatus: conflicted\n` }, version);
-    console.log(JSON.stringify(report('needs-agent', { agentStart: { ...start, conflicts: ['content/page.md'], description: 'merged with conflicts' } })));
+    const start = commitRef(
+      `graft/${id}/${version}-agent`,
+      {
+        'content/page.md': '<<<<<<< upstream\nNew English.\n=======\nTürkçe.\n>>>>>>> fork\n',
+        [`.grafts/${id}/graft.md`]: `verified: ${version}\nstatus: conflicted\n`,
+      },
+      version,
+    );
+    console.log(
+      JSON.stringify(
+        report('needs-agent', { agentStart: { ...start, conflicts: ['content/page.md'], description: 'merged with conflicts' } }),
+      ),
+    );
     process.exit(1);
   }
 }
@@ -81,7 +112,11 @@ if (args[0] === 'sync') {
   const pkg = arg('--package');
   const version = arg('--version');
   const mode = scenario.sync[pkg];
-  const report = (outcome, reasons = []) => ({ exitCode: 0, targets: [{ package: pkg, version }], grafts: [{ id: `${pkg}-graft`, package: pkg, from: '1.0.0', to: version, outcome, reasons }] });
+  const report = (outcome, reasons = []) => ({
+    exitCode: 0,
+    targets: [{ package: pkg, version }],
+    grafts: [{ id: `${pkg}-graft`, package: pkg, from: '1.0.0', to: version, outcome, reasons }],
+  });
   const green = () => {
     mkdirSync(`.grafts/${pkg}-graft`, { recursive: true });
     writeFileSync(`.grafts/${pkg}-graft/graft.md`, `verified: ${version}\n`);

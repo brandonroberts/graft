@@ -51,8 +51,7 @@ export async function tarballContents(file: string): Promise<Map<string, Buffer>
   return entries;
 }
 
-const sameContents = (a: Map<string, Buffer>, b: Map<string, Buffer>) =>
-  a.size === b.size && [...a].every(([k, v]) => b.get(k)?.equals(v));
+const sameContents = (a: Map<string, Buffer>, b: Map<string, Buffer>) => a.size === b.size && [...a].every(([k, v]) => b.get(k)?.equals(v));
 
 /** Build pristine + variant into a temp .tgz; returns its path (caller removes the temp dir). */
 export async function buildVendorTarball(pristineDir: string, variantPath: string): Promise<{ file: string; tmp: string }> {
@@ -168,7 +167,13 @@ export type TarballBuilder = () => Promise<{ file: string; tmp: string }>;
 
 export async function vendorProblems(ctx: VendorContext, pkg: string, version: string, variantPath: string): Promise<string[]> {
   const build = ctx.upstream ? async () => buildVendorTarball(await ctx.upstream!.resolve(pkg, version), variantPath) : undefined;
-  return vendoredTarballProblems(ctx, pkg, version, build, `pristine ${pkg}@${version} + ${posix(path.relative(ctx.installRoot, variantPath))}`);
+  return vendoredTarballProblems(
+    ctx,
+    pkg,
+    version,
+    build,
+    `pristine ${pkg}@${version} + ${posix(path.relative(ctx.installRoot, variantPath))}`,
+  );
 }
 
 /**
@@ -208,8 +213,14 @@ export async function vendoredTarballProblems(
   }
   const override = await readOverride(installRoot, json, pkg);
   const expectedOverride = overrideValue(installRoot, pkg, spec);
-  const where = { overrides: 'package.json overrides', resolutions: 'package.json resolutions', 'pnpm-json': 'package.json pnpm.overrides', 'pnpm-yaml': `${WORKSPACE_FILE} overrides` }[overrideLocation(installRoot).kind];
-  if (override !== expectedOverride) problems.push(`${where}["${pkg}"] must be "${expectedOverride}"${override ? ` (is "${override}")` : ''}`);
+  const where = {
+    overrides: 'package.json overrides',
+    resolutions: 'package.json resolutions',
+    'pnpm-json': 'package.json pnpm.overrides',
+    'pnpm-yaml': `${WORKSPACE_FILE} overrides`,
+  }[overrideLocation(installRoot).kind];
+  if (override !== expectedOverride)
+    problems.push(`${where}["${pkg}"] must be "${expectedOverride}"${override ? ` (is "${override}")` : ''}`);
   if (expectedOverride.startsWith('$') && !DEP_FIELDS.some((f) => json[f]?.[pkg] !== undefined)) {
     problems.push(`package.json must declare ${pkg} as a dependency ("${spec}") for npm's "$${pkg}" override reference`);
   }
@@ -226,12 +237,16 @@ export async function vendoredTarballProblems(
     }
   }
   if (existsSync(vendorDir)) {
-    for (const f of (await readdir(vendorDir)).filter((f) => f.startsWith(vendorPrefix(pkg)) && /^\d/.test(f.slice(vendorPrefix(pkg).length)) && f !== path.basename(tarball))) {
+    for (const f of (await readdir(vendorDir)).filter(
+      (f) => f.startsWith(vendorPrefix(pkg)) && /^\d/.test(f.slice(vendorPrefix(pkg).length)) && f !== path.basename(tarball),
+    )) {
       problems.push(`${VENDOR_DIR}/${f} is for another version of ${pkg}; remove it`);
     }
   }
   if (Object.keys(json.patchedDependencies ?? {}).some((k) => k === pkg || k.startsWith(`${pkg}@`))) {
-    problems.push(`package.json patchedDependencies also patches ${pkg}; the vendored package already contains the patch — remove the entry`);
+    problems.push(
+      `package.json patchedDependencies also patches ${pkg}; the vendored package already contains the patch — remove the entry`,
+    );
   }
   return problems;
 }
@@ -248,7 +263,12 @@ export async function vendorConfigure(ctx: VendorContext, pkg: string, version: 
  * and point overrides, the root dependency and npm's lockfile at it. Shared by the vendor applier
  * and the fork mechanism.
  */
-export async function installVendoredTarball(ctx: VendorContext, pkg: string, version: string, build: TarballBuilder): Promise<{ files: string[] }> {
+export async function installVendoredTarball(
+  ctx: VendorContext,
+  pkg: string,
+  version: string,
+  build: TarballBuilder,
+): Promise<{ files: string[] }> {
   const { installRoot } = ctx;
   const vendorDir = path.join(ctx.graftRoot, VENDOR_DIR);
   await mkdir(vendorDir, { recursive: true });
@@ -263,7 +283,8 @@ export async function installVendoredTarball(ctx: VendorContext, pkg: string, ve
     await rm(built.tmp, { recursive: true, force: true });
   }
   for (const f of await readdir(vendorDir)) {
-    if (f.startsWith(vendorPrefix(pkg)) && /^\d/.test(f.slice(vendorPrefix(pkg).length)) && f !== path.basename(tarball)) await rm(path.join(vendorDir, f));
+    if (f.startsWith(vendorPrefix(pkg)) && /^\d/.test(f.slice(vendorPrefix(pkg).length)) && f !== path.basename(tarball))
+      await rm(path.join(vendorDir, f));
   }
 
   const spec = `file:${posix(path.relative(installRoot, tarball))}`;

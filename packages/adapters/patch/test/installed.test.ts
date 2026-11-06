@@ -83,7 +83,10 @@ describe('built-in applier: the whole project', () => {
       path.join(g, 'graft.md'),
       `---\nid: add-c\nrootstock: { package: lib, verified: 1.0.0 }\nmechanism: patch\nvariants:\n  - range: ">=1.0.0 <2.0.0"\n    module: ./variants/v1.patch\n---\n## Why\nw\n## Invariants\ni\n## Where to look\nl\n## Anchors\na\n## History\n- h\n`,
     );
-    await writeFile(path.join(root, 'package.json'), JSON.stringify({ name: 'app', scripts: { postinstall: 'graft apply --installed' }, devDependencies: { '@graftsync/cli': '0.1.0' } }));
+    await writeFile(
+      path.join(root, 'package.json'),
+      JSON.stringify({ name: 'app', scripts: { postinstall: 'graft apply --installed' }, devDependencies: { '@graftsync/cli': '0.1.0' } }),
+    );
     await writeFile(path.join(root, 'package-lock.json'), '{}');
     const primaryDir = path.join(root, 'node_modules/lib');
     const upstream = new DirectoryUpstreamSource({ lib: { [primaryVersion]: primaryDir } }, { lib: primaryVersion });
@@ -128,9 +131,17 @@ describe('built-in applier: the whole project', () => {
     // Switching from the patch-package applier removes its step and generated files.
     await mkdir(path.join(root, '.grafts/.patch-package'), { recursive: true });
     await writeFile(path.join(root, '.grafts/.patch-package/lib+1.0.0.patch'), 'x');
-    await writeFile(path.join(root, 'package.json'), JSON.stringify({ name: 'app', scripts: { postinstall: 'node a.js && patch-package --patch-dir .grafts/.patch-package --error-on-fail --error-on-warn' } }));
+    await writeFile(
+      path.join(root, 'package.json'),
+      JSON.stringify({
+        name: 'app',
+        scripts: { postinstall: 'node a.js && patch-package --patch-dir .grafts/.patch-package --error-on-fail --error-on-warn' },
+      }),
+    );
     await graftApplier.configure(root, 'lib', '1.0.0', '');
-    expect(JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8')).scripts.postinstall).toBe('node a.js && graft apply --installed');
+    expect(JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8')).scripts.postinstall).toBe(
+      'node a.js && graft apply --installed',
+    );
     expect(await readFile(path.join(root, '.grafts/.patch-package/lib+1.0.0.patch'), 'utf8').catch(() => 'gone')).toBe('gone');
   });
 });

@@ -1,0 +1,18 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "unicorn", "oxc", "import", "node", "vitest"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error"
+  },
+  "env": { "node": true, "es2024": true },
+  "ignorePatterns": [".grafts/*/variants/**"],
+  "rules": {
+    "vitest/valid-expect": ["error", { "maxArgs": 2 }],
+    "eslint/no-shadow": "off",
+    "eslint/no-underscore-dangle": "off",
+    "import/no-named-as-default-member": "off",
+    "unicorn/consistent-function-scoping": "off",
+    "unicorn/no-array-sort": "off"
+  }
+}

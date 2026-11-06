@@ -60,7 +60,24 @@ import {
   type TarballBuilder,
   type VendorContext,
 } from '@graftsync/adapter-patch';
-import { binaryChanges, blobId, checkout, commitTo, diff, ensureRepo, git, mergeToBranch, modeChanges, readBlob, replaceSubtree, upstreamTags, resolveForkRef, resolveTag, resolveUpstreamRef, showFile } from './git.js';
+import {
+  binaryChanges,
+  blobId,
+  checkout,
+  commitTo,
+  diff,
+  ensureRepo,
+  git,
+  mergeToBranch,
+  modeChanges,
+  readBlob,
+  replaceSubtree,
+  upstreamTags,
+  resolveForkRef,
+  resolveTag,
+  resolveUpstreamRef,
+  showFile,
+} from './git.js';
 
 export const MECHANISM = 'fork';
 
@@ -167,7 +184,17 @@ async function snapshotWorktree(project: Project, graft: Graft, dir: string): Pr
     await git(root, ['add', '-A', '--', '.', ':(top,exclude).grafts'], { env });
     const tree = (await git(root, ['write-tree'], { env })).stdout.trim();
     const commit = (
-      await git(root, ['-c', 'user.name=graft', '-c', 'user.email=graft@localhost', 'commit-tree', tree, ...(head ? ['-p', head] : []), '-m', 'graft: working tree snapshot'])
+      await git(root, [
+        '-c',
+        'user.name=graft',
+        '-c',
+        'user.email=graft@localhost',
+        'commit-tree',
+        tree,
+        ...(head ? ['-p', head] : []),
+        '-m',
+        'graft: working tree snapshot',
+      ])
     ).stdout.trim();
     const ref = `refs/graft/worktree/${graft.id}`;
     await git(root, ['update-ref', ref, commit]);
@@ -220,10 +247,16 @@ async function loadVariant(graft: Graft, variant: ResolvedVariant): Promise<Fork
     throw new GraftError(`graft "${graft.id}": ${variant.module} is not valid JSON: ${(err as Error).message}`, 'variant/invalid');
   }
   if (typeof v.ref !== 'string' || !v.ref || v.ref === 'TODO') {
-    throw new GraftError(`graft "${graft.id}": ${variant.module} must name the fork ref holding the modification ("ref")`, 'variant/invalid');
+    throw new GraftError(
+      `graft "${graft.id}": ${variant.module} must name the fork ref holding the modification ("ref")`,
+      'variant/invalid',
+    );
   }
   if (!standalone && (v.ref === WORKTREE || v.base === VERIFIED)) {
-    throw new GraftError(`graft "${graft.id}": ${variant.module}: "${WORKTREE}" and "${VERIFIED}" are for repo mode (fork.install: none)`, 'variant/invalid');
+    throw new GraftError(
+      `graft "${graft.id}": ${variant.module}: "${WORKTREE}" and "${VERIFIED}" are for repo mode (fork.install: none)`,
+      'variant/invalid',
+    );
   }
   if (typeof v.base !== 'string' || !v.base || v.base === 'TODO' || (!standalone && !semver.valid(v.base))) {
     throw new GraftError(
@@ -306,7 +339,10 @@ async function forkChange(project: Project, graft: Graft, ref: ResolvedVariant):
   }
   const modes = await modeChanges(dir, base.rev, refRev, cfg.dir);
   if (!patches.length && !binaries.length && !modes.length) {
-    throw new GraftError(`graft "${graft.id}": fork ref "${variant.ref}" has no changes on top of ${base.label}; a graft must never apply nothing`, 'fork/empty');
+    throw new GraftError(
+      `graft "${graft.id}": fork ref "${variant.ref}" has no changes on top of ${base.label}; a graft must never apply nothing`,
+      'fork/empty',
+    );
   }
   return { variant, patches, binaries, modes, refRev, baseTag: base.label };
 }
@@ -332,7 +368,8 @@ async function materialize(project: Project, graft: Graft, version: string, chan
     files.push(...r.files);
   }
   for (const b of change.binaries) {
-    if ((await blobId(dir, targetRev, inPkg(cfg, b.file))) !== b.baseOid) await fail(`${b.file}: binary file changed upstream since the base`);
+    if ((await blobId(dir, targetRev, inPkg(cfg, b.file))) !== b.baseOid)
+      await fail(`${b.file}: binary file changed upstream since the base`);
     const dest = path.join(pkgDir, b.file);
     if (b.refOid) {
       await mkdir(path.dirname(dest), { recursive: true });
@@ -361,10 +398,18 @@ function tarballBuilder(project: Project, graft: Graft, version: string, change:
     try {
       if (cfg.build) {
         const b = await runCommand(cfg.build, { cwd: tree.pkgDir, timeoutMs: (cfg.timeout ?? 1800) * 1000 });
-        if (!b.passed) throw new GraftError(`graft "${graft.id}": fork build \`${cfg.build}\` failed (exit ${b.exitCode}):\n${b.output.slice(-3000)}`, 'fork/build');
+        if (!b.passed)
+          throw new GraftError(
+            `graft "${graft.id}": fork build \`${cfg.build}\` failed (exit ${b.exitCode}):\n${b.output.slice(-3000)}`,
+            'fork/build',
+          );
       }
       // Scripts are not run: `fork.build` is where building happens, explicitly.
-      const pack = await runCommand(`npm pack --ignore-scripts --json --pack-destination '${tmp.replaceAll("'", "'\\''")}'`, { cwd: tree.pkgDir, timeoutMs: 10 * 60_000, maxOutput: 2_000_000 });
+      const pack = await runCommand(`npm pack --ignore-scripts --json --pack-destination '${tmp.replaceAll("'", "'\\''")}'`, {
+        cwd: tree.pkgDir,
+        timeoutMs: 10 * 60_000,
+        maxOutput: 2_000_000,
+      });
       if (!pack.passed) throw new GraftError(`graft "${graft.id}": npm pack failed:\n${pack.output.slice(-3000)}`, 'fork/pack');
       const json = pack.output.slice(pack.output.indexOf('['));
       const [info] = JSON.parse(json) as { filename: string; name: string; version: string }[];
@@ -409,7 +454,15 @@ function touchesNewUpstreamLines(content: string, hunk: FilePatch['hunks'][numbe
 function hunkAnchors(patch: FilePatch, content: string | undefined): AnchorResult[] {
   const file = patchTarget(patch);
   if (patch.oldFile === null) {
-    return [{ name: `${file}#create`, file, description: `creates ${file}`, matched: content === undefined, error: content === undefined ? undefined : 'file already exists upstream' }];
+    return [
+      {
+        name: `${file}#create`,
+        file,
+        description: `creates ${file}`,
+        matched: content === undefined,
+        error: content === undefined ? undefined : 'file already exists upstream',
+      },
+    ];
   }
   return patch.hunks.map((hunk, i) => {
     const base = { name: `${file}#${i + 1}`, file, description: describeHunk(hunk) };
@@ -417,7 +470,13 @@ function hunkAnchors(patch: FilePatch, content: string | undefined): AnchorResul
     const m = locateHunk(content, hunk);
     if (!m.occurrences) return { ...base, matched: false, error: 'context or removed lines not found' };
     const edge = touchesNewUpstreamLines(content, hunk, m.line!);
-    if (edge) return { ...base, matched: false, error: `upstream added lines right ${edge} the change`, location: { line: m.line!, column: 1, start: 0, end: 0 } };
+    if (edge)
+      return {
+        ...base,
+        matched: false,
+        error: `upstream added lines right ${edge} the change`,
+        location: { line: m.line!, column: 1, start: 0, end: 0 },
+      };
     return { ...base, matched: true, location: { line: m.line!, column: 1, start: 0, end: 0 } };
   });
 }
@@ -454,7 +513,12 @@ export function createForkAdapter(): MechanismAdapter {
         const content = await showFile(repoDir(project, graft), targetRev, inPkg(cfg, file));
         const anchors = hunkAnchors(p, content);
         report.anchors.push(...anchors);
-        if (content !== undefined && p.oldFile && anchors.every((a) => a.matched) && applyPatch(content, p.raw, { fuzzFactor: 0 }) === false) {
+        if (
+          content !== undefined &&
+          p.oldFile &&
+          anchors.every((a) => a.matched) &&
+          applyPatch(content, p.raw, { fuzzFactor: 0 }) === false
+        ) {
           report.errors.push(`${file}: hunks match individually but the change does not apply as a whole`);
         }
         // Upstream already contains this file's change?
@@ -482,7 +546,13 @@ export function createForkAdapter(): MechanismAdapter {
       if (installed?.version === version && report.anchors.every((a) => a.matched)) {
         const vctx = vendorContext(project);
         report.errors.push(
-          ...(await vendoredTarballProblems(vctx, pkg, version, tarballBuilder(project, graft, version, change), `the fork's ${change.variant.ref} rebased onto ${targetLabel(cfg, version)}`)),
+          ...(await vendoredTarballProblems(
+            vctx,
+            pkg,
+            version,
+            tarballBuilder(project, graft, version, change),
+            `the fork's ${change.variant.ref} rebased onto ${targetLabel(cfg, version)}`,
+          )),
         );
         // Whatever the configuration says, the installed files must be the vendored package's.
         const tarball = path.join(vctx.graftRoot, VENDOR_DIR, vendorFileName(pkg, version));
@@ -557,7 +627,10 @@ export function createForkAdapter(): MechanismAdapter {
       const fromRev = fromBase?.rev ?? (await upstreamRev(dir, cfg, from));
       const fromLabel = fromBase ? `${pkg} fork base (${fromBase.label})` : label(from);
       const toRev = await upstreamRev(dir, cfg, to);
-      const touched = new Set<string>([...(graft.frontmatter.targets ?? []), ...patches.map((p) => p.oldFile).filter((f): f is string => !!f)]);
+      const touched = new Set<string>([
+        ...(graft.frontmatter.targets ?? []),
+        ...patches.map((p) => p.oldFile).filter((f): f is string => !!f),
+      ]);
       const files: ScopedFileDiff[] = [];
       let toTree: Awaited<ReturnType<typeof checkout>> | undefined;
       try {
@@ -571,7 +644,9 @@ export function createForkAdapter(): MechanismAdapter {
           const scoped = scopeFileDiff({ file, oldText, newText, regions, window: 10 });
           if (scoped.status === 'removed' && filePatch?.hunks.length) {
             toTree ??= await checkout(dir, toRev);
-            const text = distinctiveText(filePatch.hunks.flatMap((h) => h.lines.filter((l) => l[0] === ' ' || l[0] === '-').map((l) => l.slice(1))));
+            const text = distinctiveText(
+              filePatch.hunks.flatMap((h) => h.lines.filter((l) => l[0] === ' ' || l[0] === '-').map((l) => l.slice(1))),
+            );
             const candidates = await rankFilesByContent(cfg.dir ? path.join(toTree.path, cfg.dir) : toTree.path, { ...text });
             if (candidates.length) scoped.candidates = candidates;
           }
@@ -593,7 +668,11 @@ export function createForkAdapter(): MechanismAdapter {
       const tree = await materialize(project, graft, version, change);
       const branch = resultBranch(graft, version);
       try {
-        await commitTo(tree.root, branch, `${graft.id}: ${change.variant.ref} (on ${change.baseTag}) rebased onto ${targetLabel(forkConfig(graft), version)}\n\nMaterialized by graft; not pushed.`);
+        await commitTo(
+          tree.root,
+          branch,
+          `${graft.id}: ${change.variant.ref} (on ${change.baseTag}) rebased onto ${targetLabel(forkConfig(graft), version)}\n\nMaterialized by graft; not pushed.`,
+        );
       } catch (err) {
         await tree.dispose();
         throw err;
@@ -683,7 +762,9 @@ export function createForkAdapter(): MechanismAdapter {
         // Follow a branch: its tip, labelled with the version in its package.json (else the newest tag).
         const tip = await resolveUpstreamRef(dir, cfg.track);
         if (!tip || tip === verifiedRev) return undefined;
-        let version = semver.valid(JSON.parse((await showFile(dir, tip, inPkg(cfg, 'package.json')).catch(() => undefined)) ?? '{}').version ?? '');
+        let version = semver.valid(
+          JSON.parse((await showFile(dir, tip, inPkg(cfg, 'package.json')).catch(() => undefined)) ?? '{}').version ?? '',
+        );
         version ??= (await upstreamTags(dir, cfg.tag)).at(-1) ?? semver.parse(verified)!.version;
         return { version: `${version}+${tip.slice(0, 12)}`, tag: `branch ${cfg.track}` };
       }
@@ -695,11 +776,20 @@ export function createForkAdapter(): MechanismAdapter {
     async beforeInstall(ctx: GraftContext, version: string) {
       const { project, graft } = ctx;
       if (isStandalone(graft)) throw new GraftError(`graft "${graft.id}": fork.install is "none"; nothing is installed`, 'fork/standalone');
-      if (commitOf(version)) throw new GraftError(`graft "${graft.id}": commit targets (${version}) are only for repo mode (fork.install: none); installs need a release tag`, 'fork/commit-target');
+      if (commitOf(version))
+        throw new GraftError(
+          `graft "${graft.id}": commit targets (${version}) are only for repo mode (fork.install: none); installs need a release tag`,
+          'fork/commit-target',
+        );
       const variant = project.selectVariant(graft, version);
       if (!variant) throw new GraftError(`graft "${graft.id}": no variant covers ${version}`, 'variant/none');
       const change = await forkChange(project, graft, variant);
-      await installVendoredTarball(vendorContext(project), graft.frontmatter.rootstock.package, version, tarballBuilder(project, graft, version, change));
+      await installVendoredTarball(
+        vendorContext(project),
+        graft.frontmatter.rootstock.package,
+        version,
+        tarballBuilder(project, graft, version, change),
+      );
       // A targeted `add <pkg>@<version>` would replace the vendored override.
       return { install: 'reinstall' as const };
     },
@@ -719,7 +809,10 @@ export function createForkAdapter(): MechanismAdapter {
       const str = (k: string) => (typeof options[k] === 'string' ? (options[k] as string) : undefined);
       // In place, the fork is this checkout: its `upstream` git remote (if any) names the upstream.
       const upstreamRemote = inPlace ? spawnSync('git', ['remote', 'get-url', 'upstream'], { cwd: root, encoding: 'utf8' }) : undefined;
-      const upstream = str('upstream') ?? (upstreamRemote?.status === 0 ? upstreamRemote.stdout.trim() : undefined) ?? 'TODO: git URL of the upstream repo';
+      const upstream =
+        str('upstream') ??
+        (upstreamRemote?.status === 0 ? upstreamRemote.stdout.trim() : undefined) ??
+        'TODO: git URL of the upstream repo';
       const fork: Record<string, unknown> = {
         repo: str('repo') ?? (inPlace ? '.' : 'TODO: git URL of your fork'),
         upstream,

@@ -17,13 +17,27 @@ export async function git(
   options: { allowFail?: boolean; env?: Record<string, string> } = {},
 ): Promise<{ ok: boolean; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    execFile('git', args, { cwd, maxBuffer: 256 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', ...options.env } }, (err, stdout, stderr) => {
-      if (err && !options.allowFail) {
-        reject(new GraftError(`git ${args.join(' ')} failed: ${String(stderr || err.message).trim().split('\n').slice(-3).join(' ')}`, 'fork/git'));
-        return;
-      }
-      resolve({ ok: !err, stdout: String(stdout), stderr: String(stderr) });
-    });
+    execFile(
+      'git',
+      args,
+      { cwd, maxBuffer: 256 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', ...options.env } },
+      (err, stdout, stderr) => {
+        if (err && !options.allowFail) {
+          reject(
+            new GraftError(
+              `git ${args.join(' ')} failed: ${String(stderr || err.message)
+                .trim()
+                .split('\n')
+                .slice(-3)
+                .join(' ')}`,
+              'fork/git',
+            ),
+          );
+          return;
+        }
+        resolve({ ok: !err, stdout: String(stdout), stderr: String(stderr) });
+      },
+    );
   });
 }
 
@@ -41,7 +55,10 @@ export async function ensureRepo(dir: string, forkUrl: string, upstreamUrl: stri
           await mkdir(dir, { recursive: true });
           await git(dir, ['init', '--quiet']);
         }
-        for (const [name, url] of [['fork', forkUrl], ['upstream', upstreamUrl]] as const) {
+        for (const [name, url] of [
+          ['fork', forkUrl],
+          ['upstream', upstreamUrl],
+        ] as const) {
           await refusePartialClone(name, url);
           const has = await git(dir, ['remote', 'get-url', name], { allowFail: true });
           if (!has.ok) await git(dir, ['remote', 'add', name, url]);
@@ -128,7 +145,20 @@ export async function diff(dir: string, from: string, to: string, sub?: string):
 /** Commit everything in worktree `wt` on top of its HEAD and point `branch` (in the cache clone) at it. */
 export async function commitTo(wt: string, branch: string, message: string): Promise<string> {
   await git(wt, ['add', '-A']);
-  await git(wt, ['-c', 'user.name=graft', '-c', 'user.email=graft@localhost', '-c', 'commit.gpgsign=false', 'commit', '--quiet', '--no-verify', '--allow-empty', '-m', message]);
+  await git(wt, [
+    '-c',
+    'user.name=graft',
+    '-c',
+    'user.email=graft@localhost',
+    '-c',
+    'commit.gpgsign=false',
+    'commit',
+    '--quiet',
+    '--no-verify',
+    '--allow-empty',
+    '-m',
+    message,
+  ]);
   const sha = (await git(wt, ['rev-parse', 'HEAD'])).stdout.trim();
   await git(wt, ['branch', '--force', branch, sha]);
   return sha;
@@ -198,12 +228,24 @@ const IDENTITY = ['-c', 'user.name=graft', '-c', 'user.email=graft@localhost'];
  * the change base..theirs onto ours), written as a commit on top of `ours` and pointed at by
  * `branch`. Conflicting files keep git's conflict markers. Returns the conflicted paths.
  */
-export async function mergeToBranch(dir: string, base: string, ours: string, theirs: string, branch: string, message: string): Promise<string[]> {
-  const r = await git(dir, ['merge-tree', '--write-tree', '--name-only', '--no-messages', `--merge-base=${base}`, ours, theirs], { allowFail: true });
+export async function mergeToBranch(
+  dir: string,
+  base: string,
+  ours: string,
+  theirs: string,
+  branch: string,
+  message: string,
+): Promise<string[]> {
+  const r = await git(dir, ['merge-tree', '--write-tree', '--name-only', '--no-messages', `--merge-base=${base}`, ours, theirs], {
+    allowFail: true,
+  });
   const [tree, ...rest] = r.stdout.split('\n');
-  if (!tree || !/^[0-9a-f]{40,64}$/.test(tree.trim())) throw new GraftError(`git merge-tree failed: ${r.stderr.trim() || r.stdout.trim()}`, 'fork/git');
+  if (!tree || !/^[0-9a-f]{40,64}$/.test(tree.trim()))
+    throw new GraftError(`git merge-tree failed: ${r.stderr.trim() || r.stdout.trim()}`, 'fork/git');
   const conflicted = r.ok ? [] : [...new Set(rest.map((l) => l.trim()).filter(Boolean))];
-  const full = conflicted.length ? `${message}\n\nConflicts (git markers left in place):\n${conflicted.map((f) => `- ${f}`).join('\n')}\n` : message;
+  const full = conflicted.length
+    ? `${message}\n\nConflicts (git markers left in place):\n${conflicted.map((f) => `- ${f}`).join('\n')}\n`
+    : message;
   const commit = (await git(dir, [...IDENTITY, 'commit-tree', tree.trim(), '-p', ours, '-m', full])).stdout.trim();
   await git(dir, ['update-ref', `refs/heads/${branch}`, commit]);
   return conflicted;
@@ -213,7 +255,12 @@ export async function mergeToBranch(dir: string, base: string, ours: string, the
  * Replace `prefix/` in the tip commit of `branch` with the files of `srcDir` (amending it, same
  * parent and message). Used to carry the graft's own `.grafts/` into a repo-mode result.
  */
-export async function replaceSubtree(dir: string, branch: string, prefix: string, files: { rel: string; abs: string; executable: boolean }[]): Promise<void> {
+export async function replaceSubtree(
+  dir: string,
+  branch: string,
+  prefix: string,
+  files: { rel: string; abs: string; executable: boolean }[],
+): Promise<void> {
   const index = path.join(await mkdtemp(path.join(os.tmpdir(), 'graft-index-')), 'index');
   const env = { GIT_INDEX_FILE: index };
   try {

@@ -87,11 +87,18 @@ interface PnpProbe {
   files: Record<string, string | null>;
 }
 
-async function probePnp(runtime: string, query: { pkg?: string; issuer?: string; dir?: string; files?: string[] }): Promise<PnpProbe | null> {
-  const { stdout } = await promisify(execFile)(process.execPath, ['-r', runtime, '-e', PNP_PROBE, JSON.stringify({ files: [], ...query })], {
-    cwd: path.dirname(runtime),
-    maxBuffer: 256 * 1024 * 1024,
-  });
+async function probePnp(
+  runtime: string,
+  query: { pkg?: string; issuer?: string; dir?: string; files?: string[] },
+): Promise<PnpProbe | null> {
+  const { stdout } = await promisify(execFile)(
+    process.execPath,
+    ['-r', runtime, '-e', PNP_PROBE, JSON.stringify({ files: [], ...query })],
+    {
+      cwd: path.dirname(runtime),
+      maxBuffer: 256 * 1024 * 1024,
+    },
+  );
   return JSON.parse(stdout) as PnpProbe | null;
 }
 
@@ -155,14 +162,20 @@ async function npm(args: string[], cwd: string): Promise<string> {
     return stdout;
   } catch (err) {
     const e = err as { stderr?: string; message: string; code?: string };
-    if (e.code === 'ENOENT') throw new Error('npm was not found on PATH (Graft uses it to fetch pristine packages)');
-    const detail = (e.stderr || e.message).trim().split('\n').filter((l) => !/^npm (notice|warn)/.test(l)).slice(-3).join(' ');
-    throw new Error(detail || e.message);
+    if (e.code === 'ENOENT') throw new Error('npm was not found on PATH (Graft uses it to fetch pristine packages)', { cause: err });
+    const detail = (e.stderr || e.message)
+      .trim()
+      .split('\n')
+      .filter((l) => !/^npm (notice|warn)/.test(l))
+      .slice(-3)
+      .join(' ');
+    throw new Error(detail || e.message, { cause: err });
   }
 }
 
 /** JSON from npm's stdout, ignoring any lines printed before it. */
-const npmJson = (stdout: string): unknown => JSON.parse(stdout.slice(Math.min(...['[', '{'].map((c) => stdout.indexOf(c)).filter((i) => i >= 0))));
+const npmJson = (stdout: string): unknown =>
+  JSON.parse(stdout.slice(Math.min(...['[', '{'].map((c) => stdout.indexOf(c)).filter((i) => i >= 0))));
 
 /** Default source: pristine package contents from the npm registry (fetched by npm), cached per version. */
 export class NpmUpstreamSource implements UpstreamSource {

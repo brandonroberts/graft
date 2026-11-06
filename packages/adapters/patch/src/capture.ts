@@ -27,7 +27,8 @@ const isBinary = (b: Buffer) => b.subarray(0, 8000).includes(0);
  */
 function samePackageJson(pristine: string, installed: string): boolean {
   try {
-    const strip = (s: string) => JSON.stringify(Object.fromEntries(Object.entries(JSON.parse(s) as object).filter(([k]) => !k.startsWith('_'))));
+    const strip = (s: string) =>
+      JSON.stringify(Object.fromEntries(Object.entries(JSON.parse(s) as object).filter(([k]) => !k.startsWith('_'))));
     return strip(pristine) === strip(installed);
   } catch {
     return pristine === installed;
@@ -39,9 +40,13 @@ export async function captureInstalledChanges(ctx: GraftContext, version: string
   const { project, graft } = ctx;
   const pkg = graft.frontmatter.rootstock.package;
   const installed = await project.upstream.installed(pkg);
-  if (!installed) throw new GraftError(`${pkg} is not installed; install it and make your change in node_modules first`, 'capture/not-installed');
+  if (!installed)
+    throw new GraftError(`${pkg} is not installed; install it and make your change in node_modules first`, 'capture/not-installed');
   if (installed.version !== version) {
-    throw new GraftError(`installed ${pkg} is ${installed.version}, not ${version}; capture works on the installed copy`, 'capture/version');
+    throw new GraftError(
+      `installed ${pkg} is ${installed.version}, not ${version}; capture works on the installed copy`,
+      'capture/version',
+    );
   }
   if (installed.pnp) {
     throw new GraftError(`${pkg} is installed through Plug'n'Play (read-only zip); capture needs a node_modules install`, 'capture/pnp');
@@ -61,15 +66,23 @@ export async function captureInstalledChanges(ctx: GraftContext, version: string
     }
     const [oldText, newText] = [a?.toString('utf8') ?? '', b?.toString('utf8') ?? ''];
     if (file === 'package.json' && a && b && samePackageJson(oldText, newText)) continue;
-    const patch = createTwoFilesPatch(a ? `a/${file}` : '/dev/null', b ? `b/${file}` : '/dev/null', oldText, newText, '', '', { context: 3 });
+    const patch = createTwoFilesPatch(a ? `a/${file}` : '/dev/null', b ? `b/${file}` : '/dev/null', oldText, newText, '', '', {
+      context: 3,
+    });
     // createTwoFilesPatch starts with a "====" separator line; git-style headers name the file.
     parts.push(`diff --git a/${file} b/${file}\n${patch.replace(/^=+\n/, '')}`);
   }
   if (binary.length) {
-    throw new GraftError(`binary files differ from pristine ${pkg}@${version}: ${binary.join(', ')}; a patch variant can't carry them (use the fork mechanism)`, 'capture/binary');
+    throw new GraftError(
+      `binary files differ from pristine ${pkg}@${version}: ${binary.join(', ')}; a patch variant can't carry them (use the fork mechanism)`,
+      'capture/binary',
+    );
   }
   if (!parts.length) {
-    throw new GraftError(`the installed ${pkg}@${version} is identical to the published package; make your change in ${installed.dir} first`, 'capture/no-changes');
+    throw new GraftError(
+      `the installed ${pkg}@${version} is identical to the published package; make your change in ${installed.dir} first`,
+      'capture/no-changes',
+    );
   }
   const content = parts.join('');
 

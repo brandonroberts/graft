@@ -11,7 +11,10 @@ const DEFAULT_AUTHOR = 'github-actions[bot] <41898282+github-actions[bot]@users.
 /** Normalize raw action inputs (strings from action.yml) into options. */
 export function parseInputs(raw = {}) {
   const str = (k, d = '') => (raw[k] ?? '').toString().trim() || d;
-  const list = (k) => str(k).split(/[\s,]+/).filter(Boolean);
+  const list = (k) =>
+    str(k)
+      .split(/[\s,]+/)
+      .filter(Boolean);
   const bool = (k, d = false) => (raw[k] === undefined || raw[k] === '' ? d : /^(true|1|yes)$/i.test(String(raw[k])));
   const onNeedsAgent = str('on-needs-agent', 'report');
   if (!['report', 'skip'].includes(onNeedsAgent)) throw new Error(`on-needs-agent must be report or skip (got ${onNeedsAgent})`);
@@ -93,9 +96,18 @@ export function renderPrBody({ candidate, report, agentBody, outcome }) {
   } else {
     lines.push(`## Graft sync: ${candidate.package} ${candidate.verified} → ${candidate.version}`, '');
   }
-  lines.push(candidate.standalone ? `Upstream \`${candidate.package}\` at \`${candidate.version}\` (${candidate.tag}); this branch is the fork rebased onto it.` : `Upstream \`${candidate.package}@${candidate.version}\` (dist-tag \`${candidate.tag}\`).`, '');
+  lines.push(
+    candidate.standalone
+      ? `Upstream \`${candidate.package}\` at \`${candidate.version}\` (${candidate.tag}); this branch is the fork rebased onto it.`
+      : `Upstream \`${candidate.package}@${candidate.version}\` (dist-tag \`${candidate.tag}\`).`,
+    '',
+  );
   if (outcome === 'needs-agent') {
-    lines.push('> [!WARNING]', '> One or more grafts still fail on this version. The details below say which, and why; the graft-sync skill describes how to finish the job.', '');
+    lines.push(
+      '> [!WARNING]',
+      '> One or more grafts still fail on this version. The details below say which, and why; the graft-sync skill describes how to finish the job.',
+      '',
+    );
   }
   if (report) {
     lines.push('| Graft | Verified → Target | Outcome |', '|---|---|---|');
@@ -103,18 +115,26 @@ export function renderPrBody({ candidate, report, agentBody, outcome }) {
     lines.push('');
     for (const g of report.grafts.filter((g) => g.outcome !== 'green' && g.outcome !== 'skipped')) {
       lines.push(`<details><summary>${g.id}: ${g.outcome}${g.likelyUpstreamed ? ' (likely upstreamed)' : ''}</summary>`, '');
-      if (g.likelyUpstreamed) lines.push(`**Likely upstreamed:** \`${g.package}@${g.to}\` already contains this graft's change. Confirm, then set its status to \`upstreamed\`.`, '');
+      if (g.likelyUpstreamed)
+        lines.push(
+          `**Likely upstreamed:** \`${g.package}@${g.to}\` already contains this graft's change. Confirm, then set its status to \`upstreamed\`.`,
+          '',
+        );
       for (const r of g.reasons ?? []) lines.push(`- ${r}`);
-      if (g.agentStart?.conflicts?.length) lines.push('', `Conflict markers to resolve on this branch: ${g.agentStart.conflicts.map((f) => `\`${f}\``).join(', ')}. Then run \`graft sync --version ${candidate.version}\`; it verifies the branch in place.`);
+      if (g.agentStart?.conflicts?.length)
+        lines.push(
+          '',
+          `Conflict markers to resolve on this branch: ${g.agentStart.conflicts.map((f) => `\`${f}\``).join(', ')}. Then run \`graft sync --version ${candidate.version}\`; it verifies the branch in place.`,
+        );
       lines.push('', '</details>', '');
     }
   }
   lines.push(
     '---',
     candidate.standalone
-      ? (outcome === 'green'
+      ? outcome === 'green'
         ? "_Opened by the [Graft](https://github.com/brandonroberts/graft) GitHub Action. This branch is the fork's change rebased onto the new upstream; Graft checked that it still applies, not how it behaves. Let your CI run and review the diff before merging._"
-        : "_Opened by the [Graft](https://github.com/brandonroberts/graft) GitHub Action. This branch holds git's merge of the fork's change onto the new upstream; finish it before merging._")
+        : "_Opened by the [Graft](https://github.com/brandonroberts/graft) GitHub Action. This branch holds git's merge of the fork's change onto the new upstream; finish it before merging._"
       : "_Opened by the [Graft](https://github.com/brandonroberts/graft) GitHub Action. Graft checked that each graft still fits the new version and installs; it doesn't check behavior. Let your CI run and review the variant diffs before merging._",
   );
   return lines.join('\n');
@@ -166,7 +186,9 @@ You are running inside the Graft GitHub Action on branch ${files.branch}:
 
 /** gh's way of saying GitHub Actions (or this token) may not open pull requests here. */
 export const isPrRefusal = (output) =>
-  /not permitted to create or approve pull requests|Resource not accessible by integration|HTTP 403|must have (push|write) access/i.test(output);
+  /not permitted to create or approve pull requests|Resource not accessible by integration|HTTP 403|must have (push|write) access/i.test(
+    output,
+  );
 
 /** https://github.com/<owner>/<repo>, from the Actions environment or the origin remote. */
 export function repoWebUrl(env, originUrl) {
@@ -193,7 +215,11 @@ export async function runAction(options, deps) {
     if (open) return { url: open.url, existing: true };
     const bodyFile = path.join(deps.tmpDir, file);
     await writeFile(bodyFile, body);
-    const issue = await run([`gh issue create --title ${quote(title)} --body-file ${quote(bodyFile)}`, ...options.labels.map((l) => `--label ${quote(l)}`)].join(' '));
+    const issue = await run(
+      [`gh issue create --title ${quote(title)} --body-file ${quote(bodyFile)}`, ...options.labels.map((l) => `--label ${quote(l)}`)].join(
+        ' ',
+      ),
+    );
     if (issue.code !== 0) throw new Error(`gh issue create failed: ${issue.stderr || issue.stdout}`);
     return { url: issue.stdout.trim().split('\n').pop(), existing: false };
   };
@@ -231,7 +257,14 @@ export async function runAction(options, deps) {
   const entries = JSON.parse(outdated.stdout);
   const candidates = entries
     .filter((e) => e.candidate && (!options.packages.length || options.packages.includes(e.package)))
-    .map((e) => ({ package: e.package, version: e.candidate.version, tag: e.candidate.tag, verified: e.verified, grafts: e.grafts, standalone: !!e.standalone }));
+    .map((e) => ({
+      package: e.package,
+      version: e.candidate.version,
+      tag: e.candidate.tag,
+      verified: e.verified,
+      grafts: e.grafts,
+      standalone: !!e.standalone,
+    }));
 
   const results = entries
     .filter((e) => !e.candidate && (!options.packages.length || options.packages.includes(e.package)))
@@ -250,7 +283,10 @@ export async function runAction(options, deps) {
       .split('\n')
       .filter((l) => l.trim() && !(tmpTop && (l.slice(3) === tmpTop || l.slice(3).startsWith(`${tmpTop}/`))));
     if (pending.length) {
-      const shown = pending.slice(0, 10).map((l) => l.slice(3)).join(', ');
+      const shown = pending
+        .slice(0, 10)
+        .map((l) => l.slice(3))
+        .join(', ');
       throw new Error(
         `the working tree has uncommitted changes or untracked files: ${shown}${pending.length > 10 ? ` and ${pending.length - 10} more` : ''}. ` +
           'Syncing switches branches and resets the working tree, so it would discard them (or commit them into a sync PR). ' +
@@ -261,7 +297,14 @@ export async function runAction(options, deps) {
 
   let dirty = false;
   for (const candidate of candidates) {
-    const result = { package: candidate.package, from: candidate.verified, to: candidate.version, tag: candidate.tag, outcome: 'error', reasons: [] };
+    const result = {
+      package: candidate.package,
+      from: candidate.verified,
+      to: candidate.version,
+      tag: candidate.tag,
+      outcome: 'error',
+      reasons: [],
+    };
     results.push(result);
     const branch = `${options.branchPrefix}${slug(candidate.package)}-${candidate.version}`;
     result.branch = branch;
@@ -297,8 +340,23 @@ export async function runAction(options, deps) {
         await git('fetch', '--quiet', ref.repo, ref.ref);
         if (ref.upstream) {
           const merging = (await run('git rev-parse -q --verify MERGE_HEAD')).stdout.trim();
-          if (!merging) await git('-c', `user.name=${authorName}`, '-c', `user.email=${authorEmail}`, 'merge', '--quiet', '--no-ff', '--no-commit', '-s', 'ours', '--allow-unrelated-histories', ref.upstream);
-          else if (merging !== ref.upstream) throw new Error(`adopting ${ref.ref}: already merging ${merging}, not upstream ${ref.upstream}`);
+          if (!merging)
+            await git(
+              '-c',
+              `user.name=${authorName}`,
+              '-c',
+              `user.email=${authorEmail}`,
+              'merge',
+              '--quiet',
+              '--no-ff',
+              '--no-commit',
+              '-s',
+              'ours',
+              '--allow-unrelated-histories',
+              ref.upstream,
+            );
+          else if (merging !== ref.upstream)
+            throw new Error(`adopting ${ref.ref}: already merging ${merging}, not upstream ${ref.upstream}`);
         }
         await git('read-tree', '-u', '--reset', 'FETCH_HEAD');
       };
@@ -338,7 +396,10 @@ export async function runAction(options, deps) {
           graftCommand: options.graftCommand,
           branch,
         };
-        await writeFile(files.prompt, (candidate.standalone ? renderStandaloneAgentPrompt : renderAgentPrompt)({ candidate, report, files }));
+        await writeFile(
+          files.prompt,
+          (candidate.standalone ? renderStandaloneAgentPrompt : renderAgentPrompt)({ candidate, report, files }),
+        );
         log(`graft: handing ${candidate.package}@${candidate.version} to the agent`);
         const agent = await run(options.agentCommand, {
           env: {
@@ -368,17 +429,18 @@ export async function runAction(options, deps) {
 
       const outcome = code === 0 ? 'green' : 'needs-agent';
       result.grafts = report.grafts.map((g) => ({ id: g.id, outcome: g.outcome }));
-      if (outcome === 'needs-agent') result.reasons.push(...report.grafts.filter((g) => g.outcome === 'needs-agent').map((g) => `${g.id}: ${g.reasons.join('; ')}`));
+      if (outcome === 'needs-agent')
+        result.reasons.push(...report.grafts.filter((g) => g.outcome === 'needs-agent').map((g) => `${g.id}: ${g.reasons.join('; ')}`));
       if (outcome === 'needs-agent' && options.onNeedsAgent === 'skip') {
         result.outcome = 'needs-agent';
         continue;
       }
 
       const tmpRel = path.relative(cwd, deps.tmpDir).split(path.sep).join('/');
-      const changed = (await git('status', '--porcelain'))
-        .split('\n')
-        .filter((l) => l.trim() && !(tmpRel && !tmpRel.startsWith('..') && l.slice(3).startsWith(tmpRel.split('/')[0])))
-        .length > 0;
+      const changed =
+        (await git('status', '--porcelain'))
+          .split('\n')
+          .filter((l) => l.trim() && !(tmpRel && !tmpRel.startsWith('..') && l.slice(3).startsWith(tmpRel.split('/')[0]))).length > 0;
       const title = `graft: sync ${candidate.package} to ${candidate.version}${outcome === 'needs-agent' ? ' (needs attention)' : ''}`;
       const body = renderPrBody({ candidate, report, agentBody, outcome });
       if (!changed && outcome === 'green') {
@@ -409,14 +471,29 @@ export async function runAction(options, deps) {
       }
       await git('add', '-A');
       if (tmpRel && !tmpRel.startsWith('..')) await run(`git reset -q -- ${quote(tmpRel.split('/')[0])}`);
-      await deps.sh(`git -c user.name=${quote(authorName)} -c user.email=${quote(authorEmail)} commit -q -m ${quote(title)} -m ${quote(`Upstream ${candidate.package}@${candidate.version} (${candidate.tag}). Generated by graft sync.`)}`, { cwd }).then((r) => {
-        if (r.code !== 0) throw new Error(`git commit failed: ${r.stderr}`);
-      });
+      await deps
+        .sh(
+          `git -c user.name=${quote(authorName)} -c user.email=${quote(authorEmail)} commit -q -m ${quote(title)} -m ${quote(`Upstream ${candidate.package}@${candidate.version} (${candidate.tag}). Generated by graft sync.`)}`,
+          { cwd },
+        )
+        .then((r) => {
+          if (r.code !== 0) throw new Error(`git commit failed: ${r.stderr}`);
+        });
       await git('push', '-u', 'origin', branch);
       const bodyFile = path.join(deps.tmpDir, `body-${slug(candidate.package)}.md`);
       await writeFile(bodyFile, body);
       const pr = await run(
-        ['gh pr create', `--base ${quote(base)}`, `--head ${quote(branch)}`, `--title ${quote(title)}`, `--body-file ${quote(bodyFile)}`, outcome === 'needs-agent' ? '--draft' : '', ...options.labels.map((l) => `--label ${quote(l)}`)].filter(Boolean).join(' '),
+        [
+          'gh pr create',
+          `--base ${quote(base)}`,
+          `--head ${quote(branch)}`,
+          `--title ${quote(title)}`,
+          `--body-file ${quote(bodyFile)}`,
+          outcome === 'needs-agent' ? '--draft' : '',
+          ...options.labels.map((l) => `--label ${quote(l)}`),
+        ]
+          .filter(Boolean)
+          .join(' '),
       );
       if (pr.code !== 0 && isPrRefusal(`${pr.stderr}\n${pr.stdout}`)) {
         // Actions (or this token) may not open PRs here. The work is pushed; hand it over through
@@ -426,7 +503,9 @@ export async function runAction(options, deps) {
         const note = [
           '> [!NOTE]',
           `> GitHub Actions may not open pull requests in this repository, so the change is on branch \`${branch}\`.`,
-          compare ? `> **[Open the pull request](${compare})**${outcome === 'needs-agent' ? ' (as a draft: grafts still need attention)' : ''}.` : `> Open a pull request from \`${branch}\` into \`${base}\`${outcome === 'needs-agent' ? ' (as a draft: grafts still need attention)' : ''}.`,
+          compare
+            ? `> **[Open the pull request](${compare})**${outcome === 'needs-agent' ? ' (as a draft: grafts still need attention)' : ''}.`
+            : `> Open a pull request from \`${branch}\` into \`${base}\`${outcome === 'needs-agent' ? ' (as a draft: grafts still need attention)' : ''}.`,
           '> To let the action open pull requests itself, allow it under Settings → Actions → General, or pass a GitHub App token or a fine-grained PAT as `github-token` (PRs opened with those also trigger CI).',
           '',
         ].join('\n');
@@ -434,7 +513,9 @@ export async function runAction(options, deps) {
         result.issue = issue.url;
         result.compareUrl = compare;
         result.outcome = 'pr-refused-issue';
-        result.reasons.push(`pull request not allowed from Actions; branch ${branch} pushed, ${issue.existing ? 'issue already open' : 'issue opened'}: ${issue.url}`);
+        result.reasons.push(
+          `pull request not allowed from Actions; branch ${branch} pushed, ${issue.existing ? 'issue already open' : 'issue opened'}: ${issue.url}`,
+        );
         continue;
       }
       if (pr.code !== 0) throw new Error(`gh pr create failed: ${pr.stderr || pr.stdout}`);
@@ -481,7 +562,14 @@ export async function runCheck(options, run) {
       ...(rep.anchors ?? []).filter((a) => !a.matched).map((a) => `anchor ${a.name} missed in ${a.file}${a.error ? ` (${a.error})` : ''}`),
     ];
     for (const p of problems) failures.push(`${rep.graft} (${rep.package}@${rep.version}): ${p}`);
-    return { graft: rep.graft, package: rep.package, version: rep.version, variant: rep.variant?.module ?? null, ok: !!rep.ok && problems.length === 0, problems };
+    return {
+      graft: rep.graft,
+      package: rep.package,
+      version: rep.version,
+      variant: rep.variant?.module ?? null,
+      ok: !!rep.ok && problems.length === 0,
+      problems,
+    };
   });
   return { ok: r.code === 0 && rows.every((x) => x.ok), exitCode: r.code, reports: rows, failures };
 }
@@ -494,20 +582,40 @@ export function renderCheck(check, mode) {
   }
   if (!check.reports.length) return `${[...lines, 'No active grafts.', ''].join('\n')}\n`;
   lines.push('| Graft | Installed | Variant | Result |', '|---|---|---|---|');
-  for (const r of check.reports) lines.push(`| ${r.graft} | ${r.package}@${r.version} | ${r.variant ?? '—'} | ${r.ok ? '✅ applied' : `❌ ${r.problems.length} problem(s)`} |`);
+  for (const r of check.reports)
+    lines.push(
+      `| ${r.graft} | ${r.package}@${r.version} | ${r.variant ?? '—'} | ${r.ok ? '✅ applied' : `❌ ${r.problems.length} problem(s)`} |`,
+    );
   const bad = check.reports.filter((r) => !r.ok);
   for (const r of bad) lines.push('', `**${r.graft}**`, ...r.problems.map((p) => `- ${p.split('\n')[0]}`));
   if (bad.length) {
-    lines.push('', mode === 'fail' ? 'The job fails because the installed tree does not match the grafts.' : '_Reported as a warning (`check: warn`)._');
+    lines.push(
+      '',
+      mode === 'fail' ? 'The job fails because the installed tree does not match the grafts.' : '_Reported as a warning (`check: warn`)._',
+    );
   }
   return `${lines.join('\n')}\n\n`;
 }
 
-const ICON = { 'pr-refused-issue': '📝', pr: '✅', 'draft-pr': '🛠️', issue: '🛠️', 'would-open-issue': '🛠️ (dry run)', 'needs-agent': '🛠️', 'skipped-existing': '⏭️', 'up-to-date': '✔️', 'no-changes': '➖', 'would-open-pr': '✅ (dry run)', 'would-open-draft-pr': '🛠️ (dry run)', error: '❌' };
+const ICON = {
+  'pr-refused-issue': '📝',
+  pr: '✅',
+  'draft-pr': '🛠️',
+  issue: '🛠️',
+  'would-open-issue': '🛠️ (dry run)',
+  'needs-agent': '🛠️',
+  'skipped-existing': '⏭️',
+  'up-to-date': '✔️',
+  'no-changes': '➖',
+  'would-open-pr': '✅ (dry run)',
+  'would-open-draft-pr': '🛠️ (dry run)',
+  error: '❌',
+};
 
 export function renderSummary(results) {
   const lines = ['## Graft sync', '', '| Package | Verified → Candidate | Outcome | Link |', '|---|---|---|---|'];
-  for (const r of results) lines.push(`| ${r.package} | ${r.from} → ${r.to ?? '—'} | ${ICON[r.outcome] ?? ''} ${r.outcome} | ${r.pullRequest ?? r.issue ?? ''} |`);
+  for (const r of results)
+    lines.push(`| ${r.package} | ${r.from} → ${r.to ?? '—'} | ${ICON[r.outcome] ?? ''} ${r.outcome} | ${r.pullRequest ?? r.issue ?? ''} |`);
   const notes = results.filter((r) => r.reasons?.length);
   for (const r of notes) lines.push('', `**${r.package}**`, ...r.reasons.map((x) => `- ${x.split('\n')[0]}`));
   return `${lines.join('\n')}\n`;

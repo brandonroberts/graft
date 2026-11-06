@@ -56,9 +56,7 @@ export class Project {
         cacheDir: this.cacheDir,
         specs: config.upstream,
         specBase: this.graftsDir,
-        resolveFrom: Object.fromEntries(
-          Object.entries(config.resolveFrom ?? {}).map(([pkg, dir]) => [pkg, path.resolve(this.root, dir)]),
-        ),
+        resolveFrom: Object.fromEntries(Object.entries(config.resolveFrom ?? {}).map(([pkg, dir]) => [pkg, path.resolve(this.root, dir)])),
       });
     // No module cache: agents edit variants and re-check within one long-lived process.
     this.jiti = createJiti(path.join(this.root, 'noop.js'), { moduleCache: false, fsCache: false });
@@ -141,7 +139,10 @@ export class Project {
     for (const group of byKey.values()) {
       if (group.length < 2) continue;
       for (const g of group) {
-        const others = group.filter((o) => o !== g).map((o) => `"${o.id}"`).join(', ');
+        const others = group
+          .filter((o) => o !== g)
+          .map((o) => `"${o.id}"`)
+          .join(', ');
         const { mechanism, rootstock } = g.frontmatter;
         out.set(g.id, {
           severity: 'error',

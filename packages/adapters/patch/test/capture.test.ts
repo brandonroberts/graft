@@ -37,24 +37,35 @@ describe('graft capture (patch)', () => {
 
   it('replaces the scaffold stub with the installed changes: edits, new and deleted files', async () => {
     const { project, installed, graftDir } = await setup();
-    await writeFile(path.join(installed, 'index.js'), "const a = require('./lib/a')\nconst b = require('./lib/b')\nmodule.exports = { a, b }\n");
+    await writeFile(
+      path.join(installed, 'index.js'),
+      "const a = require('./lib/a')\nconst b = require('./lib/b')\nmodule.exports = { a, b }\n",
+    );
     await writeFile(path.join(installed, 'lib/b.js'), 'module.exports = 2\n');
     await rm(path.join(installed, 'lib/old.js'));
     // Bookkeeping a package manager adds to package.json is not a modification.
     const pj = JSON.parse(await readFile(path.join(installed, 'package.json'), 'utf8'));
-    await writeFile(path.join(installed, 'package.json'), JSON.stringify({ ...pj, _resolved: 'https://registry/lib-1.0.0.tgz', _integrity: 'sha512-x' }));
+    await writeFile(
+      path.join(installed, 'package.json'),
+      JSON.stringify({ ...pj, _resolved: 'https://registry/lib-1.0.0.tgz', _integrity: 'sha512-x' }),
+    );
 
     const result = await captureVariant(project, 'add-b');
     expect(result).toMatchObject({ module: './variants/v1.patch', replacedStub: true, version: '1.0.0' });
     const patch = await readFile(path.join(graftDir, 'variants/v1.patch'), 'utf8');
     expect(patch.startsWith('diff --git a/index.js b/index.js\n')).toBe(true);
-    const files = parsePatchFile(patch).map((p) => [patchTarget(p), p.oldFile === null ? 'create' : p.newFile === null ? 'delete' : 'modify']);
+    const files = parsePatchFile(patch).map((p) => [
+      patchTarget(p),
+      p.oldFile === null ? 'create' : p.newFile === null ? 'delete' : 'modify',
+    ]);
     expect(files).toEqual([
       ['index.js', 'modify'],
       ['lib/b.js', 'create'],
       ['lib/old.js', 'delete'],
     ]);
-    expect(await readFile(path.join(graftDir, 'graft.md'), 'utf8')).toContain('Captured ./variants/v1.patch from the installed lib@1.0.0 with `graft capture`');
+    expect(await readFile(path.join(graftDir, 'graft.md'), 'utf8')).toContain(
+      'Captured ./variants/v1.patch from the installed lib@1.0.0 with `graft capture`',
+    );
     const anchors = await patchAdapter.checkAnchors(project.context(await project.get('add-b')), '1.0.0');
     expect(anchors.anchors.every((a) => a.matched)).toBe(true);
   });

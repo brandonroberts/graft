@@ -90,13 +90,22 @@ const propName = (p) => {
   return p.property?.name;
 };
 
-const keyName = (k, computed) => (computed ? (k.type === 'Literal' ? String(k.value) : undefined) : k.type === 'Identifier' ? k.name : k.type === 'Literal' ? String(k.value) : undefined);
+const keyName = (k, computed) =>
+  computed
+    ? k.type === 'Literal'
+      ? String(k.value)
+      : undefined
+    : k.type === 'Identifier'
+      ? k.name
+      : k.type === 'Literal'
+        ? String(k.value)
+        : undefined;
 
 export function parseCjs(code, file) {
   try {
     return parse(code, { ecmaVersion: 'latest', sourceType: 'script', allowHashBang: true, allowReturnOutsideFunction: true });
   } catch (err) {
-    throw new Error(`${file}: ${err.message}`);
+    throw new Error(`${file}: ${err.message}`, { cause: err });
   }
 }
 
@@ -270,7 +279,13 @@ export function convertFile(file, code, { keyCache = new Map(), lazy = new Set()
         return;
       }
       if (parent?.type === 'MemberExpression' && parent.property === n && !parent.computed) return;
-      if ((parent?.type === 'Property' || parent?.type === 'MethodDefinition' || parent?.type === 'PropertyDefinition') && parent.key === n && !parent.computed && !parent.shorthand) return;
+      if (
+        (parent?.type === 'Property' || parent?.type === 'MethodDefinition' || parent?.type === 'PropertyDefinition') &&
+        parent.key === n &&
+        !parent.computed &&
+        !parent.shorthand
+      )
+        return;
       if (!ancestors.some((a) => FUNCTION_TYPES.has(a.type))) {
         problems.push(`cyclic binding ${b.name} (require('${b.spec}')) is used while the module loads; cannot defer it`);
         return;
@@ -306,11 +321,19 @@ export function convertFile(file, code, { keyCache = new Map(), lazy = new Set()
       return;
     }
     if (n.type === 'Identifier' && (n.name === '__dirname' || n.name === '__filename')) {
-      const isKey = (parent?.type === 'MemberExpression' && parent.property === n && !parent.computed) || (parent?.type === 'Property' && parent.key === n && !parent.computed);
+      const isKey =
+        (parent?.type === 'MemberExpression' && parent.property === n && !parent.computed) ||
+        (parent?.type === 'Property' && parent.key === n && !parent.computed);
       if (!isKey) edits.push({ start: n.start, end: n.end, text: n.name === '__dirname' ? 'import.meta.dirname' : 'import.meta.filename' });
       return;
     }
-    if (n.type === 'Identifier' && n.name === 'require' && !(parent?.type === 'CallExpression' && parent.callee === n) && !(parent?.type === 'MemberExpression' && parent.object === n) && !(parent?.type === 'MemberExpression' && parent.property === n && !parent.computed)) {
+    if (
+      n.type === 'Identifier' &&
+      n.name === 'require' &&
+      !(parent?.type === 'CallExpression' && parent.callee === n) &&
+      !(parent?.type === 'MemberExpression' && parent.object === n) &&
+      !(parent?.type === 'MemberExpression' && parent.property === n && !parent.computed)
+    ) {
       problems.push('`require` is used as a value');
     }
   });
@@ -332,11 +355,15 @@ export function convertFile(file, code, { keyCache = new Map(), lazy = new Set()
     ...(usesBareRequire ? ["import { createRequire as __graft_createRequire } from 'node:module'"] : []),
     ...imports,
     ...(usesBareRequire ? ['const require = __graft_createRequire(import.meta.url)'] : []),
-    ...lazyBindings.map((b, i) => `let __graft_lazy${i}_value; const __graft_lazy${i} = () => (__graft_lazy${i}_value ??= require('${b.spec}'))`),
+    ...lazyBindings.map(
+      (b, i) => `let __graft_lazy${i}_value; const __graft_lazy${i} = () => (__graft_lazy${i}_value ??= require('${b.spec}'))`,
+    ),
     'const module = { exports: {} }',
     'let exports = module.exports',
     ...(usesMain
-      ? ['const __graft_main = process.argv[1] !== undefined && __graft_realpathSync(process.argv[1]) === import.meta.filename ? module : undefined']
+      ? [
+          'const __graft_main = process.argv[1] !== undefined && __graft_realpathSync(process.argv[1]) === import.meta.filename ? module : undefined',
+        ]
       : []),
     '',
   ].join('\n');

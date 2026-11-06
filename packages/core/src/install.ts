@@ -93,7 +93,14 @@ export async function installPackage(root: string, pkg: string, spec: string): P
 
 /** Reinstall the project's dependencies (so package-manager patch config takes effect). */
 export async function reinstall(root: string): Promise<string> {
-  const command = { pnpm: 'pnpm install', yarn: 'yarn install', 'yarn-berry': 'yarn install', bun: 'bun install', upm: 'upm install', npm: 'npm install' }[detectPackageManager(root)];
+  const command = {
+    pnpm: 'pnpm install',
+    yarn: 'yarn install',
+    'yarn-berry': 'yarn install',
+    bun: 'bun install',
+    upm: 'upm install',
+    npm: 'npm install',
+  }[detectPackageManager(root)];
   const result = await runCommand(command, { cwd: root, timeoutMs: 10 * 60_000 });
   if (!result.passed) throw new GraftError(`\`${command}\` failed:\n${result.output}`, 'install/failed');
   return command;

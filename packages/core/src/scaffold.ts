@@ -45,7 +45,14 @@ export const SKILL_NAME = 'graft-sync';
  * Skills folders that coding agents read, relative to the project root. If one exists, the
  * project uses that agent's skills.
  */
-export const KNOWN_SKILLS_DIRS = ['.claude/skills', '.agents/skills', '.codex/skills', '.cursor/skills', '.gemini/skills', '.github/skills'];
+export const KNOWN_SKILLS_DIRS = [
+  '.claude/skills',
+  '.agents/skills',
+  '.codex/skills',
+  '.cursor/skills',
+  '.gemini/skills',
+  '.github/skills',
+];
 
 /**
  * Agent config folders whose `skills/` subfolder the agent reads. A project that has one of these
@@ -142,10 +149,14 @@ export async function addGraft(project: Project, input: AddGraftInput): Promise<
   const dir = path.join(project.graftsDir, input.id);
   if (existsSync(path.join(dir, GRAFT_FILE))) throw new GraftError(`graft "${input.id}" already exists`, 'graft/exists');
   const adapter = project.adapter(input.mechanism);
-  if (!adapter) throw new GraftError(`unknown mechanism "${input.mechanism}" (available: ${project.adapterNames.join(', ')})`, 'adapter/unknown');
+  if (!adapter)
+    throw new GraftError(`unknown mechanism "${input.mechanism}" (available: ${project.adapterNames.join(', ')})`, 'adapter/unknown');
   if (adapter.exclusivePerPackage) {
     const existing = (await project.loadAll()).grafts.find(
-      (g) => g.frontmatter.mechanism === input.mechanism && g.frontmatter.rootstock.package === input.package && ACTIVE_STATUSES.includes(g.frontmatter.status),
+      (g) =>
+        g.frontmatter.mechanism === input.mechanism &&
+        g.frontmatter.rootstock.package === input.package &&
+        ACTIVE_STATUSES.includes(g.frontmatter.status),
     );
     if (existing) {
       throw new GraftError(
@@ -175,7 +186,7 @@ export async function addGraft(project: Project, input: AddGraftInput): Promise<
         mechanism: input.mechanism,
         ...(input.targets?.length ? { targets: input.targets } : {}),
         variants: [{ range: `>=${major}.0.0-0`, module: variantFile }],
-        ...(adapter.scaffoldFrontmatter?.({ ...scaffold, version }) ?? {}),
+        ...adapter.scaffoldFrontmatter?.({ ...scaffold, version }),
         status: 'applied',
       }),
     ],

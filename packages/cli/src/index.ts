@@ -64,11 +64,15 @@ function printAnchors(report: AnchorReport): void {
   console.log(`${report.graft}: ${report.package}@${report.version} → ${report.variant ? report.variant.module : '(no variant)'}`);
   for (const a of report.anchors) {
     const where = a.location ? `:${a.location.line}` : '';
-    console.log(`  ${a.matched ? '✓' : '✗'} ${a.name} ${a.file}${where}${a.description ? ` — ${a.description}` : ''}${a.error ? ` (${a.error})` : ''}`);
+    console.log(
+      `  ${a.matched ? '✓' : '✗'} ${a.name} ${a.file}${where}${a.description ? ` — ${a.description}` : ''}${a.error ? ` (${a.error})` : ''}`,
+    );
   }
   for (const e of report.errors) console.log(`  ✗ ${e}`);
   if (report.upstreamed) {
-    console.log(`  ⇡ likely upstreamed: ${report.package}@${report.version} already contains this graft's change; confirm and set status: upstreamed`);
+    console.log(
+      `  ⇡ likely upstreamed: ${report.package}@${report.version} already contains this graft's change; confirm and set status: upstreamed`,
+    );
     for (const e of report.upstreamed.evidence) console.log(`    ${e}`);
   }
   for (const w of report.warnings ?? []) console.log(`  ! ${w}`);
@@ -80,7 +84,8 @@ const init = defineCommand({
     ...common,
     agent: {
       type: 'boolean',
-      description: "Also onboard coding agents: install the graft-sync skill (it drives Graft through this CLI) into the project's agent skills folders",
+      description:
+        "Also onboard coding agents: install the graft-sync skill (it drives Graft through this CLI) into the project's agent skills folders",
     },
     'skills-dir': {
       type: 'string',
@@ -93,12 +98,20 @@ const init = defineCommand({
   run: guarded(async (args) => {
     const root = path.resolve(args.root ?? process.cwd());
     // Agent setup first: if no skills folder can be found, fail before creating anything.
-    const skillsDirs = args['skills-dir']?.split(',').map((d) => d.trim()).filter(Boolean);
+    const skillsDirs = args['skills-dir']
+      ?.split(',')
+      .map((d) => d.trim())
+      .filter(Boolean);
     const agent = args.agent ? await setupAgent(root, { skill: await readBundledSkill(), skillsDirs }) : undefined;
     const created = await initProject(root);
     if (args.package) {
       const project = await open(root);
-      const id = args.id ?? `${args.package.replace(/^@/, '').replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-graft`;
+      const id =
+        args.id ??
+        `${args.package
+          .replace(/^@/, '')
+          .replace(/[^a-z0-9]+/gi, '-')
+          .toLowerCase()}-graft`;
       created.push(...(await addGraft(project, { id, package: args.package, mechanism: args.mechanism })));
     }
     print(args.json, { created, agent }, () => {
@@ -130,7 +143,10 @@ const add = defineCommand({
     version: { type: 'string', description: 'Upstream version (default: installed)' },
     mechanism: { type: 'string', default: 'patch', description: 'Mechanism adapter' },
     target: { type: 'string', description: 'Comma-separated target files in the package' },
-    'in-place': { type: 'boolean', description: 'fork: the graft lives in the fork itself (repo: ., repo mode, variant { @worktree, @verified })' },
+    'in-place': {
+      type: 'boolean',
+      description: 'fork: the graft lives in the fork itself (repo: ., repo mode, variant { @worktree, @verified })',
+    },
     'repo-mode': { type: 'boolean', description: 'fork: the fork is the product, nothing is installed (install: none)' },
     'fork-repo': { type: 'string', description: 'fork: git URL (or path) of the fork' },
     upstream: { type: 'string', description: "fork: git URL of the upstream repo (in place, default: the checkout's `upstream` remote)" },
@@ -139,7 +155,11 @@ const add = defineCommand({
   },
   run: guarded(async (args) => {
     const project = await open(args.root);
-    const split = (s?: string) => s?.split(',').map((x) => x.trim()).filter(Boolean);
+    const split = (s?: string) =>
+      s
+        ?.split(',')
+        .map((x) => x.trim())
+        .filter(Boolean);
     const options = Object.fromEntries(
       Object.entries({
         inPlace: args['in-place'],
@@ -150,7 +170,14 @@ const add = defineCommand({
         track: args.track,
       }).filter(([, v]) => v !== undefined && v !== false && v !== ''),
     ) as Record<string, string | boolean>;
-    const flag: Record<string, string> = { inPlace: '--in-place', repoMode: '--repo-mode', repo: '--fork-repo', upstream: '--upstream', tag: '--tag', track: '--track' };
+    const flag: Record<string, string> = {
+      inPlace: '--in-place',
+      repoMode: '--repo-mode',
+      repo: '--fork-repo',
+      upstream: '--upstream',
+      tag: '--tag',
+      track: '--track',
+    };
     if (Object.keys(options).length && args.mechanism !== 'fork') {
       const used = Object.keys(options).map((k) => flag[k]);
       throw new GraftError(`${used.join(', ')} ${used.length > 1 ? 'apply' : 'applies'} only to --mechanism fork`, 'add/options');
@@ -178,7 +205,17 @@ const status = defineCommand({
     print(args.json, result, () => {
       if (!result.grafts.length && !result.invalid.length) console.log('no grafts (run `graft add`)');
       for (const g of result.grafts) {
-        const health = g.error ? `✗ ${g.error}` : !g.anchors ? (g.installed ? '—' : 'not installed') : g.anchors.ok ? '✓ anchors ok' : g.anchors.upstreamed ? '✗ anchors miss (likely upstreamed)' : '✗ anchors miss';
+        const health = g.error
+          ? `✗ ${g.error}`
+          : !g.anchors
+            ? g.installed
+              ? '—'
+              : 'not installed'
+            : g.anchors.ok
+              ? '✓ anchors ok'
+              : g.anchors.upstreamed
+                ? '✗ anchors miss (likely upstreamed)'
+                : '✗ anchors miss';
         console.log(`${g.id}  ${g.package}  verified ${g.verified}  installed ${g.installed ?? '—'}  ${g.status}  ${health}`);
         if (g.anchors && !g.anchors.ok) printAnchors(g.anchors);
       }
@@ -215,14 +252,15 @@ const check = defineCommand({
 });
 
 const apply = defineCommand({
-  meta: { name: 'apply', description: 'Point the package manager at each graft\'s selected variant, reinstall, and re-check' },
+  meta: { name: 'apply', description: "Point the package manager at each graft's selected variant, reinstall, and re-check" },
   args: {
     ...common,
     id: { type: 'positional', required: false, description: 'Graft id (default: all active grafts)' },
     install: { type: 'boolean', default: true, description: 'Reinstall afterwards (--no-install to only write config)' },
     installed: {
       type: 'boolean',
-      description: "Apply variants directly to installed packages (Graft's built-in applier; run from postinstall). Offline and idempotent; exits 1 if any graft does not fit.",
+      description:
+        "Apply variants directly to installed packages (Graft's built-in applier; run from postinstall). Offline and idempotent; exits 1 if any graft does not fit.",
     },
   },
   run: guarded(async (args) => {
@@ -233,12 +271,18 @@ const apply = defineCommand({
         for (const r of reports) {
           for (const c of r.copies) {
             const where = c.primary ? '' : ` (nested: ${path.relative(project.root, c.dir)})`;
-            if (c.action === 'patched' || c.action === 'already-patched') console.log(`graft: ${c.action === 'patched' ? 'patched' : 'already patched'} ${r.package}@${c.version} with ${r.graft}${where}`);
+            if (c.action === 'patched' || c.action === 'already-patched')
+              console.log(
+                `graft: ${c.action === 'patched' ? 'patched' : 'already patched'} ${r.package}@${c.version} with ${r.graft}${where}`,
+              );
           }
           for (const w of r.warnings) console.log(`graft: warning: ${w}`);
           for (const e of r.errors) console.error(`graft: error: ${e}`);
         }
-        if (!ok) console.error('graft: one or more grafts could not be applied; failing the install so the package is never left silently unmodified');
+        if (!ok)
+          console.error(
+            'graft: one or more grafts could not be applied; failing the install so the package is never left silently unmodified',
+          );
       });
       return ok ? EXIT.ok : EXIT.attention;
     }
@@ -264,7 +308,9 @@ const diff = defineCommand({
   run: guarded(async (args) => {
     const project = await open(args.root);
     const result = await scopeDiff(project, args.id, args.from, args.to);
-    print(args.json, result, () => process.stdout.write(result.patch || `no changes in target files between ${result.from} and ${result.to}\n`));
+    print(args.json, result, () =>
+      process.stdout.write(result.patch || `no changes in target files between ${result.from} and ${result.to}\n`),
+    );
     return EXIT.ok;
   }),
 });
@@ -285,7 +331,10 @@ const syncCmd = defineCommand({
     const report = await sync(project, {
       version: args.version,
       package: args.package,
-      ids: args.id?.split(',').map((s) => s.trim()).filter(Boolean),
+      ids: args.id
+        ?.split(',')
+        .map((s) => s.trim())
+        .filter(Boolean),
       install: args.install,
       dryRun: args['dry-run'],
       onProgress: args.json ? undefined : (m) => console.error(`graft: ${m}`),
@@ -293,8 +342,13 @@ const syncCmd = defineCommand({
     });
     print(args.json, report, () => {
       for (const g of report.grafts) {
-        console.log(`${g.outcome === 'green' ? '✓' : g.outcome === 'skipped' ? '-' : '✗'} ${g.id}  ${g.from} → ${g.to ?? '?'}  ${g.outcome}${g.likelyUpstreamed ? ' (likely upstreamed)' : ''}`);
-        if (g.regenerated) console.log(`    ${g.regenerated.rolledBack ? 'rolled back regenerated' : 'regenerated'} variant ${g.regenerated.module} with \`${g.regenerated.command}\``);
+        console.log(
+          `${g.outcome === 'green' ? '✓' : g.outcome === 'skipped' ? '-' : '✗'} ${g.id}  ${g.from} → ${g.to ?? '?'}  ${g.outcome}${g.likelyUpstreamed ? ' (likely upstreamed)' : ''}`,
+        );
+        if (g.regenerated)
+          console.log(
+            `    ${g.regenerated.rolledBack ? 'rolled back regenerated' : 'regenerated'} variant ${g.regenerated.module} with \`${g.regenerated.command}\``,
+          );
         for (const r of g.reasons) console.log(`    ${r}`);
       }
       if (report.reportFiles) console.log(`report: ${path.relative(process.cwd(), report.reportFiles.markdown)}`);
@@ -311,7 +365,9 @@ const outdatedCmd = defineCommand({
     const entries = await outdated(project, { tags: args.tags?.split(',') });
     print(args.json, entries, () => {
       for (const e of entries) {
-        console.log(`${e.package}  verified ${e.verified}  ${e.candidate ? `→ ${e.candidate.version} (${e.candidate.tag})` : 'up to date'}  [${e.grafts.join(', ')}]`);
+        console.log(
+          `${e.package}  verified ${e.verified}  ${e.candidate ? `→ ${e.candidate.version} (${e.candidate.tag})` : 'up to date'}  [${e.grafts.join(', ')}]`,
+        );
       }
     });
     return EXIT.ok;
@@ -331,7 +387,9 @@ const replayCmd = defineCommand({
     const entries = await replay(project, args.id, {
       range: args.range,
       prerelease: args.prerelease,
-      onProgress: args.json ? undefined : (e) => console.log(`${e.ok ? '✓' : '✗'} ${e.version.padEnd(12)} ${e.variant ?? '—'}  ${e.ok ? '' : e.summary}`),
+      onProgress: args.json
+        ? undefined
+        : (e) => console.log(`${e.ok ? '✓' : '✗'} ${e.version.padEnd(12)} ${e.variant ?? '—'}  ${e.ok ? '' : e.summary}`),
     });
     if (args.json) console.log(JSON.stringify(entries, null, 2));
     else console.log(`${entries.filter((e) => e.ok).length}/${entries.length} versions pass static checks`);
@@ -363,8 +421,11 @@ const show = defineCommand({
       diagnostics: graft.diagnostics,
     };
     print(args.json, value, () => {
-      console.log(`${graft.id}: ${fm.rootstock.package} (verified ${fm.rootstock.verified}, installed ${installed ?? '—'}) · ${fm.mechanism} · ${fm.status}`);
-      for (const v of value.variants) console.log(`  ${v.module === value.selectedForInstalled ? '▶' : ' '} ${v.range.padEnd(20)} ${v.module}`);
+      console.log(
+        `${graft.id}: ${fm.rootstock.package} (verified ${fm.rootstock.verified}, installed ${installed ?? '—'}) · ${fm.mechanism} · ${fm.status}`,
+      );
+      for (const v of value.variants)
+        console.log(`  ${v.module === value.selectedForInstalled ? '▶' : ' '} ${v.range.padEnd(20)} ${v.module}`);
       for (const d of graft.diagnostics) console.log(`  ${d.severity}: ${d.message}`);
       console.log(`  intent: ${path.relative(process.cwd(), graft.file)}`);
     });
@@ -375,7 +436,8 @@ const show = defineCommand({
 const preview = defineCommand({
   meta: {
     name: 'preview',
-    description: "Apply a graft's selected variant to pristine upstream and write the modified files to a folder for inspection (installs nothing)",
+    description:
+      "Apply a graft's selected variant to pristine upstream and write the modified files to a folder for inspection (installs nothing)",
   },
   args: {
     ...common,
@@ -389,7 +451,10 @@ const preview = defineCommand({
     const result = await applyGraft(project, args.id, { version: args.version, outDir });
     print(args.json, result, () => {
       console.log(`${result.graft}: ${result.variant?.module ?? '(no variant)'} on ${result.version}`);
-      for (const f of result.files) console.log(`  ${f.error ? '✗' : '✓'} ${f.file}${f.outputPath ? ` → ${path.relative(process.cwd(), f.outputPath)}` : ''}${f.error ? ` (${f.error})` : ''}`);
+      for (const f of result.files)
+        console.log(
+          `  ${f.error ? '✗' : '✓'} ${f.file}${f.outputPath ? ` → ${path.relative(process.cwd(), f.outputPath)}` : ''}${f.error ? ` (${f.error})` : ''}`,
+        );
       for (const e of result.errors) console.log(`  ✗ ${e}`);
     });
     return result.ok ? EXIT.ok : EXIT.attention;
@@ -399,7 +464,8 @@ const preview = defineCommand({
 const variantAdd = defineCommand({
   meta: {
     name: 'add',
-    description: 'Register a variant file you wrote for a version range. Never edits existing variants; narrows overlapping open-ended older ranges; appends History',
+    description:
+      'Register a variant file you wrote for a version range. Never edits existing variants; narrows overlapping open-ended older ranges; appends History',
   },
   args: {
     ...common,
@@ -434,7 +500,10 @@ const variant = defineCommand({
 });
 
 const capture = defineCommand({
-  meta: { name: 'capture', description: "Turn your edit of the installed package into the graft's variant (diff against the published package)" },
+  meta: {
+    name: 'capture',
+    description: "Turn your edit of the installed package into the graft's variant (diff against the published package)",
+  },
   args: {
     ...common,
     id: { type: 'positional', required: true, description: 'Graft id' },
@@ -469,10 +538,15 @@ const mark = defineCommand({
     history: { type: 'string', description: 'History entry to append' },
   },
   run: guarded(async (args) => {
-    if (!args.status && !args.verified && !args.history) throw new GraftError('nothing to change: pass --status, --verified and/or --history', 'cli/usage');
+    if (!args.status && !args.verified && !args.history)
+      throw new GraftError('nothing to change: pass --status, --verified and/or --history', 'cli/usage');
     const project = await open(args.root);
     if (args.verified) await resolveVersion(project, await project.get(args.id, { allowConflicts: true }), args.verified);
-    const graft = await updateGraft(project, args.id, { status: args.status as GraftStatus | undefined, verified: args.verified, history: args.history });
+    const graft = await updateGraft(project, args.id, {
+      status: args.status as GraftStatus | undefined,
+      verified: args.verified,
+      history: args.history,
+    });
     const value = { id: graft.id, status: graft.frontmatter.status, verified: graft.frontmatter.rootstock.verified };
     print(args.json, value, () => console.log(`${value.id}: status ${value.status}, verified ${value.verified}`));
     return EXIT.ok;
@@ -484,5 +558,20 @@ const CLI_VERSION = (createRequire(import.meta.url)('../package.json') as { vers
 
 export const main: CommandDef = defineCommand({
   meta: { name: 'graft', version: CLI_VERSION, description: 'Keep local modifications to upstream packages in sync' },
-  subCommands: { init, add, capture, show, apply, preview, status, check, diff, sync: syncCmd, variant, mark, outdated: outdatedCmd, replay: replayCmd },
+  subCommands: {
+    init,
+    add,
+    capture,
+    show,
+    apply,
+    preview,
+    status,
+    check,
+    diff,
+    sync: syncCmd,
+    variant,
+    mark,
+    outdated: outdatedCmd,
+    replay: replayCmd,
+  },
 }) as CommandDef;

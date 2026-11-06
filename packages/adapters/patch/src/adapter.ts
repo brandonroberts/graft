@@ -103,7 +103,8 @@ async function upstreamedEvidence(dir: string, patches: FilePatch[]): Promise<st
       evidence.push(`${p.oldFile}, which this graft deletes, is already gone`);
     } else {
       const content = await readIn(dir, p.newFile);
-      if (content === undefined || !p.hunks.length || applyPatch(content, reversePatch(p.raw), { fuzzFactor: 0 }) === false) return undefined;
+      if (content === undefined || !p.hunks.length || applyPatch(content, reversePatch(p.raw), { fuzzFactor: 0 }) === false)
+        return undefined;
       evidence.push(`${p.newFile}: all ${p.hunks.length} hunk(s) already present (the reverse patch applies with no fuzz)`);
     }
   }
@@ -150,7 +151,9 @@ export function createPatchAdapter(): MechanismAdapter {
       }
       const installed = await project.upstream.installed(pkg);
       if (installed?.version === version) {
-        report.errors.push(...(await applierFor(project).problems(project.root, pkg, version, report.variant.path, { upstream: project.upstream })));
+        report.errors.push(
+          ...(await applierFor(project).problems(project.root, pkg, version, report.variant.path, { upstream: project.upstream })),
+        );
         // Whatever the configuration says, check what actually got installed: each patched file
         // must equal pristine upstream + this variant. Catches patches dropped silently.
         // Under Plug'n'Play the installed copy lives in a zip archive, read through the PnP runtime.
@@ -160,14 +163,18 @@ export function createPatchAdapter(): MechanismAdapter {
           try {
             actual = await readInstalledFiles(installed, targets);
           } catch (err) {
-            (report.warnings ??= []).push(`cannot verify installed files of ${pkg}@${version}${installed.pnp ? " under Plug'n'Play" : ''} (${(err as Error).message}); the package-manager configuration was checked, the installed contents were not`);
+            (report.warnings ??= []).push(
+              `cannot verify installed files of ${pkg}@${version}${installed.pnp ? " under Plug'n'Play" : ''} (${(err as Error).message}); the package-manager configuration was checked, the installed contents were not`,
+            );
           }
           for (const p of actual ? patches : []) {
             if (!p.newFile) continue;
             const pristine = p.oldFile ? await readIn(dir, p.oldFile) : '';
             const expected = pristine === undefined ? false : applyFilePatch(pristine, p);
             if (expected !== false && actual![p.newFile] !== expected) {
-              report.errors.push(`installed ${pkg}@${version} ${p.newFile} is not patched with ${report.variant.module}; run \`graft apply\` (or reinstall)`);
+              report.errors.push(
+                `installed ${pkg}@${version} ${p.newFile} is not patched with ${report.variant.module}; run \`graft apply\` (or reinstall)`,
+              );
             }
           }
         }
@@ -227,7 +234,10 @@ export function createPatchAdapter(): MechanismAdapter {
       const [fromDir, toDir] = await Promise.all([project.upstream.resolve(pkg, from), project.upstream.resolve(pkg, to)]);
       const fromVariant = project.selectVariant(graft, from);
       const patches = fromVariant ? await loadPatch(graft, fromVariant).catch(() => []) : [];
-      const touched = new Set<string>([...(graft.frontmatter.targets ?? []), ...patches.map((p) => p.oldFile).filter((f): f is string => !!f)]);
+      const touched = new Set<string>([
+        ...(graft.frontmatter.targets ?? []),
+        ...patches.map((p) => p.oldFile).filter((f): f is string => !!f),
+      ]);
       const files: ScopedFileDiff[] = [];
       for (const file of touched) {
         const [oldText, newText] = await Promise.all([readIn(fromDir, file), readIn(toDir, file)]);
@@ -239,7 +249,9 @@ export function createPatchAdapter(): MechanismAdapter {
         const scoped = scopeFileDiff({ file, oldText, newText, regions, window: 10 });
         if (scoped.status === 'removed' && filePatch?.hunks.length) {
           // Point at where the patched code went: files in `to` holding the hunks' old side.
-          const text = distinctiveText(filePatch.hunks.flatMap((h) => h.lines.filter((l) => l[0] === ' ' || l[0] === '-').map((l) => l.slice(1))));
+          const text = distinctiveText(
+            filePatch.hunks.flatMap((h) => h.lines.filter((l) => l[0] === ' ' || l[0] === '-').map((l) => l.slice(1))),
+          );
           const ext = path.extname(file);
           const include = ext && !/^\.(c|m)?js$/.test(ext) ? new RegExp(`(\\.(c|m)?js|${ext.replace('.', '\\.')})$`) : undefined;
           const candidates = await rankFilesByContent(toDir, { ...text, include });
@@ -253,7 +265,13 @@ export function createPatchAdapter(): MechanismAdapter {
     async applyInstalled(ctx: GraftContext) {
       const { project, graft } = ctx;
       const pkg = graft.frontmatter.rootstock.package;
-      const report = { graft: graft.id, package: pkg, copies: [] as import('@graftsync/core').InstalledCopyResult[], errors: [] as string[], warnings: [] as string[] };
+      const report = {
+        graft: graft.id,
+        package: pkg,
+        copies: [] as import('@graftsync/core').InstalledCopyResult[],
+        errors: [] as string[],
+        warnings: [] as string[],
+      };
       const primary = await project.upstream.installed(pkg);
       if (!primary) {
         report.warnings.push(`${pkg} is not installed; nothing to apply`);
@@ -301,7 +319,9 @@ export function createPatchAdapter(): MechanismAdapter {
     async beforeInstall(ctx: GraftContext, version: string) {
       const variant = ctx.project.selectVariant(ctx.graft, version);
       if (!variant) throw new GraftError(`graft "${ctx.graft.id}": no variant covers ${version}`, 'variant/none');
-      const r = await applierFor(ctx.project).configure(ctx.project.root, ctx.graft.frontmatter.rootstock.package, version, variant.path, { upstream: ctx.project.upstream });
+      const r = await applierFor(ctx.project).configure(ctx.project.root, ctx.graft.frontmatter.rootstock.package, version, variant.path, {
+        upstream: ctx.project.upstream,
+      });
       return r.install ? { install: r.install } : undefined;
     },
 

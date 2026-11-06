@@ -51,7 +51,7 @@ function blobs(specs, cwd = cache) {
   const out = r.stdout;
   const result = [];
   let i = 0;
-  for (const spec of specs) {
+  for (const _spec of specs) {
     const nl = out.indexOf(10, i);
     const header = out.subarray(i, nl).toString();
     i = nl + 1;
@@ -109,7 +109,10 @@ function english(text, upstream) {
 
 const files = walk(path.join(ws, CONTENT)).map((f) => path.join(CONTENT, f).split(path.sep).join('/'));
 const [baseTexts, targetTexts] = [blobs(files.map((f) => `${baseRev}:${f}`)), blobs(files.map((f) => `${targetRev}:${f}`))];
-const beforeTexts = blobs(files.map((f) => `HEAD:${f}`), root);
+const beforeTexts = blobs(
+  files.map((f) => `HEAD:${f}`),
+  root,
+);
 const problems = [];
 let checked = 0;
 files.forEach((file, i) => {
@@ -125,7 +128,9 @@ files.forEach((file, i) => {
   }
   const [was, wasUp, is, isUp] = [structure(before), structure(baseTexts[i]), structure(after), structure(targetTexts[i])];
   if (was === wasUp && isUp !== undefined && is !== isUp) {
-    problems.push(`${file}: structure ${is} (headings/fence lines/docs elements) no longer matches upstream's ${isUp}; upstream content was dropped or duplicated`);
+    problems.push(
+      `${file}: structure ${is} (headings/fence lines/docs elements) no longer matches upstream's ${isUp}; upstream content was dropped or duplicated`,
+    );
   }
   const b = english(before, baseTexts[i]);
   const a = english(after, targetTexts[i]);

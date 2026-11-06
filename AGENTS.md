@@ -18,9 +18,12 @@ pnpm test                                    # vitest: unit, CLI, Action (real g
 node packages/cli/dist/bin.js check          # the dogfood grafts must be applied
 node packages/cli/dist/bin.js sync --quiet   # and green
 pnpm test:grafts                             # and still behave like the pristine packages
+pnpm lint                                    # oxlint, warnings fail
+pnpm format:check                            # oxfmt; `pnpm format` rewrites
 ```
 
-- **CI** runs exactly these on Node 22, 24 and 26. Run them before every push.
+- **CI** runs the build, tests and graft checks on Node 22, 24 and 26, and lint and format once on Node 24. Run them all before every push.
+- **Lint and format:** oxlint (`.oxlintrc.json`) and oxfmt (`.oxfmtrc.json`: 140 columns, single quotes). oxfmt skips Markdown, HTML, `pnpm-lock.yaml` and `.grafts/`; oxlint skips the generated variants.
 - **Build first:** tests and the CLI use `dist/`, so rebuild before running them.
 - **Running one package's tests:** `cd packages/<pkg> && npx vitest run [-t "<name>"]`.
 

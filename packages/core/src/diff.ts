@@ -85,7 +85,10 @@ export function renderPatch(files: ScopedFileDiff[], labels: { from: string; to:
       out.push(`@@ -${h.oldStart},${h.oldLines} +${h.newStart},${h.newLines} @@${note}`, ...h.lines);
     }
     if (f.candidates?.length) {
-      out.push(`# candidate files in ${labels.to} that contain the removed target's patched code (best match first):`, ...f.candidates.map((c) => `#   ${c}`));
+      out.push(
+        `# candidate files in ${labels.to} that contain the removed target's patched code (best match first):`,
+        ...f.candidates.map((c) => `#   ${c}`),
+      );
     }
   }
   return out.join('\n') + (out.length ? '\n' : '');
@@ -116,7 +119,9 @@ export async function findFilesMentioning(dir: string, symbols: string[], limit 
 }
 
 const KEYWORDS = new Set(
-  'this that from with true false null undefined const function return export import default async await else case break continue throw catch finally typeof instanceof void delete while switch class extends super static yield require module exports Object Array String Number Boolean Promise prototype length push call apply bind then value'.split(' '),
+  'this that from with true false null undefined const function return export import default async await else case break continue throw catch finally typeof instanceof void delete while switch class extends super static yield require module exports Object Array String Number Boolean Promise prototype length push call apply bind then value'.split(
+    ' ',
+  ),
 );
 
 /**

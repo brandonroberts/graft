@@ -462,6 +462,8 @@ Requires Node 22.22+, 24.15+, or 26+ and pnpm 10. All Graft packages are ESM onl
 pnpm install
 pnpm build      # tsc -b across the workspace
 pnpm test       # vitest
+pnpm lint       # oxlint
+pnpm format     # oxfmt (pnpm format:check in CI)
 pnpm graft status
 ```
 

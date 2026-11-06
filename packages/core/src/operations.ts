@@ -6,7 +6,16 @@ import { GRAFT_STATUSES, GraftDocumentEditor, type GraftStatus } from '@graftsyn
 import { GraftError } from './errors.js';
 import type { Project } from './project.js';
 import { reinstall } from './install.js';
-import type { GraftUpdate, InstalledApplyReport, AnchorReport, ApplyOptions, ApplyResult, Graft, ScopedDiff, VariantInput } from './types.js';
+import type {
+  GraftUpdate,
+  InstalledApplyReport,
+  AnchorReport,
+  ApplyOptions,
+  ApplyResult,
+  Graft,
+  ScopedDiff,
+  VariantInput,
+} from './types.js';
 
 /** Resolve a version argument, defaulting to the installed version of the graft's rootstock. */
 export async function resolveVersion(project: Project, graft: Graft, version?: string): Promise<string> {
@@ -16,10 +25,7 @@ export async function resolveVersion(project: Project, graft: Graft, version?: s
   }
   const installed = await project.currentVersion(graft);
   if (!installed) {
-    throw new GraftError(
-      `${graft.frontmatter.rootstock.package} is not installed; pass an explicit version`,
-      'upstream/not-installed',
-    );
+    throw new GraftError(`${graft.frontmatter.rootstock.package} is not installed; pass an explicit version`, 'upstream/not-installed');
   }
   return installed;
 }
@@ -197,7 +203,8 @@ export function summarizeMisses(report: AnchorReport, maxFiles = 10): string {
     return `${file} ${names}${why ? ` (${why})` : ''}`;
   });
   const parts = [...report.errors];
-  if (missed.length === 1) parts.push(`anchor "${missed[0]!.name}" missed in ${missed[0]!.file}${missed[0]!.error ? ` (${missed[0]!.error})` : ''}`);
+  if (missed.length === 1)
+    parts.push(`anchor "${missed[0]!.name}" missed in ${missed[0]!.file}${missed[0]!.error ? ` (${missed[0]!.error})` : ''}`);
   else if (missed.length) {
     const shown = files.slice(0, maxFiles).join('; ');
     const more = files.length > maxFiles ? `; and ${files.length - maxFiles} more file(s)` : '';
@@ -271,7 +278,8 @@ export async function applyToProject(project: Project, options: { ids?: string[]
   const { grafts } = await project.loadAll();
   const result: ApplyToProjectResult = { configured: [], anchors: [], errors: [] };
   const selected = grafts.filter(
-    (g) => (g.frontmatter.status === 'applied' || g.frontmatter.status === 'conflicted') && (!options.ids?.length || options.ids.includes(g.id)),
+    (g) =>
+      (g.frontmatter.status === 'applied' || g.frontmatter.status === 'conflicted') && (!options.ids?.length || options.ids.includes(g.id)),
   );
   for (const graft of selected) {
     const pkg = graft.frontmatter.rootstock.package;
@@ -297,7 +305,10 @@ export async function applyToProject(project: Project, options: { ids?: string[]
  * Apply every active graft directly to the installed packages (Graft's built-in applier, run
  * from postinstall). Offline and idempotent; returns per-graft reports.
  */
-export async function applyInstalled(project: Project, options: { ids?: string[] } = {}): Promise<{ reports: InstalledApplyReport[]; ok: boolean }> {
+export async function applyInstalled(
+  project: Project,
+  options: { ids?: string[] } = {},
+): Promise<{ reports: InstalledApplyReport[]; ok: boolean }> {
   const { grafts, invalid } = await project.loadAll();
   const reports: InstalledApplyReport[] = invalid.map((g) => ({
     graft: g.id,
@@ -314,7 +325,13 @@ export async function applyInstalled(project: Project, options: { ids?: string[]
     try {
       reports.push(await adapter.applyInstalled(project.context(graft)));
     } catch (err) {
-      reports.push({ graft: graft.id, package: graft.frontmatter.rootstock.package, copies: [], errors: [(err as Error).message], warnings: [] });
+      reports.push({
+        graft: graft.id,
+        package: graft.frontmatter.rootstock.package,
+        copies: [],
+        errors: [(err as Error).message],
+        warnings: [],
+      });
     }
   }
   return { reports, ok: reports.every((r) => r.errors.length === 0) };
@@ -343,7 +360,8 @@ export interface CaptureResult {
 export async function captureVariant(project: Project, id: string, options: { version?: string } = {}): Promise<CaptureResult> {
   const graft = await project.get(id);
   const adapter = project.adapterFor(graft);
-  if (!adapter.capture) throw new GraftError(`mechanism "${adapter.name}" can't capture a variant from an installed copy`, 'capture/unsupported');
+  if (!adapter.capture)
+    throw new GraftError(`mechanism "${adapter.name}" can't capture a variant from an installed copy`, 'capture/unsupported');
   const version = await resolveVersion(project, graft, options.version);
   const content = await adapter.capture(project.context(graft), version);
   const fm = graft.frontmatter;
@@ -369,7 +387,9 @@ export async function captureVariant(project: Project, id: string, options: { ve
     await writeFile(selected.path, content);
     try {
       const apply = await verify();
-      await updateGraft(project, id, { history: `Captured ${selected.module} from the installed ${fm.rootstock.package}@${version} with \`graft capture\`.` });
+      await updateGraft(project, id, {
+        history: `Captured ${selected.module} from the installed ${fm.rootstock.package}@${version} with \`graft capture\`.`,
+      });
       return { graft: id, version, module: selected.module, replacedStub: true, apply };
     } catch (err) {
       await writeFile(selected.path, current);
@@ -382,12 +402,19 @@ export async function captureVariant(project: Project, id: string, options: { ve
   let rel = `variants/v${version}${ext}`;
   for (let n = 2; existsSync(path.join(graft.dir, rel)); n++) rel = `variants/v${version}-${n}${ext}`;
   const module = `./${rel}`;
-  const range = semver.prerelease(version) ? `>=${semver.major(version)}.${semver.minor(version)}.${semver.patch(version)}-0` : `>=${version}`;
+  const range = semver.prerelease(version)
+    ? `>=${semver.major(version)}.${semver.minor(version)}.${semver.patch(version)}-0`
+    : `>=${version}`;
   await mkdir(path.dirname(path.join(graft.dir, rel)), { recursive: true });
   await writeFile(path.join(graft.dir, rel), content);
   const original = await readFile(graft.file, 'utf8');
   try {
-    await recordVariant(project, id, { range, module }, { note: `Captured from the installed ${fm.rootstock.package}@${version} with \`graft capture\`.` });
+    await recordVariant(
+      project,
+      id,
+      { range, module },
+      { note: `Captured from the installed ${fm.rootstock.package}@${version} with \`graft capture\`.` },
+    );
     const apply = await verify();
     return { graft: id, version, module, replacedStub: false, range, apply };
   } catch (err) {

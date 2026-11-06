@@ -114,8 +114,8 @@ export function parseGraft(text: string, options: ParseOptions = {}): ParseResul
       code: 'frontmatter/oracle-ignored',
       path: 'oracle',
       message:
-        '`oracle` is no longer used: Graft runs no runtime check, and verifying behavior is the agent\'s job. ' +
-        'Move the check into the project\'s tests (and say how to run it under Invariants), then remove the block.',
+        "`oracle` is no longer used: Graft runs no runtime check, and verifying behavior is the agent's job. " +
+        "Move the check into the project's tests (and say how to run it under Invariants), then remove the block.",
     });
   }
 

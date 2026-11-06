@@ -319,8 +319,11 @@ pnpm build                                   # tsc -b
 pnpm test                                    # vitest (unit, CLI, Action with real git, yarn/PnP fixtures)
 node packages/cli/dist/bin.js check          # the dogfood grafts must be applied
 node packages/cli/dist/bin.js sync --quiet   # and green
+pnpm test:grafts                             # and still behave like the pristine packages
+pnpm lint                                    # oxlint, warnings fail
+pnpm format:check                            # oxfmt; `pnpm format` rewrites
 ```
 
-- **CI** (`.github/workflows/ci.yml`) runs exactly that on Node 22, 24 and 26 for every push and PR.
+- **CI** (`.github/workflows/ci.yml`) runs the build, tests and graft checks on Node 22, 24 and 26 for every push and PR, and lint and format once on Node 24.
 - **Releases** use Changesets; all `@graftsync/*` packages share one version. Add a changeset, version (`pnpm version-packages`, or let the Release workflow open a "Version packages" PR), then run **Release** manually: it publishes (npm stages new publishes for a few minutes), then tags `v<version>` and creates the GitHub release from the CLI changelog. Re-running Release backfills a missing tag. See the README's *Releasing* section.
 - **Dogfood:** `pnpm install` applies the dogfood patches through pnpm. Don't edit a variant by hand; regenerate with the generator, or add a new variant with `graft variant add`.

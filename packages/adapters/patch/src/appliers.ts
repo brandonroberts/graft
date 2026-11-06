@@ -42,7 +42,13 @@ export interface PatchApplier {
    * Wire the package manager to apply `variantPath` to `pkg@version` on the next install.
    * `install: 'reinstall'` means a targeted `add pkg@version` would undo the wiring.
    */
-  configure(root: string, pkg: string, version: string, variantPath: string, ctx?: ApplierContext): Promise<{ files: string[]; install?: 'reinstall' }>;
+  configure(
+    root: string,
+    pkg: string,
+    version: string,
+    variantPath: string,
+    ctx?: ApplierContext,
+  ): Promise<{ files: string[]; install?: 'reinstall' }>;
 }
 
 /** Pick the applier: explicit config wins, then the project's package manager. */
@@ -50,9 +56,11 @@ export function selectApplier(root: string, configured?: string): PatchApplier {
   const pm = detectPackageManager(root);
   // npm 12+ patches natively; older npm silently ignores patchedDependencies, so it gets the built-in applier.
   const npmDefault = pm === 'npm' && (npmMajor(root) ?? 0) >= NPM_NATIVE_PATCH_MAJOR ? 'npm' : 'graft';
-  const name = (configured ?? { pnpm: 'pnpm', npm: npmDefault, bun: 'bun', yarn: 'graft', 'yarn-berry': 'yarn', upm: 'vendor' }[pm]) as ApplierName;
+  const name = (configured ??
+    { pnpm: 'pnpm', npm: npmDefault, bun: 'bun', yarn: 'graft', 'yarn-berry': 'yarn', upm: 'vendor' }[pm]) as ApplierName;
   const applier = APPLIERS[name];
-  if (!applier) throw new Error(`unknown patch applier "${configured}" (expected pnpm | npm | bun | yarn | graft | patch-package | vendor)`);
+  if (!applier)
+    throw new Error(`unknown patch applier "${configured}" (expected pnpm | npm | bun | yarn | graft | patch-package | vendor)`);
   return applier;
 }
 
@@ -65,7 +73,10 @@ export function manifestRoot(from: string): string {
   let found: string | undefined;
   for (;;) {
     if (existsSync(path.join(dir, 'package.json'))) found ??= dir;
-    if (['bun.lock', 'bun.lockb', 'package-lock.json', 'yarn.lock', 'upm.lock', 'pnpm-lock.yaml'].some((f) => existsSync(path.join(dir, f)))) return dir;
+    if (
+      ['bun.lock', 'bun.lockb', 'package-lock.json', 'yarn.lock', 'upm.lock', 'pnpm-lock.yaml'].some((f) => existsSync(path.join(dir, f)))
+    )
+      return dir;
     const parent = path.dirname(dir);
     if (parent === dir) return found ?? path.resolve(from);
     dir = parent;
@@ -108,7 +119,9 @@ export function npmMajor(root: string): number | undefined {
   if (npmVersionCache.has(installRoot)) return npmVersionCache.get(installRoot);
   let version: string | undefined;
   try {
-    const declared = /^npm@(\d+)/.exec(String(JSON.parse(readFileSync(path.join(installRoot, 'package.json'), 'utf8')).packageManager ?? ''));
+    const declared = /^npm@(\d+)/.exec(
+      String(JSON.parse(readFileSync(path.join(installRoot, 'package.json'), 'utf8')).packageManager ?? ''),
+    );
     version = declared?.[1];
   } catch {
     // no readable manifest
@@ -134,26 +147,33 @@ export const npmApplier: PatchApplier = {
     const problems: string[] = [];
     const major = npmMajor(root);
     if (major === undefined || major < NPM_NATIVE_PATCH_MAJOR) {
-      problems.push(`npm ${major ?? '(not found)'} ignores patchedDependencies silently; native npm patches need npm >= ${NPM_NATIVE_PATCH_MAJOR} (use the "graft" or "vendor" applier otherwise)`);
+      problems.push(
+        `npm ${major ?? '(not found)'} ignores patchedDependencies silently; native npm patches need npm >= ${NPM_NATIVE_PATCH_MAJOR} (use the "graft" or "vendor" applier otherwise)`,
+      );
     }
     const { json } = await readManifest(installRoot);
     const entries = Object.entries((json.patchedDependencies ?? {}) as Record<string, string>).filter(([k]) => keyIsFor(k, pkg));
     const expected = posix(path.relative(installRoot, variantPath));
-    if (!entries.some(([k]) => k === pkg)) problems.push(`package.json patchedDependencies has no "${pkg}" entry (expected "${pkg}": "${expected}")`);
+    if (!entries.some(([k]) => k === pkg))
+      problems.push(`package.json patchedDependencies has no "${pkg}" entry (expected "${pkg}": "${expected}")`);
     for (const [k, p] of entries) {
-      if (k !== pkg) problems.push(`package.json patchedDependencies["${k}"] is version-specific; graft manages ${pkg} with a name-only key`);
-      else if (path.resolve(installRoot, p) !== path.resolve(variantPath)) problems.push(`package.json patchedDependencies["${pkg}"] points to ${p}, but the selected variant is ${expected}`);
+      if (k !== pkg)
+        problems.push(`package.json patchedDependencies["${k}"] is version-specific; graft manages ${pkg} with a name-only key`);
+      else if (path.resolve(installRoot, p) !== path.resolve(variantPath))
+        problems.push(`package.json patchedDependencies["${pkg}"] points to ${p}, but the selected variant is ${expected}`);
     }
     return problems;
   },
   async configure(root, pkg, _version, variantPath) {
     const major = npmMajor(root);
     if (major === undefined || major < NPM_NATIVE_PATCH_MAJOR) {
-      throw new Error(`npm ${major ?? '(not found)'} ignores patchedDependencies silently; the "npm" applier needs npm >= ${NPM_NATIVE_PATCH_MAJOR}`);
+      throw new Error(
+        `npm ${major ?? '(not found)'} ignores patchedDependencies silently; the "npm" applier needs npm >= ${NPM_NATIVE_PATCH_MAJOR}`,
+      );
     }
     const installRoot = manifestRoot(root);
     const m = await readManifest(installRoot);
-    const patched = ((m.json.patchedDependencies ??= {}) as Record<string, string>);
+    const patched = (m.json.patchedDependencies ??= {}) as Record<string, string>;
     for (const k of Object.keys(patched)) if (keyIsFor(k, pkg)) delete patched[k];
     patched[pkg] = posix(path.relative(installRoot, variantPath));
     await writeManifest(m);
@@ -171,18 +191,22 @@ export const bunApplier: PatchApplier = {
     const expectedPath = posix(path.relative(installRoot, variantPath));
     const problems: string[] = [];
     if (!entries.some(([k]) => k === expectedKey)) {
-      problems.push(`package.json patchedDependencies has no "${expectedKey}" entry (expected "${expectedKey}": "${expectedPath}"); bun ignores keys for other versions and name-only keys`);
+      problems.push(
+        `package.json patchedDependencies has no "${expectedKey}" entry (expected "${expectedKey}": "${expectedPath}"); bun ignores keys for other versions and name-only keys`,
+      );
     }
     for (const [k, p] of entries) {
-      if (k !== expectedKey) problems.push(`package.json patchedDependencies["${k}"] does not match the installed ${pkg}@${version}; bun silently skips it`);
-      else if (path.resolve(installRoot, p) !== path.resolve(variantPath)) problems.push(`package.json patchedDependencies["${k}"] points to ${p}, but the selected variant is ${expectedPath}`);
+      if (k !== expectedKey)
+        problems.push(`package.json patchedDependencies["${k}"] does not match the installed ${pkg}@${version}; bun silently skips it`);
+      else if (path.resolve(installRoot, p) !== path.resolve(variantPath))
+        problems.push(`package.json patchedDependencies["${k}"] points to ${p}, but the selected variant is ${expectedPath}`);
     }
     return problems;
   },
   async configure(root, pkg, version, variantPath) {
     const installRoot = manifestRoot(root);
     const m = await readManifest(installRoot);
-    const patched = ((m.json.patchedDependencies ??= {}) as Record<string, string>);
+    const patched = (m.json.patchedDependencies ??= {}) as Record<string, string>;
     for (const k of Object.keys(patched)) if (keyIsFor(k, pkg)) delete patched[k];
     patched[`${pkg}@${version}`] = posix(path.relative(installRoot, variantPath));
     await writeManifest(m);
@@ -239,14 +263,19 @@ export const yarnApplier: PatchApplier = {
     const { json } = await readManifest(installRoot);
     const resolutions = (json.resolutions ?? {}) as Record<string, string>;
     const expected = yarnPatchSpec(pkg, version, posix(path.relative(installRoot, variantPath)));
-    if (resolutions[pkg] !== expected) problems.push(`package.json resolutions["${pkg}"] must be "${expected}"${resolutions[pkg] ? ` (is "${resolutions[pkg]}")` : ''}`);
+    if (resolutions[pkg] !== expected)
+      problems.push(`package.json resolutions["${pkg}"] must be "${expected}"${resolutions[pkg] ? ` (is "${resolutions[pkg]}")` : ''}`);
     for (const k of otherResolutionKeys(resolutions, pkg)) {
-      problems.push(`package.json resolutions["${k}"] also resolves ${pkg} and can select an unpatched copy; graft manages ${pkg} with the name-only resolution — remove it`);
+      problems.push(
+        `package.json resolutions["${k}"] also resolves ${pkg} and can select an unpatched copy; graft manages ${pkg} with the name-only resolution — remove it`,
+      );
     }
     for (const field of DEP_FIELDS) {
       const declared = json[field]?.[pkg];
       if (typeof declared === 'string' && declared.startsWith('patch:')) {
-        problems.push(`package.json ${field}["${pkg}"] is a patch: descriptor ("${declared}"); graft patches ${pkg} through resolutions — set it to "${version}"`);
+        problems.push(
+          `package.json ${field}["${pkg}"] is a patch: descriptor ("${declared}"); graft patches ${pkg} through resolutions — set it to "${version}"`,
+        );
       }
     }
     return problems;
@@ -254,10 +283,12 @@ export const yarnApplier: PatchApplier = {
   async configure(root, pkg, version, variantPath) {
     const installRoot = manifestRoot(root);
     if (detectPackageManager(installRoot) !== 'yarn-berry') {
-      throw new Error('the "yarn" applier needs yarn 2+ (berry); yarn classic has no patch: protocol (use the "graft" or "vendor" applier)');
+      throw new Error(
+        'the "yarn" applier needs yarn 2+ (berry); yarn classic has no patch: protocol (use the "graft" or "vendor" applier)',
+      );
     }
     const m = await readManifest(installRoot);
-    const resolutions = ((m.json.resolutions ??= {}) as Record<string, string>);
+    const resolutions = (m.json.resolutions ??= {}) as Record<string, string>;
     for (const k of Object.keys(resolutions)) if (k !== pkg && keyIsFor(k, pkg)) delete resolutions[k];
     resolutions[pkg] = yarnPatchSpec(pkg, version, posix(path.relative(installRoot, variantPath)));
     for (const field of DEP_FIELDS) {
@@ -302,10 +333,19 @@ export const patchPackageApplier: PatchApplier = {
     const refusal = pnpRefusal(installRoot, 'patch-package');
     if (refusal) problems.push(refusal);
     const postinstall: string = json.scripts?.postinstall ?? '';
-    const ours = postinstall.split(/&&|;/).map((s) => s.trim()).find((s) => /\bpatch-package\b/.test(s) && s.includes(PATCH_PACKAGE_DIR));
+    const ours = postinstall
+      .split(/&&|;/)
+      .map((s) => s.trim())
+      .find((s) => /\bpatch-package\b/.test(s) && s.includes(PATCH_PACKAGE_DIR));
     if (!ours) problems.push(`package.json scripts.postinstall must run \`${patchPackageCommand(PATCH_PACKAGE_DIR)}\``);
-    else for (const flag of PATCH_PACKAGE_FLAGS) if (!ours.includes(flag)) problems.push(`postinstall's patch-package call must pass ${flag}; without it a failed patch exits 0 and installs the package unmodified`);
-    if (!json.devDependencies?.['patch-package'] && !json.dependencies?.['patch-package']) problems.push('patch-package must be a devDependency');
+    else
+      for (const flag of PATCH_PACKAGE_FLAGS)
+        if (!ours.includes(flag))
+          problems.push(
+            `postinstall's patch-package call must pass ${flag}; without it a failed patch exits 0 and installs the package unmodified`,
+          );
+    if (!json.devDependencies?.['patch-package'] && !json.dependencies?.['patch-package'])
+      problems.push('patch-package must be a devDependency');
 
     const expectedFile = path.join(dir, patchPackageFileName(pkg, version));
     const prefix = patchPackageFileName(pkg, '').replace(/\.patch$/, '');
@@ -313,9 +353,12 @@ export const patchPackageApplier: PatchApplier = {
     if (!existsSync(expectedFile)) {
       problems.push(`${posix(path.relative(installRoot, expectedFile))} is missing; run \`graft apply\``);
     } else if ((await readFile(expectedFile, 'utf8')) !== toPatchPackageFormat(await readFile(variantPath, 'utf8'), pkg)) {
-      problems.push(`${posix(path.relative(installRoot, expectedFile))} is stale (it no longer matches ${posix(path.relative(installRoot, variantPath))}); run \`graft apply\``);
+      problems.push(
+        `${posix(path.relative(installRoot, expectedFile))} is stale (it no longer matches ${posix(path.relative(installRoot, variantPath))}); run \`graft apply\``,
+      );
     }
-    for (const f of ownFiles.filter((f) => f !== path.basename(expectedFile))) problems.push(`${PATCH_PACKAGE_DIR}/${f} is for another version of ${pkg}; remove it`);
+    for (const f of ownFiles.filter((f) => f !== path.basename(expectedFile)))
+      problems.push(`${PATCH_PACKAGE_DIR}/${f} is for another version of ${pkg}; remove it`);
     // A plain `patch-package` call (default patches/ dir) patching the same package would compete.
     const defaultDir = path.join(installRoot, 'patches');
     if (/\bpatch-package\b(?![^&;]*--patch-dir)/.test(postinstall) && existsSync(defaultDir)) {
@@ -337,9 +380,12 @@ export const patchPackageApplier: PatchApplier = {
     await writeFile(file, toPatchPackageFormat(await readFile(variantPath, 'utf8'), pkg));
 
     const m = await readManifest(installRoot);
-    const scripts = ((m.json.scripts ??= {}) as Record<string, string>);
+    const scripts = (m.json.scripts ??= {}) as Record<string, string>;
     const command = patchPackageCommand(PATCH_PACKAGE_DIR);
-    const parts = (scripts.postinstall ?? '').split('&&').map((s) => s.trim()).filter(Boolean);
+    const parts = (scripts.postinstall ?? '')
+      .split('&&')
+      .map((s) => s.trim())
+      .filter(Boolean);
     const i = parts.findIndex((p) => /\bpatch-package\b/.test(p) && p.includes(PATCH_PACKAGE_DIR));
     if (i === -1) parts.push(command);
     else parts[i] = command;
@@ -352,7 +398,8 @@ export const patchPackageApplier: PatchApplier = {
 export const GRAFT_POSTINSTALL = 'graft apply --installed';
 
 /** Is our postinstall step present? */
-const hasGraftPostinstall = (postinstall: string) => postinstall.split(/&&|;/).some((s) => s.trim() === GRAFT_POSTINSTALL || /\bgraft apply --installed\b/.test(s));
+const hasGraftPostinstall = (postinstall: string) =>
+  postinstall.split(/&&|;/).some((s) => s.trim() === GRAFT_POSTINSTALL || /\bgraft apply --installed\b/.test(s));
 
 export const graftApplier: PatchApplier = {
   name: 'graft',
@@ -363,8 +410,10 @@ export const graftApplier: PatchApplier = {
     const refusal = pnpRefusal(installRoot, 'graft');
     if (refusal) problems.push(refusal);
     const postinstall: string = json.scripts?.postinstall ?? '';
-    if (!hasGraftPostinstall(postinstall)) problems.push(`package.json scripts.postinstall must run \`${GRAFT_POSTINSTALL}\` (Graft's built-in applier)`);
-    if (!json.devDependencies?.['@graftsync/cli'] && !json.dependencies?.['@graftsync/cli']) problems.push('@graftsync/cli must be a (dev)dependency so postinstall can run `graft`');
+    if (!hasGraftPostinstall(postinstall))
+      problems.push(`package.json scripts.postinstall must run \`${GRAFT_POSTINSTALL}\` (Graft's built-in applier)`);
+    if (!json.devDependencies?.['@graftsync/cli'] && !json.dependencies?.['@graftsync/cli'])
+      problems.push('@graftsync/cli must be a (dev)dependency so postinstall can run `graft`');
     // Competing appliers for the same package would double-apply or fail.
     const prefix = patchPackageFileName(pkg, '').replace(/\.patch$/, '');
     for (const dir of [PATCH_PACKAGE_DIR, 'patches']) {
@@ -386,9 +435,10 @@ export const graftApplier: PatchApplier = {
     // Remove graft-owned patch-package artifacts for this package (switching appliers).
     const dir = path.join(installRoot, PATCH_PACKAGE_DIR);
     const prefix = patchPackageFileName(pkg, '').replace(/\.patch$/, '');
-    if (existsSync(dir)) for (const f of await readdir(dir)) if (f.startsWith(prefix) && /^\d/.test(f.slice(prefix.length))) await rm(path.join(dir, f));
+    if (existsSync(dir))
+      for (const f of await readdir(dir)) if (f.startsWith(prefix) && /^\d/.test(f.slice(prefix.length))) await rm(path.join(dir, f));
     const m = await readManifest(installRoot);
-    const scripts = ((m.json.scripts ??= {}) as Record<string, string>);
+    const scripts = (m.json.scripts ??= {}) as Record<string, string>;
     const parts = (scripts.postinstall ?? '')
       .split('&&')
       .map((x) => x.trim())
@@ -404,13 +454,27 @@ export const graftApplier: PatchApplier = {
 
 export const vendorApplier: PatchApplier = {
   name: 'vendor',
-  problems: (root, pkg, version, variantPath, ctx) => vendorProblems({ upstream: ctx?.upstream, graftRoot: root, installRoot: manifestRoot(root) }, pkg, version, variantPath),
+  problems: (root, pkg, version, variantPath, ctx) =>
+    vendorProblems({ upstream: ctx?.upstream, graftRoot: root, installRoot: manifestRoot(root) }, pkg, version, variantPath),
   async configure(root, pkg, version, variantPath, ctx) {
-    const r = await vendorConfigure({ upstream: ctx?.upstream, graftRoot: root, installRoot: manifestRoot(root) }, pkg, version, variantPath);
+    const r = await vendorConfigure(
+      { upstream: ctx?.upstream, graftRoot: root, installRoot: manifestRoot(root) },
+      pkg,
+      version,
+      variantPath,
+    );
     return { ...r, install: 'reinstall' };
   },
 };
 
-const APPLIERS: Record<ApplierName, PatchApplier> = { pnpm: pnpmApplier, npm: npmApplier, bun: bunApplier, yarn: yarnApplier, graft: graftApplier, 'patch-package': patchPackageApplier, vendor: vendorApplier };
+const APPLIERS: Record<ApplierName, PatchApplier> = {
+  pnpm: pnpmApplier,
+  npm: npmApplier,
+  bun: bunApplier,
+  yarn: yarnApplier,
+  graft: graftApplier,
+  'patch-package': patchPackageApplier,
+  vendor: vendorApplier,
+};
 
 export { findPnpmWorkspaceRoot };

@@ -3,7 +3,15 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { detectPackageManager } from '@graftsync/core';
-import { bunApplier, npmApplier, patchPackageApplier, patchPackageFileName, pnpmApplier, selectApplier, toPatchPackageFormat } from '../src/index.js';
+import {
+  bunApplier,
+  npmApplier,
+  patchPackageApplier,
+  patchPackageFileName,
+  pnpmApplier,
+  selectApplier,
+  toPatchPackageFormat,
+} from '../src/index.js';
 
 const VARIANT = 'diff --git a/index.js b/index.js\nindex 111..222 100644\n--- a/index.js\n+++ b/index.js\n@@ -1,2 +1,3 @@\n a\n+b\n c\n';
 
@@ -83,7 +91,10 @@ describe('patch-package applier', () => {
   });
 
   it('writes the derived patch and a strict postinstall, and detects drift', async () => {
-    const p = await project({ name: 'app', scripts: { postinstall: 'node setup.js && patch-package' }, devDependencies: { 'patch-package': '8.0.1' } }, 'package-lock.json');
+    const p = await project(
+      { name: 'app', scripts: { postinstall: 'node setup.js && patch-package' }, devDependencies: { 'patch-package': '8.0.1' } },
+      'package-lock.json',
+    );
     await mkdir(path.join(p.root, 'patches'));
     await writeFile(path.join(p.root, 'patches/lib+1.0.0.patch'), 'x');
     const before = (await patchPackageApplier.problems(p.root, 'lib', '1.2.0', p.variant)).join('\n');
@@ -92,7 +103,9 @@ describe('patch-package applier', () => {
     expect(before).toMatch(/patches\/lib\+1\.0\.0\.patch also patches lib/);
 
     await patchPackageApplier.configure(p.root, 'lib', '1.2.0', p.variant);
-    expect((await p.manifest()).scripts.postinstall).toBe('node setup.js && patch-package && patch-package --patch-dir .grafts/.patch-package --error-on-fail --error-on-warn');
+    expect((await p.manifest()).scripts.postinstall).toBe(
+      'node setup.js && patch-package && patch-package --patch-dir .grafts/.patch-package --error-on-fail --error-on-warn',
+    );
     expect(await readFile(path.join(p.root, '.grafts/.patch-package/lib+1.2.0.patch'), 'utf8')).toBe(toPatchPackageFormat(VARIANT, 'lib'));
 
     // Upgrading renames the derived file; editing the variant makes it stale.
@@ -104,7 +117,14 @@ describe('patch-package applier', () => {
   });
 
   it('requires the strict flags, because plain patch-package exits 0 on a failed patch', async () => {
-    const p = await project({ name: 'app', scripts: { postinstall: 'patch-package --patch-dir .grafts/.patch-package' }, devDependencies: { 'patch-package': '8.0.1' } }, 'package-lock.json');
+    const p = await project(
+      {
+        name: 'app',
+        scripts: { postinstall: 'patch-package --patch-dir .grafts/.patch-package' },
+        devDependencies: { 'patch-package': '8.0.1' },
+      },
+      'package-lock.json',
+    );
     const problems = (await patchPackageApplier.problems(p.root, 'lib', '1.0.0', p.variant)).join('\n');
     expect(problems).toMatch(/must pass --error-on-fail/);
     expect(problems).toMatch(/must pass --error-on-warn/);
@@ -118,7 +138,10 @@ describe('npm applier (npm >= 12 native patches)', () => {
   });
 
   it('uses a name-only key and flags version-specific ones', async () => {
-    const p = await project({ name: 'app', packageManager: 'npm@12.2.1', patchedDependencies: { 'lib@1.0.0': 'patches/lib@1.0.0.patch' } }, 'package-lock.json');
+    const p = await project(
+      { name: 'app', packageManager: 'npm@12.2.1', patchedDependencies: { 'lib@1.0.0': 'patches/lib@1.0.0.patch' } },
+      'package-lock.json',
+    );
     expect((await npmApplier.problems(p.root, 'lib', '1.0.0', p.variant)).join('\n')).toMatch(/\["lib@1\.0\.0"\] is version-specific/);
     await npmApplier.configure(p.root, 'lib', '1.0.0', p.variant);
     expect((await p.manifest()).patchedDependencies).toEqual({ lib: '.grafts/g/variants/v1.patch' });
@@ -127,7 +150,9 @@ describe('npm applier (npm >= 12 native patches)', () => {
 
   it('refuses npm < 12, which ignores patchedDependencies silently', async () => {
     const p = await project({ name: 'app', packageManager: 'npm@10.9.9' }, 'package-lock.json');
-    expect((await npmApplier.problems(p.root, 'lib', '1.0.0', p.variant)).join('\n')).toMatch(/npm 10 ignores patchedDependencies silently/);
+    expect((await npmApplier.problems(p.root, 'lib', '1.0.0', p.variant)).join('\n')).toMatch(
+      /npm 10 ignores patchedDependencies silently/,
+    );
     await expect(npmApplier.configure(p.root, 'lib', '1.0.0', p.variant)).rejects.toThrow(/needs npm >= 12/);
   });
 });

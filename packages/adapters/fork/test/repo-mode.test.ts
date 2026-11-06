@@ -11,7 +11,11 @@ import { addGraft, outdated, Project, sync } from '@graftsync/core';
 import { forkAdapter, resetFetchCache } from '../src/index.js';
 
 const gitIn = (cwd: string, ...args: string[]) =>
-  execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'init.defaultBranch=main', ...args], { cwd, encoding: 'utf8', stdio: 'pipe' });
+  execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'init.defaultBranch=main', ...args], {
+    cwd,
+    encoding: 'utf8',
+    stdio: 'pipe',
+  });
 
 const GUIDE = `# Guide
 
@@ -53,8 +57,17 @@ async function setup(opts: { inPlace?: boolean; track?: string } = {}) {
   const fork = path.join(root, 'fork');
   gitIn(root, 'clone', '-q', upstream, fork);
   gitIn(fork, 'checkout', '-q', '-b', 'turkish-doc', base);
-  await writeFile(path.join(fork, 'content/guide.md'), GUIDE.replace('Components are the building blocks of the app.', 'Bileşenler uygulamanın yapı taşlarıdır.').replace('Templates bind data to the view.', 'Şablonlar veriyi görünüme bağlar.'));
-  await writeFile(path.join(fork, 'content/deploy.md'), OTHER.replace('Build the app before you deploy it.', 'Yayınlamadan önce uygulamayı derleyin.'));
+  await writeFile(
+    path.join(fork, 'content/guide.md'),
+    GUIDE.replace('Components are the building blocks of the app.', 'Bileşenler uygulamanın yapı taşlarıdır.').replace(
+      'Templates bind data to the view.',
+      'Şablonlar veriyi görünüme bağlar.',
+    ),
+  );
+  await writeFile(
+    path.join(fork, 'content/deploy.md'),
+    OTHER.replace('Build the app before you deploy it.', 'Yayınlamadan önce uygulamayı derleyin.'),
+  );
   await writeFile(path.join(fork, 'logo.png'), LOGO_TR);
   await mkdir(path.join(fork, 'tools'));
   await writeFile(path.join(fork, 'tools/check.sh'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
@@ -62,7 +75,10 @@ async function setup(opts: { inPlace?: boolean; track?: string } = {}) {
   await mkdir(path.join(g, 'variants'), { recursive: true });
   await writeFile(path.join(fork, '.gitignore'), '.grafts/.cache/\n.grafts/.report/\n');
   // inPlace: one permanent variant, "this checkout vs. the upstream it last verified".
-  await writeFile(path.join(g, 'variants/v1.json'), JSON.stringify(opts.inPlace ? { ref: '@worktree', base: '@verified' } : { ref: 'turkish-doc', base }));
+  await writeFile(
+    path.join(g, 'variants/v1.json'),
+    JSON.stringify(opts.inPlace ? { ref: '@worktree', base: '@verified' } : { ref: 'turkish-doc', base }),
+  );
   const verified = opts.inPlace ? `1.0.0+${base.slice(0, 12)}` : '1.0.0';
   const forkCfg = { repo: '.', upstream: `file://${upstream}`, install: 'none', ...(opts.track ? { track: opts.track } : {}) };
   await writeFile(
@@ -74,8 +90,16 @@ async function setup(opts: { inPlace?: boolean; track?: string } = {}) {
 
   // Upstream releases after the fork's base.
   await commit({ 'README.md': 'upstream 1.0.1\n' }, 'readme only', 'v1.0.1');
-  await commit({ 'content/deploy.md': `${OTHER}\nThe new flag writes the output to a different folder.\n` }, 'english appended after untranslated context', 'v1.1.0');
-  await commit({ 'content/guide.md': GUIDE.replace('Templates bind data to the view.', 'Templates bind data and events to the view.') }, 'edit a translated sentence', 'v1.2.0');
+  await commit(
+    { 'content/deploy.md': `${OTHER}\nThe new flag writes the output to a different folder.\n` },
+    'english appended after untranslated context',
+    'v1.1.0',
+  );
+  await commit(
+    { 'content/guide.md': GUIDE.replace('Templates bind data to the view.', 'Templates bind data and events to the view.') },
+    'edit a translated sentence',
+    'v1.2.0',
+  );
 
   const project = await Project.open({ root: fork, adapters: [forkAdapter] });
   return { root, upstream, fork, base, project, graft: await project.get('tr') };
@@ -121,7 +145,9 @@ describe('fork repo mode (install: none)', () => {
     expect(gitIn(cache, 'ls-tree', '-r', '--name-only', branch)).not.toMatch(/\.grafts\/\.(cache|report)\//);
     expect(gitIn(cache, 'ls-tree', branch, 'tools/check.sh')).toMatch(/^100755 /); // executable bit carried over
     // Nothing but the fork's change and the new release differ from the fork itself.
-    expect(gitIn(cache, 'diff', '--name-only', branch, 'fork/turkish-doc', '--', '.', ':(exclude).grafts', ':(exclude).gitignore').trim()).toBe('README.md');
+    expect(
+      gitIn(cache, 'diff', '--name-only', branch, 'fork/turkish-doc', '--', '.', ':(exclude).grafts', ':(exclude).gitignore').trim(),
+    ).toBe('README.md');
 
     expect(await readFile(path.join(fork, '.grafts/tr/graft.md'), 'utf8')).toMatch(/verified: 1\.0\.1/);
     expect(await readFile(report.reportFiles!.markdown, 'utf8')).toContain('Materialized results');
@@ -180,7 +206,9 @@ describe('fork repo mode (install: none)', () => {
     expect(gitIn(cache, 'rev-parse', `${branch}^`).trim().startsWith(sha)).toBe(true);
     expect(gitIn(cache, 'show', `${branch}:README.md`)).toBe('upstream main after 1.0.1\n');
     expect(await readFile(path.join(fork, '.grafts/tr/graft.md'), 'utf8')).toContain(`verified: ${version}`);
-    expect((await sync(project, { version: '1.0.1+deadbeef00' })).grafts[0]?.reasons.join('\n')).toMatch(/upstream commit deadbeef00 .* not found/);
+    expect((await sync(project, { version: '1.0.1+deadbeef00' })).grafts[0]?.reasons.join('\n')).toMatch(
+      /upstream commit deadbeef00 .* not found/,
+    );
   });
 
   it('treats upstream lines added right against a change at the end of a file as a conflict (like git)', async () => {
@@ -191,7 +219,9 @@ describe('fork repo mode (install: none)', () => {
     gitIn(upstream, 'tag', 'v1.4.0');
     const r = await forkAdapter.checkAnchors(project.context(graft), '1.4.0');
     expect(r.ok).toBe(false);
-    expect(r.anchors.filter((a) => !a.matched)).toEqual([expect.objectContaining({ file: 'content/guide.md', error: 'upstream added lines right after the change' })]);
+    expect(r.anchors.filter((a) => !a.matched)).toEqual([
+      expect.objectContaining({ file: 'content/guide.md', error: 'upstream added lines right after the change' }),
+    ]);
   });
 
   it('a binary file changed upstream since the base does not carry over silently', async () => {
@@ -200,7 +230,10 @@ describe('fork repo mode (install: none)', () => {
     gitIn(upstream, 'commit', '-q', '-am', 'new logo');
     gitIn(upstream, 'tag', 'v1.3.0');
     const r = await forkAdapter.checkAnchors(project.context(graft), '1.3.0');
-    expect(r.anchors.find((a) => a.name === 'logo.png#binary')).toMatchObject({ matched: false, error: 'binary file changed upstream since the base' });
+    expect(r.anchors.find((a) => a.name === 'logo.png#binary')).toMatchObject({
+      matched: false,
+      error: 'binary file changed upstream since the base',
+    });
   });
 
   it('accepts a commit as base only in repo mode', async () => {
@@ -234,7 +267,9 @@ describe('fork repo mode, in place (@worktree / @verified)', () => {
     const v101 = gitIn(path.join(fork, '.grafts/.cache/fork/tr'), 'rev-parse', 'v1.0.1^{commit}').trim();
     // The result sits on upstream 1.0.1, and the report names that commit for the adoption.
     expect(report.grafts[0]?.materialized?.fetch).toEqual({ repo: '.grafts/.cache/fork/tr', ref: 'graft/tr/1.0.1', upstream: v101 });
-    expect(report.grafts[0]?.materialized?.description).toContain(`git merge --no-ff --no-commit -s ours --allow-unrelated-histories ${v101} && git read-tree -u --reset FETCH_HEAD`);
+    expect(report.grafts[0]?.materialized?.description).toContain(
+      `git merge --no-ff --no-commit -s ours --allow-unrelated-histories ${v101} && git read-tree -u --reset FETCH_HEAD`,
+    );
     // The checkout still is the fork at its old base, and says so.
     expect(await readFile(path.join(fork, '.grafts/tr/graft.md'), 'utf8')).toBe(before);
     const forkHead = gitIn(fork, 'rev-parse', 'HEAD').trim();
@@ -264,7 +299,9 @@ describe('fork repo mode, in place (@worktree / @verified)', () => {
     expect(report.exitCode).toBe(1);
     const v120 = gitIn(path.join(fork, '.grafts/.cache/fork/tr'), 'rev-parse', 'v1.2.0^{commit}').trim();
     expect(report.grafts[0]?.agentStart).toMatchObject({ ref: 'graft/tr/1.2.0-agent', conflicts: ['content/guide.md'], upstream: v120 });
-    expect(report.grafts[0]?.agentStart?.description).toContain(`--allow-unrelated-histories ${v120} && git read-tree -u --reset FETCH_HEAD`);
+    expect(report.grafts[0]?.agentStart?.description).toContain(
+      `--allow-unrelated-histories ${v120} && git read-tree -u --reset FETCH_HEAD`,
+    );
     const forkHead = gitIn(fork, 'rev-parse', 'HEAD').trim();
     adopt(fork, report.grafts[0]?.agentStart, { commit: false });
     const md = await readFile(path.join(fork, '.grafts/tr/graft.md'), 'utf8');
@@ -272,10 +309,16 @@ describe('fork repo mode, in place (@worktree / @verified)', () => {
     expect(md).toMatch(/status: conflicted/);
     // The "agent": resolve the markers by translating upstream's new sentence.
     const guide = await readFile(path.join(fork, 'content/guide.md'), 'utf8');
-    await writeFile(path.join(fork, 'content/guide.md'), guide.replace(/<<<<<<<[^]*?>>>>>>>[^\n]*\n/, 'Şablonlar veriyi ve olayları görünüme bağlar.\n'));
+    await writeFile(
+      path.join(fork, 'content/guide.md'),
+      guide.replace(/<<<<<<<[^]*?>>>>>>>[^\n]*\n/, 'Şablonlar veriyi ve olayları görünüme bağlar.\n'),
+    );
     // Upstream English that merged cleanly (from 1.1.0) is not a conflict; the agent translates it too.
     const deploy = await readFile(path.join(fork, 'content/deploy.md'), 'utf8');
-    await writeFile(path.join(fork, 'content/deploy.md'), deploy.replace('The new flag writes the output to a different folder.', 'Yeni bayrak çıktıyı farklı bir klasöre yazar.'));
+    await writeFile(
+      path.join(fork, 'content/deploy.md'),
+      deploy.replace('The new flag writes the output to a different folder.', 'Yeni bayrak çıktıyı farklı bir klasöre yazar.'),
+    );
     const fixed = await sync(await Project.open({ root: fork, adapters: [forkAdapter] }));
     expect(fixed.targets[0]?.version).toBe('1.2.0');
     expect(fixed.exitCode, JSON.stringify(fixed.grafts)).toBe(0);
@@ -314,7 +357,10 @@ describe('fork repo mode, in place (@worktree / @verified)', () => {
 
   it('outdated offers the newest upstream tag, or the tip of a tracked branch', async () => {
     const tags = await setup({ inPlace: true });
-    expect((await outdated(tags.project)).find((e) => e.standalone)).toMatchObject({ grafts: ['tr'], candidate: { version: '1.2.0', tag: 'v1.2.0' } });
+    expect((await outdated(tags.project)).find((e) => e.standalone)).toMatchObject({
+      grafts: ['tr'],
+      candidate: { version: '1.2.0', tag: 'v1.2.0' },
+    });
     const tracked = await setup({ inPlace: true, track: 'main' });
     const tip = gitIn(tracked.upstream, 'rev-parse', 'main').trim();
     expect((await outdated(tracked.project))[0]?.candidate).toEqual({ version: `1.2.0+${tip.slice(0, 12)}`, tag: 'branch main' });
@@ -336,7 +382,10 @@ describe('graft add for repo mode', () => {
     expect(md).toContain('install: none');
     expect(md).not.toContain('oracle');
     expect(md).toContain(`verified: ${version}`);
-    expect(JSON.parse(await readFile(path.join(fork, '.grafts/tr2/variants/v1.json'), 'utf8'))).toEqual({ ref: '@worktree', base: '@verified' });
+    expect(JSON.parse(await readFile(path.join(fork, '.grafts/tr2/variants/v1.json'), 'utf8'))).toEqual({
+      ref: '@worktree',
+      base: '@verified',
+    });
     const { invalid } = await project.loadAll();
     expect(invalid).toEqual([]);
 
@@ -347,7 +396,13 @@ describe('graft add for repo mode', () => {
   it('repo mode without in place keeps the fork and variant to fill in', async () => {
     const { fork } = await setup();
     const project = await Project.open({ root: fork, adapters: [forkAdapter] });
-    await addGraft(project, { id: 'other', package: 'tool', version: '2.0.0', mechanism: 'fork', options: { repoMode: true, upstream: 'https://example.com/tool.git', track: 'main' } });
+    await addGraft(project, {
+      id: 'other',
+      package: 'tool',
+      version: '2.0.0',
+      mechanism: 'fork',
+      options: { repoMode: true, upstream: 'https://example.com/tool.git', track: 'main' },
+    });
     const md = await readFile(path.join(fork, '.grafts/other/graft.md'), 'utf8');
     expect(md).toMatch(/repo: "?TODO/);
     expect(md).toContain('upstream: https://example.com/tool.git');

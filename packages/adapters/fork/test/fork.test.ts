@@ -10,7 +10,11 @@ import { forkAdapter, resetFetchCache } from '../src/index.js';
 
 const V1 = 'const a = 1\nconst b = 2\nmodule.exports = { a, b }\n';
 const gitIn = (cwd: string, ...args: string[]) =>
-  execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'init.defaultBranch=main', ...args], { cwd, encoding: 'utf8', stdio: 'pipe' });
+  execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'init.defaultBranch=main', ...args], {
+    cwd,
+    encoding: 'utf8',
+    stdio: 'pipe',
+  });
 
 /** Upstream repo with tags v1.0.0..v3.0.0 and a fork with the change on branch graft-1.x. */
 async function repos(opts: { forkChange?: (code: string) => string } = {}) {
@@ -45,12 +49,20 @@ async function setup(opts: { tag?: string; build?: string; ref?: string } = {}) 
   const g = path.join(app, '.grafts/add-c');
   await mkdir(path.join(g, 'variants'), { recursive: true });
   await writeFile(path.join(g, 'variants/v1.json'), JSON.stringify({ ref: opts.ref ?? 'graft-1.x', base: '1.0.0' }));
-  const fork = { repo: `file://${r.fork}`, upstream: `file://${r.upstream}`, tag: opts.tag ?? 'v{version}', ...(opts.build ? { build: opts.build } : {}) };
+  const fork = {
+    repo: `file://${r.fork}`,
+    upstream: `file://${r.upstream}`,
+    tag: opts.tag ?? 'v{version}',
+    ...(opts.build ? { build: opts.build } : {}),
+  };
   await writeFile(
     path.join(g, 'graft.md'),
     `---\nid: add-c\nrootstock: { package: lib, verified: 1.0.0 }\nmechanism: fork\nfork: ${JSON.stringify(fork)}\nvariants:\n  - range: ">=1.0.0"\n    module: ./variants/v1.json\n---\n## Why\nAdds c.\n## Invariants\n- c is 3\n## Where to look\nThe constants.\n## Anchors\nThe const block.\n## History\n- created\n`,
   );
-  await writeFile(path.join(app, 'package.json'), `${JSON.stringify({ name: 'app', packageManager: 'npm@10.9.9', dependencies: { lib: '1.0.0' } }, null, 2)}\n`);
+  await writeFile(
+    path.join(app, 'package.json'),
+    `${JSON.stringify({ name: 'app', packageManager: 'npm@10.9.9', dependencies: { lib: '1.0.0' } }, null, 2)}\n`,
+  );
   const installed = path.join(app, 'node_modules/lib');
   await mkdir(installed, { recursive: true });
   await writeFile(path.join(installed, 'package.json'), JSON.stringify({ name: 'lib', version: '1.0.0' }));
@@ -90,7 +102,9 @@ describe('fork mechanism: anchors against upstream source tags', () => {
     const badRef = await setup({ ref: 'nope' });
     expect((await forkAdapter.checkAnchors(badRef.project.context(badRef.graft), '1.1.0')).errors[0]).toMatch(/fork ref "nope" not found/);
     const empty = await setup({ ref: 'v1.0.0' });
-    expect((await forkAdapter.checkAnchors(empty.project.context(empty.graft), '1.1.0')).errors[0]).toMatch(/has no changes on top of v1\.0\.0/);
+    expect((await forkAdapter.checkAnchors(empty.project.context(empty.graft), '1.1.0')).errors[0]).toMatch(
+      /has no changes on top of v1\.0\.0/,
+    );
   });
 });
 
@@ -100,7 +114,9 @@ describe('fork mechanism: rebase, build, pack and install', () => {
     const out = path.join(root, 'preview');
     const r = await forkAdapter.apply(project.context(graft), { version: '1.1.0', outDir: out });
     expect(r.ok, JSON.stringify(r)).toBe(true);
-    expect(await readFile(path.join(out, 'index.js'), 'utf8')).toBe(`// moved down one line\n${V1.replace('const b = 2\n', 'const b = 2\nconst c = 3\n')}`);
+    expect(await readFile(path.join(out, 'index.js'), 'utf8')).toBe(
+      `// moved down one line\n${V1.replace('const b = 2\n', 'const b = 2\nconst c = 3\n')}`,
+    );
   });
 
   it('packs the rebased fork into a vendored tarball and points npm at it', async () => {
@@ -124,9 +140,13 @@ describe('fork mechanism: rebase, build, pack and install', () => {
 
   it('fails loudly when the build fails or the tag packs as a different version', async () => {
     const failing = await setup({ build: 'node -e "process.exit(3)"' });
-    await expect(forkAdapter.beforeInstall!(failing.project.context(failing.graft), '1.1.0')).rejects.toThrow(/fork build .* failed \(exit 3\)/);
+    await expect(forkAdapter.beforeInstall!(failing.project.context(failing.graft), '1.1.0')).rejects.toThrow(
+      /fork build .* failed \(exit 3\)/,
+    );
     const conflict = await setup();
-    await expect(forkAdapter.beforeInstall!(conflict.project.context(conflict.graft), '2.0.0')).rejects.toThrow(/does not rebase onto v2\.0\.0/);
+    await expect(forkAdapter.beforeInstall!(conflict.project.context(conflict.graft), '2.0.0')).rejects.toThrow(
+      /does not rebase onto v2\.0\.0/,
+    );
   });
 
   it('at the installed version, checks the vendored build and the installed files', async () => {

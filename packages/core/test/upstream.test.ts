@@ -35,7 +35,12 @@ describe('NpmUpstreamSource (fetching through npm)', () => {
 
   it('fails with the reason npm gives', async () => {
     const root = await packedLib();
-    const source = new NpmUpstreamSource({ root, cacheDir: path.join(root, 'cache'), specs: { lib: 'file:missing-{version}.tgz' }, specBase: root });
+    const source = new NpmUpstreamSource({
+      root,
+      cacheDir: path.join(root, 'cache'),
+      specs: { lib: 'file:missing-{version}.tgz' },
+      specBase: root,
+    });
     await expect(source.resolve('lib', '1.0.0')).rejects.toThrow(/could not fetch file:.*missing-1\.0\.0\.tgz: .+/);
     expect(existsSync(path.join(root, 'cache/upstream/lib@1.0.0'))).toBe(false);
   });

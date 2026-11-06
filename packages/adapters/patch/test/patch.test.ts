@@ -3,7 +3,17 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { addGraft, DirectoryUpstreamSource, Project, projectStatus, recordVariant, renderSyncMarkdown, sync, updateGraft, type MechanismAdapter } from '@graftsync/core';
+import {
+  addGraft,
+  DirectoryUpstreamSource,
+  Project,
+  projectStatus,
+  recordVariant,
+  renderSyncMarkdown,
+  sync,
+  updateGraft,
+  type MechanismAdapter,
+} from '@graftsync/core';
 import { configurePnpmPatch, patchAdapter, pnpmConfigProblems } from '../src/index.js';
 
 const V1 = `const a = 1\nconst b = 2\nmodule.exports = { a, b }\n`;
@@ -22,7 +32,11 @@ const PATCH = `diff --git a/index.js b/index.js
 async function fixture(installed: string) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'graft-patch-'));
   const up: Record<string, string> = {};
-  for (const [v, code] of [['1.0.0', V1], ['1.1.0', V2], ['2.0.0', V3]] as const) {
+  for (const [v, code] of [
+    ['1.0.0', V1],
+    ['1.1.0', V2],
+    ['2.0.0', V3],
+  ] as const) {
     const dir = path.join(root, 'upstream', v);
     await mkdir(dir, { recursive: true });
     await writeFile(path.join(dir, 'index.js'), code);
@@ -215,7 +229,10 @@ copyFileSync('v3.patch', out);
 `,
   );
   const file = path.join(root, '.grafts/add-c/graft.md');
-  const md = (await readFile(file, 'utf8')).replace(/^variants:/m, `generator: { command: '${opts.generator ?? 'node gen.mjs {version} {out}'}' }\nvariants:`);
+  const md = (await readFile(file, 'utf8')).replace(
+    /^variants:/m,
+    `generator: { command: '${opts.generator ?? 'node gen.mjs {version} {out}'}' }\nvariants:`,
+  );
   await writeFile(file, md);
   const upstream = new DirectoryUpstreamSource(
     { lib: Object.fromEntries(['1.0.0', '1.1.0', '2.0.0'].map((v) => [v, path.join(root, 'upstream', v)])) },
@@ -265,11 +282,16 @@ describe('sync regenerates generated variants', () => {
 
   it('a generator exiting GRAFT_EXIT_UPSTREAMED marks the graft likely upstreamed', async () => {
     const { project, root, file, original } = await generatorFixture({ generator: 'node upstreamed.mjs {out}' });
-    await writeFile(path.join(root, 'upstreamed.mjs'), "console.error('lib ships it now');\nprocess.exit(Number(process.env.GRAFT_EXIT_UPSTREAMED));\n");
+    await writeFile(
+      path.join(root, 'upstreamed.mjs'),
+      "console.error('lib ships it now');\nprocess.exit(Number(process.env.GRAFT_EXIT_UPSTREAMED));\n",
+    );
     const report = await sync(project, { writeReport: false });
     const g = report.grafts[0]!;
     expect(g).toMatchObject({ outcome: 'needs-agent', likelyUpstreamed: true });
-    expect(g.reasons[0]).toMatch(/upstream lib@2\.0\.0 already does what this graft did, says its generator .* \(lib ships it now\); confirm and set status: upstreamed/);
+    expect(g.reasons[0]).toMatch(
+      /upstream lib@2\.0\.0 already does what this graft did, says its generator .* \(lib ships it now\); confirm and set status: upstreamed/,
+    );
     expect(renderSyncMarkdown(report)).toContain('likely upstreamed');
     expect(await readFile(file, 'utf8')).toBe(original);
     expect(existsSync(path.join(root, '.grafts/add-c/variants/v2.0.0.patch'))).toBe(false);
@@ -311,7 +333,11 @@ describe('onboarding a new graft (found by testing against a real project)', () 
     const variant = path.join(root, '.grafts/add-c/variants/v1.patch');
     await writeFile(
       path.join(root, 'package.json'),
-      JSON.stringify({ name: 'app', pnpm: { overrides: { x: '1' }, patchedDependencies: { 'lib@1.0.0': 'patches/lib@1.0.0.patch', other: 'o.patch' } } }, null, 2),
+      JSON.stringify(
+        { name: 'app', pnpm: { overrides: { x: '1' }, patchedDependencies: { 'lib@1.0.0': 'patches/lib@1.0.0.patch', other: 'o.patch' } } },
+        null,
+        2,
+      ),
     );
     expect((await pnpmConfigProblems(root, 'lib', variant)).join('\n')).toMatch(/package\.json pnpm\.patchedDependencies\["lib@1\.0\.0"\]/);
     await configurePnpmPatch(root, 'lib', variant);
