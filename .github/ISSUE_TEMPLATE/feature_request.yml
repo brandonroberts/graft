@@ -1,0 +1,21 @@
+name: Feature request
+description: A modification Graft can't keep in sync yet, or a workflow it should support.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What modification are you carrying, how do you carry it today (patch file, vendored copy, fork, build transform), and where does Graft fall short?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you'd like
+      description: How you'd expect Graft to handle it. Changes to the graft.md format or the mechanism interface get discussed in an issue first, since the spec is close to freezing.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+      description: Anything you've tried or considered.

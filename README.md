@@ -456,6 +456,8 @@ Every adapter must follow these rules:
 
 ## Development
 
+Contributions are welcome: see [`CONTRIBUTING.md`](CONTRIBUTING.md), and report security issues as described in [`SECURITY.md`](SECURITY.md).
+
 Requires Node 22.22+, 24.15+, or 26+ and pnpm 10. All Graft packages are ESM only: import them with `import`; `require()` is not supported.
 
 ```sh
