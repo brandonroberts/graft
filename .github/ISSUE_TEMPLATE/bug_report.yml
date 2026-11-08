@@ -2,9 +2,6 @@ name: Bug report
 description: Graft did something wrong, or failed without a clear reason.
 labels: [bug]
 body:
-  - type: markdown
-    attributes:
-      value: For a security issue, don't file it here. See SECURITY.md.
   - type: textarea
     id: what
     attributes:

@@ -40,4 +40,4 @@ CI runs all of these. Run them before you open a pull request.
 
 ## Reporting bugs
 
-Use the bug report template, and include the `graft` version, your package manager and its version, and the `--json` output of the failing command. For security issues, see [`SECURITY.md`](SECURITY.md) instead.
+Use the bug report template, and include the `graft` version, your package manager and its version, and the `--json` output of the failing command. Report security issues the same way; [`SECURITY.md`](SECURITY.md) says what to include.

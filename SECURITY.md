@@ -6,9 +6,9 @@ Graft is 0.x. Only the latest published release of the `@graftsync/*` packages a
 
 ## Reporting a vulnerability
 
-Please don't open a public issue. Report it privately through GitHub: the repository's **Security** tab → **Report a vulnerability**.
+Report it by opening an issue.
 
-Include what's affected (the CLI, a mechanism, the Action), the version, how to reproduce it, and what an attacker gains. You'll get a reply within a week. Once a fix is released, the advisory is published with credit, unless you'd rather not be named.
+Include what's affected (the CLI, a mechanism, the Action), the version, how to reproduce it, and what an attacker gains.
 
 ## What's in scope
 
