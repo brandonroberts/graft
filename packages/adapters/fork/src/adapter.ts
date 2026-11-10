@@ -133,10 +133,21 @@ const remoteUrl = (project: Project, url: string) =>
 
 /**
  * How to adopt a repo-mode result into the fork's branch: as a merge of the upstream commit it
- * sits on (so the fork keeps upstream in its history), with the result's tree.
+ * sits on (so the fork keeps upstream in its history), with the result's tree. When the checkout
+ * is already merging that commit (it adopted the `-agent` branch), git refuses a second merge, so
+ * only the tree is taken: it carries graft.md with the verification recorded.
  */
-const adoptHint = (cache: string, branch: string, upstream: string) =>
-  `adopt it as a merge of upstream: \`git fetch ${cache} ${branch} && git merge --no-ff --no-commit -s ours --allow-unrelated-histories ${upstream} && git read-tree -u --reset FETCH_HEAD\`, then commit`;
+const adoptHint = (cache: string, branch: string, upstream: string, merging = false) =>
+  merging
+    ? `this checkout is already merging upstream ${upstream.slice(0, 12)}, so take the result's tree into that merge: \`git fetch ${cache} ${branch} && git read-tree -u --reset FETCH_HEAD\`, then commit`
+    : `adopt it as a merge of upstream: \`git fetch ${cache} ${branch} && git merge --no-ff --no-commit -s ours --allow-unrelated-histories ${upstream} && git read-tree -u --reset FETCH_HEAD\`, then commit`;
+
+/** True when the graft lives in the fork and the project's checkout is mid-merge of `upstream`. */
+async function mergingUpstream(project: Project, graft: Graft, upstream: string): Promise<boolean> {
+  if (!graftLivesInFork(project, graft)) return false;
+  const r = await git(project.root, ['rev-parse', '-q', '--verify', 'MERGE_HEAD'], { allowFail: true });
+  return r.ok && r.stdout.trim() === upstream;
+}
 
 /** True when `fork.repo` is the project's own checkout (`repo: .`): the graft lives in the fork. */
 function graftLivesInFork(project: Project, graft: Graft): boolean {
@@ -680,7 +691,7 @@ export function createForkAdapter(): MechanismAdapter {
       const cache = path.relative(project.root, repoDir(project, graft)) || '.';
       return {
         dir: tree.pkgDir,
-        result: `branch \`${branch}\` in ${cache}, on upstream ${tree.targetRev.slice(0, 12)} (${adoptHint(cache, branch, tree.targetRev)})`,
+        result: `branch \`${branch}\` in ${cache}, on upstream ${tree.targetRev.slice(0, 12)} (${adoptHint(cache, branch, tree.targetRev, await mergingUpstream(project, graft, tree.targetRev))})`,
         fetch: { repo: cache, ref: branch, upstream: tree.targetRev },
         dispose: tree.dispose,
       };
@@ -724,7 +735,8 @@ export function createForkAdapter(): MechanismAdapter {
         branch,
         `${graft.id}: ${change.variant.ref} (on ${change.baseTag}) merged onto ${label} for an agent\n\nPrepared by graft; not pushed.`,
       );
-      if (await relativeToVerified(project, graft, version)) {
+      const inPlace = await relativeToVerified(project, graft, version);
+      if (inPlace) {
         // The branch is the fork at the new upstream: its graft.md says so (status conflicted until
         // the agent resolves it), so `graft sync` on it verifies the agent's work in place.
         const copy = await updatedGraftFiles(project, graft, adapter, {
@@ -745,6 +757,12 @@ export function createForkAdapter(): MechanismAdapter {
         ref: branch,
         upstream: target,
         conflicts,
+        // The in-place variant is relative to `verified`, which the branch already moved: it stays.
+        ...(inPlace
+          ? {
+              next: `adopt that branch as shown (without the commit), resolve ${conflicts.length ? 'the conflict markers in the files listed' : 'what made the anchors miss'}, then run \`graft sync --version ${version}\`: it checks the working tree in place. When it is green, take its result into the merge as its report says (\`git read-tree\`; it records the verification in graft.md), run the project's checks, and commit. Keep the variant: it is relative to \`rootstock.verified\`, so don't write a new one.`,
+            }
+          : {}),
         description: conflicts.length
           ? `${where}, with conflict markers in ${conflicts.length} file(s): ${conflicts.join(', ')}`
           : `${where}; it merges without conflicts, so check the anchors that missed`,

@@ -224,7 +224,10 @@ When asked to capture a modification as a graft (new, or migrating an existing p
   FETCH_HEAD`, then commit. Never adopt by a plain tree swap or by checking out the result branch
   (that drops the fork's history). On the `-agent` branch,
   graft.md already says the target version (`status: conflicted`): resolve, then
-  `graft sync --version <target>` checks the working tree as it is; then run the project's checks.
+  `graft sync --version <target>` checks the working tree as it is. When it's green, take its
+  result into the open merge as the report says (`git fetch <repo> <ref> && git read-tree -u
+  --reset FETCH_HEAD`, no second `git merge`), so graft.md says `applied`; then run the project's
+  checks. Don't write a new variant: the `@worktree` / `@verified` one is permanent.
 - **Start from the prepared branch.** On `needs-agent`, the report's "Start from" line names
   `graft/<id>/<target>-agent` in the cache clone: git's merge of the fork's change onto the
   target, with conflict markers left only in the files it lists. Fetch it into the fork, resolve

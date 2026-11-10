@@ -585,6 +585,8 @@ export function renderSyncMarkdown(report: SyncReport, root: string = report.roo
         `Next: upstream ${g.package}@${g.to} appears to already contain this graft's change. Confirm it (the Invariants hold on pristine upstream: run the project's tests without the graft), then run \`graft mark ${g.id} --status upstreamed --history "…"\` to set \`.grafts/${g.id}/graft.md\` to \`upstreamed\` with a History entry. Do not write a new variant.`,
         '',
       );
+    } else if (g.outcome === 'needs-agent' && g.agentStart?.next) {
+      lines.push(`Next: ${g.agentStart.next}`, '');
     } else if (g.outcome === 'needs-agent') {
       lines.push(
         `Next: follow the graft sync skill — read \`.grafts/${g.id}/graft.md\`, write a new variant for ${g.package}@${g.to}, and verify the Invariants with the project's tests.`,

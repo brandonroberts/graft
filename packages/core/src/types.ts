@@ -207,6 +207,11 @@ export interface AgentStart extends Partial<FetchableRef> {
   description: string;
   /** Files left with conflict markers, if any. */
   conflicts?: string[];
+  /**
+   * What to do next, when it isn't the usual "write a new variant" (e.g. a permanent in-place
+   * variant); shown as the report's "Next" line.
+   */
+  next?: string;
 }
 
 /** A standalone graft's materialized result (see `MechanismAdapter.workspace`). */

@@ -181,6 +181,11 @@ describe('fork repo mode (install: none)', () => {
     // The agent starts from git's merge of the translation onto the new tag, markers in place.
     expect(g.agentStart?.description).toMatch(/graft\/tr\/1\.2\.0-agent.*conflict markers in 1 file\(s\): content\/guide\.md/);
     expect(g.agentStart).toMatchObject({ ref: 'graft/tr/1.2.0-agent', conflicts: ['content/guide.md'] });
+    // Not in place: the variant is pinned to its base, so the usual next step (a new variant) holds.
+    expect(g.agentStart?.next).toBeUndefined();
+    expect(await readFile(path.join(fork, '.grafts/.report/sync.md'), 'utf8')).toMatch(
+      /Next: follow the graft sync skill .* write a new variant for/,
+    );
     const cache = path.join(fork, '.grafts/.cache/fork/tr');
     const merged = gitIn(cache, 'show', 'graft/tr/1.2.0-agent:content/guide.md');
     expect(merged).toContain('<<<<<<<');
@@ -302,6 +307,12 @@ describe('fork repo mode, in place (@worktree / @verified)', () => {
     expect(report.grafts[0]?.agentStart?.description).toContain(
       `--allow-unrelated-histories ${v120} && git read-tree -u --reset FETCH_HEAD`,
     );
+    // The variant is permanent (relative to `verified`): the next step is to resolve and re-sync, not
+    // to write a new variant.
+    expect(report.grafts[0]?.agentStart?.next).toMatch(/graft sync --version 1\.2\.0.*don't write a new one/);
+    const md0 = await readFile(path.join(fork, '.grafts/.report/sync.md'), 'utf8');
+    expect(md0).toContain(`Next: ${report.grafts[0]?.agentStart?.next}`);
+    expect(md0).not.toMatch(/write a new variant for/);
     const forkHead = gitIn(fork, 'rev-parse', 'HEAD').trim();
     adopt(fork, report.grafts[0]?.agentStart, { commit: false });
     const md = await readFile(path.join(fork, '.grafts/tr/graft.md'), 'utf8');
@@ -325,10 +336,24 @@ describe('fork repo mode, in place (@worktree / @verified)', () => {
     const cache = path.join(fork, '.grafts/.cache/fork/tr');
     expect(gitIn(cache, 'show', 'graft/tr/1.2.0:.grafts/tr/graft.md')).toMatch(/status: applied/);
     expect(gitIn(cache, 'show', 'graft/tr/1.2.0:content/guide.md')).toContain('olayları');
-    // Committing the resolved work concludes the merge begun on adoption.
-    gitIn(fork, 'add', '-A');
+    // The verification is recorded in the result only: the checkout still says conflicted.
+    expect(await readFile(path.join(fork, '.grafts/tr/graft.md'), 'utf8')).toMatch(/status: conflicted/);
+    // The checkout is mid-merge of upstream 1.2.0, where a second `git merge` is refused, so the
+    // report says to take only the result's tree.
+    const hint = fixed.grafts[0]?.materialized?.description ?? '';
+    expect(hint).toContain('already merging upstream');
+    expect(hint).toContain('git fetch .grafts/.cache/fork/tr graft/tr/1.2.0 && git read-tree -u --reset FETCH_HEAD');
+    expect(hint).not.toContain('git merge');
+    expect(fixed.grafts[0]?.materialized?.fetch?.upstream).toBe(v120);
+    gitIn(fork, 'fetch', '-q', '.grafts/.cache/fork/tr', 'graft/tr/1.2.0');
+    gitIn(fork, 'read-tree', '-u', '--reset', 'FETCH_HEAD');
+    // Committing concludes the merge begun on adoption, with graft.md saying applied.
     gitIn(fork, 'commit', '-q', '-m', 'sync upstream 1.2.0');
     expect(parents(fork)).toEqual([forkHead, v120]);
+    const adopted = await readFile(path.join(fork, '.grafts/tr/graft.md'), 'utf8');
+    expect(adopted).toMatch(/status: applied/);
+    expect(adopted).toMatch(/verified: 1\.2\.0/);
+    expect(await readFile(path.join(fork, 'content/guide.md'), 'utf8')).toContain('olayları');
   });
 
   it('refuses a fork checkout that is a partial clone, saying so instead of git\'s "corruption" error (#23)', async () => {

@@ -293,7 +293,7 @@ under the name used in `mechanism`.
 | `afterVerified?(ctx, version, update?)` | no | Called by `sync` after a green result (not on dry runs); `update` is the graft.md change when `recordsInResult` said to record it in the result. |
 | `recordsInResult?(ctx, version)` | no | True when a green sync at `version` is recorded in the materialized result instead of graft.md; `afterVerified` then receives the update. |
 | `newerVersion?(ctx)` | no | For standalone grafts (no dist-tags): the newest upstream version above `verified`, with where it came from. `outdated` lists one entry per such graft (`standalone: true`). |
-| `prepareAgent?(ctx, version)` | no | Called by `sync` when a graft needs an agent: prepare a starting point and return `{ description, repo?, ref?, conflicts? }` (`agentStart`; `description` is shown as "Start from"). |
+| `prepareAgent?(ctx, version)` | no | Called by `sync` when a graft needs an agent: prepare a starting point and return `{ description, repo?, ref?, upstream?, conflicts?, next? }` (`agentStart`; `description` is shown as "Start from", and `next`, when set, replaces the report's usual "write a new variant" next step). |
 | `capture?(ctx, version)` | no | `graft capture`: the change made to the installed copy at `version`, as a variant module (the patch mechanism: the diff against the pristine package). Throw when there's nothing capturable. The tooling replaces the selected variant only while it is still the scaffold stub, otherwise registers a new one (§4.2), and keeps it only if it applies to pristine `version`. |
 | `validateVariant?(ctx, variant)` | no | Validate a new variant before it is registered; throw to reject. |
 | `exclusivePerPackage?` | no | When true, at most one active graft with this mechanism may target a package; more is a validation error. |
@@ -383,7 +383,11 @@ a tool run from source), not a dependency:
   MUST record the new verification only in the result (`recordsInResult`), never in the
   checkout, which still holds the fork at its old base. The `-agent` branch's graft.md is set
   to the target version (status `conflicted` while markers remain), so `sync` on it verifies
-  the resolved branch in place.
+  the resolved branch in place. Its `agentStart.next` says so (resolve, re-sync, take the
+  result, commit; keep the variant), and is the report's "Next" line. When the checkout is
+  already merging the result's upstream commit (it adopted the `-agent` branch), the green
+  result's adoption hint takes only its tree (`git read-tree`), since git refuses a second merge;
+  that tree carries graft.md with the verification recorded.
 - `fork.track` (a branch) makes `outdated` offer that branch's tip as `<version>+<commit>`
   (the version from its `package.json`, else the newest tag); otherwise it offers the newest
   release tag above `verified` (`newerVersion`).
