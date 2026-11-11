@@ -36,6 +36,10 @@
   "files": [
     "dist"
   ],
+  "scripts": {
+    "prepack": "node ../../tools/package-readme/package-readme.mjs",
+    "postpack": "node ../../tools/package-readme/package-readme.mjs --clean"
+  },
   "dependencies": {
     "@graftsync/core": "workspace:*",
     "@graftsync/spec": "workspace:*",

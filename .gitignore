@@ -5,3 +5,5 @@ dist/
 .grafts/.report/
 coverage/
 .claude/worktrees/
+# Written from the root README when the CLI is packed (tools/package-readme).
+packages/cli/README.md
