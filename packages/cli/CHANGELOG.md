@@ -1,5 +1,17 @@
 # @graftsync/cli
 
+## 0.2.2
+
+### Patch Changes
+
+- ef6a008: The npm package now includes the project README, with its links pointing at the release's tag on GitHub.
+- Updated dependencies [6dd050f]
+  - @graftsync/core@0.2.2
+  - @graftsync/adapter-fork@0.2.2
+  - @graftsync/skill@0.2.2
+  - @graftsync/adapter-patch@0.2.2
+  - @graftsync/spec@0.2.2
+
 ## 0.2.1
 
 ### Patch Changes
