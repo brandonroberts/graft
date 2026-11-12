@@ -57,12 +57,13 @@ YAML, is an error.
 |---|---|---|---|---|
 | `id` | string matching `^[a-z0-9][a-z0-9-]*$` | yes | — | Graft id (lowercase kebab-case). MUST equal the graft's directory name. |
 | `rootstock` | object | yes | — | The upstream package. |
-| `rootstock.package` | non-empty string | yes | — | npm package name of the upstream. For a standalone graft (§9), any name for the upstream. |
-| `rootstock.verified` | semver version | yes | — | Last upstream version the graft was verified against (§5). In fork repo mode it may name a commit as build metadata (`22.3.0-next.2+e36a63e20e`, §9.2). |
+| `rootstock.package` | non-empty string | yes | — | Name of the upstream package in its ecosystem: an npm name, a crate name, a Go module path (a `/v2` major is a different module) or a PyPI project name. For a standalone graft (§9), any name for the upstream. |
+| `rootstock.ecosystem` | `npm` \| `cargo` \| `go` \| `pypi` | no | `npm` | The package ecosystem (§10). Selects the version scheme (§4.1), where pristine upstream comes from, and the appliers. A standalone graft installs nothing, so its ecosystem only selects the version scheme. |
+| `rootstock.verified` | version in the ecosystem's scheme (§4.1) | yes | — | Last upstream version the graft was verified against (§5). In fork repo mode it may name a commit as build metadata (`22.3.0-next.2+e36a63e20e`, §9.2). |
 | `mechanism` | non-empty string | yes | — | Name of the mechanism adapter that applies the graft (e.g. `patch`). MUST name an adapter the tooling has registered. |
 | `targets` | array of non-empty strings | no | — | Upstream files the mechanism operates on, relative to the package root. |
 | `variants` | array of variant objects, at least one | yes | — | One mechanism implementation per upstream version range. |
-| `variants[].range` | semver range | yes | — | Upstream versions this variant is valid for. Validated with `includePrerelease`. |
+| `variants[].range` | range in the ecosystem's scheme (§4.1) | yes | — | Upstream versions this variant is valid for, prereleases included. |
 | `variants[].module` | non-empty string | yes | — | Path of the variant module, relative to the graft directory. |
 | `generator` | object | no | — | A command that writes a new variant mechanically; `sync` runs it when no existing variant fits (§6). |
 | `generator.command` | non-empty string containing `{out}` (or using `$GRAFT_VARIANT_OUT`) | yes, with `generator` | — | `{version}` and `{out}` are substituted. |
@@ -109,28 +110,41 @@ A graft is valid when it has no error diagnostics. Diagnostics, by code:
 | `frontmatter/invalid` | error | Frontmatter fails the schema in §2.1. |
 | `frontmatter/id-mismatch` | error | `id` differs from the directory name. |
 | `frontmatter/unknown-mechanism` | error | No registered adapter has the `mechanism` name. |
+| `frontmatter/unknown-ecosystem` | error | `rootstock.ecosystem` is not one of the ecosystems in §10. |
 | `body/missing-section` | error | A required section is absent. |
 | `body/empty-section` | warning | A required section has no content. |
-| `variants/overlap` | error | Two variant ranges intersect (with `includePrerelease: true`). Every version MUST select at most one variant. |
+| `variants/overlap` | error | Two variant ranges intersect (prereleases included). Every version MUST select at most one variant. For PEP 440 the test may over-approximate (report an overlap no real version is in), never under-approximate. |
 | `variants/duplicate-module` | error | The same `module` path is listed by more than one variant. |
 | `variants/verified-uncovered` | warning | `rootstock.verified` is not satisfied by any variant range. |
 | `frontmatter/fork-missing` | error | `mechanism: fork` without a `fork` block. |
 | `frontmatter/oracle-ignored` | warning | An `oracle` block from an earlier draft; it is ignored (§5). |
-| `graft/duplicate-rootstock` | error | Two active grafts with an `exclusivePerPackage` mechanism (§9) target the same package. Reported on both. |
+| `graft/duplicate-rootstock` | error | Two active grafts with an `exclusivePerPackage` mechanism (§9) target the same package in the same ecosystem. Reported on both. |
 
 ## 4. Variants and status
 
 ### 4.1 Variant selection
 
-For an upstream version `V`, the selected variant is the **first** entry of `variants` whose
-`range` is satisfied by `V`, with prereleases included (`includePrerelease: true`). Because
-ranges MUST NOT overlap, at most one variant matches. When none matches, the graft has no
-variant for `V`; `sync` reports that as `needs-agent`.
+Versions and ranges use the rootstock ecosystem's **version scheme**:
 
-**The `-0` floor convention.** A range that should also cover the prereleases of its first
-version SHOULD start at that version's `-0` prerelease: `>=5.0.0-0` selects `5.0.0-rc.1` as
-well as `5.0.0`. Upper bounds follow the same convention: `<5.0.0-0` excludes the 5.0.0
-prereleases.
+| Ecosystem | Scheme | `verified` | `range` |
+|---|---|---|---|
+| `npm`, `cargo` | semver | `4.2.0` | node-semver range (`>=4.0.0 <5.0.0`), not Cargo's caret-by-default requirement syntax |
+| `go` | semver; the `v` prefix is optional | `v0.14.0`, pseudo-versions (`v0.0.0-20240101120000-abcdef123456`, a prerelease ordered by time), `v2.1.0+incompatible` | node-semver range |
+| `pypi` | PEP 440 | `2.31.0`, `1.0.post1`, `2.0rc1`, `1!0.5` | PEP 440 specifier set (`>=2.0,<3`; `==2.*`, `~=2.31`, `!=`, `===`) |
+
+PEP 440 matching follows the PEP as implemented by Python's `packaging` 26 (`<V` excludes V's
+own prereleases unless V is one; `>V` excludes V's local and post-releases unless V is a
+post-release), with prereleases included.
+
+For an upstream version `V`, the selected variant is the **first** entry of `variants` whose
+`range` is satisfied by `V`, with prereleases included. Because ranges MUST NOT overlap, at
+most one variant matches. When none matches, the graft has no variant for `V`; `sync` reports
+that as `needs-agent`.
+
+**The floor convention.** A range that should also cover the prereleases of its first version
+SHOULD start at that version's earliest prerelease: `>=5.0.0-0` in semver selects `5.0.0-rc.1`
+as well as `5.0.0`, and `>=5.0.dev0` does the same in PEP 440. Upper bounds follow the same
+convention: `<5.0.0-0` (or `<5.0.dev0`) excludes the 5.0.0 prereleases.
 
 ### 4.2 Adding variants
 
@@ -138,11 +152,12 @@ Existing variant modules MUST NOT be edited. A change for a new upstream range i
 module, registered with a new `variants` entry. When registering (`graft variant add` in the CLI,
 `recordVariant` in core), the tooling:
 
-- refuses a range that isn't a valid semver range, a module outside the graft directory, a
-  module that doesn't exist, and a module that's already registered;
+- refuses a range that isn't valid in the ecosystem's scheme, a module outside the graft
+  directory, a module that doesn't exist, and a module that's already registered;
 - **narrows** each existing variant whose range overlaps the new one by capping it below the
-  new range's minimum version: each `||` alternative of the old range gets `<min` appended
-  (`>=4.0.0` becomes `>=4.0.0 <5.0.0-0` for a new range `>=5.0.0-0`). If narrowing is
+  new range's minimum version: in semver each `||` alternative of the old range gets `<min`
+  appended (`>=4.0.0` becomes `>=4.0.0 <5.0.0-0` for a new range `>=5.0.0-0`); in PEP 440 the
+  specifier set gets `,<min` (`>=4.0` becomes `>=4.0,<5.0.dev0` for `>=5.0.dev0`). If narrowing is
   disabled, the capped range would be empty, or it would still overlap, the registration is
   refused;
 - calls the adapter's `validateVariant`, if any;
@@ -189,6 +204,9 @@ of whoever changes the graft, usually an agent, with the project's own tests.
 package), grouped by `rootstock.package`, with target version `T` (the given version, else
 the installed version). A standalone graft (§9) is a group of its own: its default `T` is
 `rootstock.verified` (a re-verification), and it has no install step.
+
+Grafts are grouped by `(rootstock.ecosystem, rootstock.package)`, so an npm `ms` and a crate
+`ms` never share an install. Each result and target in the report carries its `ecosystem`.
 
 1. **Static checks, before anything is installed**, against the pristine published contents
    of `T`: select the variant (§4.1), check its anchors, and apply it into
@@ -240,8 +258,11 @@ and the agent's starting point).
 
 ### 6.1 Finding new versions (`outdated`)
 
-For each rootstock package, the newest version above every graft's `verified` among the npm
-dist-tags considered (default `latest`, `next`, `rc`, `beta`; prereleases included). A
+For each rootstock package (per ecosystem), the newest version above every graft's `verified`
+among the dist-tags considered (default `latest`, `next`, `rc`, `beta`; prereleases included).
+npm reports its registry's dist-tags; the other ecosystems report `latest` (the newest stable
+version) and `next` (the newest prerelease, when it is newer), skipping yanked and retracted
+versions. A
 standalone graft has no dist-tags: its adapter's `newerVersion` supplies the candidate, one
 entry per graft (`standalone: true`).
 
@@ -251,14 +272,15 @@ Optional. MUST be valid JSON if present. All keys are optional.
 
 | Key | Type | Meaning |
 |---|---|---|
-| `upstream` | `{ [package]: string }` | Spec template used instead of the npm registry to fetch and install the package. `{version}` is substituted; relative `file:` paths resolve against `.grafts/`. Example: `{ "lib": "file:../mirror/lib-{version}" }`. |
-| `resolveFrom` | `{ [package]: string }` | Directory, relative to the project root, whose `node_modules` resolution determines the installed version (for monorepos where a workspace package declares the dependency). Example: `{ "semver": "packages/core" }`. |
+| `ecosystems` | `{ [ecosystem]: object }` | Ecosystem options (§10). `ecosystems.npm` takes `upstream` and `resolveFrom` (below), which win over the top-level keys. |
+| `upstream` | `{ [package]: string }` | npm: spec template used instead of the npm registry to fetch and install the package. `{version}` is substituted; relative `file:` paths resolve against `.grafts/`. Example: `{ "lib": "file:../mirror/lib-{version}" }`. |
+| `resolveFrom` | `{ [package]: string }` | npm: directory, relative to the project root, whose `node_modules` resolution determines the installed version (for monorepos where a workspace package declares the dependency). Example: `{ "semver": "packages/core" }`. |
 | `mechanisms` | `{ [mechanism]: object }` | Mechanism-specific options. |
-| `mechanisms.patch.applier` | `pnpm` \| `npm` \| `bun` \| `graft` \| `patch-package` \| `vendor` | Forces the `patch` mechanism's applier instead of choosing one from the package manager. Any other value is an error. |
+| `mechanisms.patch.applier` | string, or `{ [ecosystem]: string }` | Forces the `patch` mechanism's applier instead of choosing one from the ecosystem's tooling. A string names npm's applier (`pnpm` \| `npm` \| `bun` \| `yarn` \| `graft` \| `patch-package` \| `vendor`); the object form names one per ecosystem (§10). A name that isn't one of the ecosystem's appliers is an error. |
 
-## 8. Package-manager detection
+## 8. Package-manager detection (npm)
 
-Starting at the project root and walking up, in each directory:
+For npm grafts, starting at the project root and walking up, in each directory:
 
 1. If `package.json` declares `packageManager` as `pnpm@…`, `npm@…`, `upm@…`, `yarn@…` or
    `bun@…`, that package manager wins.
@@ -328,6 +350,10 @@ README's *Mechanisms* section.
 The modification lives as commits on a fork of the upstream source repository (`fork.repo`),
 on top of an upstream release tag.
 
+Package mode (the default, `fork.install: package`) packs with npm and installs through npm
+overrides, so it is for `rootstock.ecosystem: npm` only; any other ecosystem is refused with
+`fork/ecosystem`. Repo mode installs nothing and works for any repository.
+
 - A variant is a JSON file `{ "ref": "<fork branch, fork tag or commit>", "base": "<upstream
   version>" }` (repo mode also allows commits and the `@worktree` / `@verified` sentinels,
   below). The graft's change is the diff from `tag(base)` to `ref`, limited to `fork.dir`.
@@ -391,3 +417,118 @@ a tool run from source), not a dependency:
 - `fork.track` (a branch) makes `outdated` offer that branch's tip as `<version>+<commit>`
   (the version from its `package.json`, else the newest tag); otherwise it offers the newest
   release tag above `verified` (`newerVersion`).
+
+## 10. Ecosystems
+
+A rootstock belongs to one ecosystem (`rootstock.ecosystem`, default `npm`). The ecosystem
+decides the version scheme (§4.1), where the **pristine** upstream comes from (what anchors,
+apply and scoped diffs read, §9 rule 4), where the installed copy is, how a version is installed
+(`sync --install`), and which `patch` appliers exist. Each ecosystem's options live under
+`ecosystems.<name>` in `.grafts/config.json` (§7).
+
+Every applier MUST check that the ecosystem's tool actually uses the patched package, not just
+that the configuration names it: each ecosystem below has a configuration that its tool accepts
+with exit code 0 while silently installing the unpatched package, and `graft check` MUST fail on
+it.
+
+### 10.1 npm
+
+- **Pristine:** `npm pack <pkg>@<version>`, run from the project root so its `.npmrc` applies,
+  or `ecosystems.npm.upstream` (alias `upstream`).
+- **Versions:** `npm view <pkg> versions dist-tags`.
+- **Installed copy:** `node_modules/<pkg>` walking up from the project root (or
+  `ecosystems.npm.resolveFrom`), or through Plug'n'Play.
+- **Install and appliers:** §8 and §9.1.
+
+### 10.2 cargo
+
+- **Pristine:** the published `.crate`, fetched by cargo itself: a throwaway package under
+  `.grafts/.cache` that depends on `<crate> = "=<version>"` is `cargo fetch`ed (so the project's
+  `.cargo/config.toml` registries, mirrors and auth apply), and the `.crate` is extracted from
+  cargo's registry cache, never from the shared, editable `registry/src` copy. Its `Cargo.toml`
+  is the one `cargo publish` normalized (the author's file is `Cargo.toml.orig`); variants patch
+  the published files.
+- **Versions:** the registry's sparse index (`ecosystems.cargo.index`, default
+  `https://index.crates.io`); yanked versions are skipped.
+- **Installed copy:** `cargo metadata` for `ecosystems.cargo.manifest` (default `Cargo.toml`):
+  the copy from a path source (the vendored crate) if there is one, else the newest.
+- **Install:** `cargo update -p <crate>@<installed> --precise <version>`; reinstall:
+  `cargo fetch`.
+- **Applier `cargo-vendor` (the default and only one):** pristine + variant is written to
+  `.grafts/.vendor/<crate>-<version>/` (committed), and the workspace root manifest (from
+  `cargo locate-project --workspace`) gets
+  `[patch.<registry>] <crate> = { path = ".grafts/.vendor/<crate>-<version>" }` (`registry`
+  from `ecosystems.cargo.registry`, default `crates-io`). The edit keeps the file's comments
+  and formatting, and refuses a `[patch]` written as dotted keys or an inline table. Other
+  versions' vendored directories are removed.
+- **Silent failure:** a `[patch]` whose version doesn't match what the requirements resolve is
+  not used, yet cargo exits 0 with a warning and records it under `[[patch.unused]]` in
+  `Cargo.lock`. The applier's checks fail on that entry, on any resolution where `cargo metadata`
+  doesn't show the crate at the target version from the vendored directory, and on a vendored
+  directory that isn't exactly pristine + variant.
+- **Capture:** `graft capture` diffs the installed copy against the pristine `.crate`. Cargo's
+  extracted registry sources are shared by every project on the machine.
+
+### 10.3 go
+
+- **Versions** are written as the go command writes them (`v0.14.0`); a version given without
+  the `v` (`--version 0.14.0`) is normalized.
+- **Pristine:** `go mod download -json <module>@<version>`, run outside any module so the
+  project's `go.mod` and `go.sum` are untouched: the module cache's extracted copy, verified
+  against `go.sum` and the checksum database, and read-only. The environment's `GOPROXY`,
+  `GOPRIVATE` and `GONOSUMDB` apply.
+- **Versions:** `go list -m -versions` (retracted versions excluded).
+- **Installed copy:** `go list -m -json <module>` in the main module (`ecosystems.go.module`,
+  default the project root): its `Version`, and `Replace.Dir` (else `Dir`).
+- **Install:** `go get <module>@<version>`; reinstall: `go mod download`. A project with
+  `vendor/modules.txt` also gets `go mod vendor`.
+- **Applier `go-replace` (the default and only one):** pristine + variant is written to
+  `.grafts/.vendor/<module, / as +>-<version>/` (committed; it MUST have a `go.mod`), and a
+  **version-qualified** `replace <module> <version> => ./<that directory>` is set with
+  `go mod edit` in the main module's `go.mod`, or with `go work edit` in `go.work` when
+  `go env GOWORK` names one. Other replaces of the module are dropped. Version-qualified, so after
+  a bump the replace stops applying and the check fails, instead of applying an old variant to
+  new code; for a new version, `sync` installs with `go get`, which moves the `require`.
+- **Silent failure:** a replace for a version that isn't selected is ignored, and `go build`
+  exits 0. The applier's checks fail unless `go list -m` shows the module at the target version
+  from the vendored directory, on an unversioned or other-version replace of the module, on a
+  `vendor/modules.txt` that doesn't record the replacement, and on a vendored directory that
+  isn't exactly pristine + variant.
+- **Capture:** not available; the module cache is read-only.
+
+### 10.4 pypi
+
+- **Names** compare normalized (PEP 503: `Typing_Extensions` is `typing-extensions`).
+- **Versions** use PEP 440 (§4.1). In YAML, quote a version that would read as a number
+  (`verified: "24.0"`); the scaffold does.
+- **Pristine:** the published **wheel**, the artifact that gets installed: `pip download --no-deps
+  --only-binary :all: <name>==<version>` (the project's interpreter's pip, else `python3`'s; the
+  pip configuration and index apply), extracted. For packages that publish only platform wheels,
+  `ecosystems.pypi.platform` picks the platform tag. A package with only an sdist can't be a
+  `patch` graft (its source belongs in the `fork` mechanism).
+- **Versions:** the index's JSON API (`ecosystems.pypi.index`, default `https://pypi.org/pypi`);
+  yanked releases are skipped.
+- **Installed copy:** the project's interpreter (`ecosystems.pypi.python`, else
+  `.venv/bin/python`, else `python3`) reports the distribution's version and site-packages
+  directory (`importlib.metadata`); wheel paths are relative to it.
+- **Tool:** uv when `uv.lock` exists, poetry when `poetry.lock` exists, else pip.
+- **Install:** uv: `uv lock --upgrade-package <name>==<version>` and `uv sync`; pip:
+  `python -m pip install <name>==<version>`. Reinstall: uv: `uv lock --upgrade-package` for each
+  vendored wheel, then `uv sync`; pip: `pip install -r` the requirements file, then
+  `pip install --force-reinstall --no-deps` the vendored wheels.
+- **Applier `wheel-vendor` (the default and only one):** pristine wheel + variant is repacked,
+  with `RECORD` regenerated and the published wheel's filename and version (a `+local` label
+  would be another version to resolvers), as `.grafts/.vendor/<wheel>` (committed). uv projects
+  get `[tool.uv.sources] <name> = { path = ".grafts/.vendor/<wheel>" }` in `pyproject.toml`;
+  uv applies sources to direct dependencies only, so a package that isn't in
+  `[project] dependencies` is refused with a reason. pip projects get the package's line in
+  `ecosystems.pypi.requirements` (default `requirements.txt`) replaced by the wheel's path
+  (its trailing comment kept). Poetry projects are refused for now.
+- **Silent failures:** pip treats a wheel of the same name and version as "already satisfied"
+  even when its contents changed, and exits 0, so the installed copy stays unpatched or stale;
+  uv refuses a changed wheel (hash mismatch) but keeps the old hash on a plain `uv lock`. The
+  applier's checks fail on a vendored wheel that isn't pristine + variant, on a `uv.lock` that
+  doesn't lock the package to the wheel or pins another build's hash, and on a requirements file
+  that doesn't install the wheel; the installed-files check (§9.1) catches an installed copy
+  that isn't pristine + variant whatever the tool did.
+- **Capture:** not available yet.

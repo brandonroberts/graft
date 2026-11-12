@@ -39,7 +39,15 @@ function samePackageJson(pristine: string, installed: string): boolean {
 export async function captureInstalledChanges(ctx: GraftContext, version: string): Promise<string> {
   const { project, graft } = ctx;
   const pkg = graft.frontmatter.rootstock.package;
-  const installed = await project.upstream.installed(pkg);
+  const ecosystem = graft.frontmatter.rootstock.ecosystem;
+  if (ecosystem !== 'npm' && ecosystem !== 'cargo') {
+    throw new GraftError(
+      `graft capture works on an editable installed copy (npm's node_modules, cargo's registry sources); ${ecosystem} has none — write the patch against the pristine package instead`,
+      'capture/unsupported',
+    );
+  }
+  const upstream = project.upstreamFor(graft);
+  const installed = await upstream.installed(pkg);
   if (!installed)
     throw new GraftError(`${pkg} is not installed; install it and make your change in node_modules first`, 'capture/not-installed');
   if (installed.version !== version) {
@@ -51,7 +59,7 @@ export async function captureInstalledChanges(ctx: GraftContext, version: string
   if (installed.pnp) {
     throw new GraftError(`${pkg} is installed through Plug'n'Play (read-only zip); capture needs a node_modules install`, 'capture/pnp');
   }
-  const pristineDir = await project.upstream.resolve(pkg, version);
+  const pristineDir = await upstream.resolve(pkg, version);
   const [before, after] = [await packageFiles(pristineDir), await packageFiles(installed.dir)];
   const files = [...new Set([...before, ...after])].sort();
   const parts: string[] = [];

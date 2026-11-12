@@ -13,7 +13,7 @@ Coding agents can do the fixing, but nothing triggers them and nothing tells the
 ## 2. Core concepts
 
 - **Graft:** one local modification to an upstream package, described by `.grafts/<id>/graft.md`.
-- **Rootstock:** the upstream package and the last version the graft was verified against (`rootstock.verified`).
+- **Rootstock:** the upstream package, its ecosystem (`rootstock.ecosystem`: npm, cargo, go or pypi) and the last version the graft was verified against (`rootstock.verified`).
 - **Intent:** the `graft.md` body: Why, Invariants, Where to look, Anchors, History. It's written for an agent to act on.
 - **Mechanism:** how the modification is applied. Two exist: `patch` (a diff against the published package) and `fork` (commits on a fork of the upstream source repo).
 - **Applier:** for the `patch` mechanism, how a package manager is made to apply the patch (§6).
@@ -33,7 +33,7 @@ Coding agents can do the fixing, but nothing triggers them and nothing tells the
 **Non-goals:**
 - Graft doesn't ship an agent or call an LLM.
 - No hosted service.
-- npm packages only, for installed dependencies. (A fork in repo mode is any git repository, so the product can be a docs site or a tool in any language.)
+- Package ecosystems beyond npm, Cargo, Go and PyPI (#26) for installed dependencies. (A fork in repo mode is any git repository, so the product can be a docs site or a tool in any language.)
 - No ordering between overlapping grafts. Two active `patch` (or two `fork`) grafts on one package are an error instead (§6).
 - Graft never sets `upstreamed` itself; it only *flags* likely absorption for a person to confirm.
 
@@ -152,6 +152,18 @@ Variants are git-style patches with package-relative paths. Each hunk must fit e
 - **Likely upstreamed:** when the reverse patch applies to the pristine target, the graft is flagged "likely upstreamed".
 - **Removed files:** the scoped diff lists candidate files a removed target's code moved to.
 
+### Ecosystems (#26)
+
+`rootstock.ecosystem` (default `npm`, so existing grafts are unchanged) selects an `Ecosystem` in core: a version scheme (semver for npm, cargo and go; PEP 440 for pypi, implemented in `@graftsync/spec` and checked against Python's `packaging` 26), the pristine source, the installed-copy lookup, and install/reinstall. Mechanisms reach it through `project.upstreamFor(graft)`, `ecosystemFor` and `schemeFor`; `project.upstream` stays as npm's source. Sync, `outdated` and `graft/duplicate-rootstock` key on `(ecosystem, package)`. The `patch` adapter picks appliers per ecosystem; none of these tools applies patch files, so each applier commits pristine + variant under `.grafts/.vendor/` and points the tool's own override at it:
+
+| Ecosystem | Pristine | Applier | Silent failure it checks for |
+|---|---|---|---|
+| cargo | the `.crate` via `cargo fetch` of a throwaway package under `.grafts/.cache` | `cargo-vendor`: vendored dir + `[patch.crates-io]` (line-based TOML editor, comments kept) | `[[patch.unused]]` (cargo exits 0); `cargo metadata` must show the vendored copy |
+| go | `go mod download` (verified, read-only module cache), run outside the module | `go-replace`: vendored dir + version-qualified `replace` (go.mod or go.work) | a replace for an unselected version is ignored (go build exits 0); `go list -m` must show it |
+| pypi | the wheel via `pip download`, extracted with a built-in zip reader | `wheel-vendor`: repacked wheel + `[tool.uv.sources]` (uv, direct deps only) or the requirements line (pip) | pip's "already satisfied" for a rebuilt wheel (exit 0); uv's stale hash on a plain `uv lock` |
+
+Verified with cargo 1.97, go 1.24, pip 24 and uv 0.11 against the real registries (`itoa`, `golang.org/x/sync`, `packaging`); the tests repeat it where the tool is installed (CI's runners have cargo, go and pip, not uv). The `fork` mechanism's package mode (`npm pack`) is npm only (`fork/ecosystem`). The proposal and its findings are in [`ecosystems.md`](ecosystems.md).
+
 ### The `fork` mechanism
 
 The modification lives as commits on a fork (`fork: { repo, upstream, tag, dir?, build? }`). A variant is a JSON file `{ ref, base }`; the change is the fork's diff `tag(base)..ref`.
@@ -262,6 +274,7 @@ Graft keeps three of its own CommonJS dependencies converted to native ESM, as r
 | Node 20+ | Node ≥ 22.22 / 24.15 / 26, ESM only, TypeScript 7; CI on 22, 24 and 26 with Node 24 action runtimes | Dependency requirements (vitest 5); Node 20 is end-of-life |
 | pacote for pristine packages | The project's own `npm` (`npm pack`, `npm view`) | pacote was 92 of the CLI's 103 packages (#20); npm also applies the project's `.npmrc`. The CLI installs 18 packages |
 | Adopt a repo-mode result by tree swap | A merge of the upstream commit the result sits on, with the result's tree (#22) | Forks that sync by merging (t3code) need upstream in their history, or the next manual merge replays it |
+| npm packages only | `rootstock.ecosystem`: npm, cargo, go, pypi (#26) | The format and sync loop were never npm-specific; only the pristine source, versions, installed copy and appliers were. Each new ecosystem lands behind the `Ecosystem` interface without touching `MechanismAdapter` |
 | Forks as dependencies only | Repo mode: forks that are the product, verified in place with one permanent variant (`@worktree` / `@verified`) | Translated docs sites and the like are long-lived forks with no consumer to install into (angular-tr) |
 | The oracle: a per-graft command, run by sync, as the only proof | Removed (0.2). Sync checks fit (anchors, apply, install); the agent verifies the Invariants with the project's own tests | Projects already have verification tests, and a separate oracle duplicated them heavily (the blog's needed Playwright, a build and a dev server). Behavior belongs to the project's tests and CI; Graft's job is the mechanical part |
 | Publish with provenance, tags per package | No provenance; one `v<version>` tag and GitHub release per release | Maintainer preference; the packages share one version |
@@ -286,7 +299,7 @@ Graft keeps three of its own CommonJS dependencies converted to native ESM, as r
 ## 14. Risks
 
 - **Unverified behavior.** With no oracle, a variant that fits can still be wrong, and an agent can skip verifying. Mitigation: Invariants that name the tests covering them, the skill's rules (verify before recording, never weaken a test), project CI on every sync PR, differential tests where possible (as in the dogfood), and review during the eval.
-- **Package-manager drift.** The silent failures in §6 are each tool's real behavior as of pnpm 10.28, npm 12.2, bun 1.4, yarn 4.18 and upm 1.5. New versions can change them. `graft check` (installed-copy comparison) in CI is the backstop.
+- **Package-manager drift.** The silent failures in §6 are each tool's real behavior as of pnpm 10.28, npm 12.2, bun 1.4, yarn 4.18, upm 1.5, cargo 1.97, go 1.24, pip 24 and uv 0.11. New versions can change them. `graft check` (installed-copy comparison) in CI is the backstop.
 - **Premature generalization.** A second mechanism now exists; the remaining risk is freezing hooks that only repo mode uses (#6).
 - **Incumbents** (Renovate, Dependabot) adding agent-driven patch rebasing. Mitigation: the open spec; make them consumers of graft files.
 
@@ -297,6 +310,7 @@ Graft keeps three of its own CommonJS dependencies converted to native ESM, as r
 - **#4:** real-agent evaluation (needs agent and API credentials). This is the most important unanswered question. angular-tr's 7 conflicting pages are a ready test case.
 - **#5:** a design partner. angular-tr is ready to pitch (`examples/angular-tr`, 0.1.1); contacting its maintainer is the owner's call.
 - **#6:** freeze spec v1. The spec matches the code; the decision is whether to keep the repo-mode hooks flat or group them (see the spec review in #6).
+- **#26, ecosystems beyond npm:** cargo, go and pypi are implemented for the `patch` mechanism (§6, [`ecosystems.md`](ecosystems.md)). Not yet: poetry (refused with a reason), uv for transitive dependencies (`[tool.uv.sources]` applies to direct ones only), `graft capture` for go and pypi, the `fork` mechanism's package mode outside npm (`cargo package`, a module copy, a wheel build), uv in CI (its tests are skipped there), and freezing `rootstock.ecosystem` into spec v1 (#6).
 - **#17:** waiting for yaml 3.0.0 stable (retire `yaml-esm`).
 - **Known gaps:**
   - regeneration when the target is already installed under pnpm falls back to an agent;

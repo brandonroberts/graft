@@ -173,6 +173,8 @@ export interface InstalledApplyReport {
 export interface ScaffoldInput {
   id: string;
   package: string;
+  /** The rootstock's ecosystem (default npm). */
+  ecosystem?: string;
   targets?: string[];
   /** Project root. */
   root: string;

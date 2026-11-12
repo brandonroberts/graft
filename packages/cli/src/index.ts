@@ -60,6 +60,10 @@ const guarded =
     }
   };
 
+/** A package as people read it: `name`, or `ecosystem:name` outside npm. */
+const pkgLabel = (p: { package: string; ecosystem?: string }) =>
+  !p.ecosystem || p.ecosystem === 'npm' ? p.package : `${p.ecosystem}:${p.package}`;
+
 function printAnchors(report: AnchorReport): void {
   console.log(`${report.graft}: ${report.package}@${report.version} → ${report.variant ? report.variant.module : '(no variant)'}`);
   for (const a of report.anchors) {
@@ -92,6 +96,7 @@ const init = defineCommand({
       description: 'With --agent: install into this skills folder instead of detecting (comma-separated for several), e.g. .agents/skills',
     },
     package: { type: 'string', description: 'Upstream package for a starter graft' },
+    ecosystem: { type: 'string', default: 'npm', description: "The starter graft's ecosystem: npm | cargo | go | pypi" },
     id: { type: 'string', description: 'Starter graft id (default: <package>-graft)' },
     mechanism: { type: 'string', default: 'patch', description: 'Mechanism for the starter graft' },
   },
@@ -112,7 +117,7 @@ const init = defineCommand({
           .replace(/^@/, '')
           .replace(/[^a-z0-9]+/gi, '-')
           .toLowerCase()}-graft`;
-      created.push(...(await addGraft(project, { id, package: args.package, mechanism: args.mechanism })));
+      created.push(...(await addGraft(project, { id, package: args.package, ecosystem: args.ecosystem, mechanism: args.mechanism })));
     }
     print(args.json, { created, agent }, () => {
       for (const f of created) console.log(`created ${path.relative(process.cwd(), f)}`);
@@ -139,7 +144,8 @@ const add = defineCommand({
   args: {
     ...common,
     id: { type: 'positional', required: true, description: 'Graft id (kebab-case)' },
-    package: { type: 'string', required: true, description: 'Upstream npm package' },
+    package: { type: 'string', required: true, description: 'Upstream package (npm name, crate, Go module path or PyPI project)' },
+    ecosystem: { type: 'string', default: 'npm', description: "The package's ecosystem: npm | cargo | go | pypi" },
     version: { type: 'string', description: 'Upstream version (default: installed)' },
     mechanism: { type: 'string', default: 'patch', description: 'Mechanism adapter' },
     target: { type: 'string', description: 'Comma-separated target files in the package' },
@@ -185,6 +191,7 @@ const add = defineCommand({
     const files = await addGraft(project, {
       id: args.id,
       package: args.package,
+      ecosystem: args.ecosystem,
       version: args.version,
       mechanism: args.mechanism,
       targets: split(args.target),
@@ -216,7 +223,7 @@ const status = defineCommand({
               : g.anchors.upstreamed
                 ? '✗ anchors miss (likely upstreamed)'
                 : '✗ anchors miss';
-        console.log(`${g.id}  ${g.package}  verified ${g.verified}  installed ${g.installed ?? '—'}  ${g.status}  ${health}`);
+        console.log(`${g.id}  ${pkgLabel(g)}  verified ${g.verified}  installed ${g.installed ?? '—'}  ${g.status}  ${health}`);
         if (g.anchors && !g.anchors.ok) printAnchors(g.anchors);
       }
       for (const g of result.invalid) {
@@ -366,7 +373,7 @@ const outdatedCmd = defineCommand({
     print(args.json, entries, () => {
       for (const e of entries) {
         console.log(
-          `${e.package}  verified ${e.verified}  ${e.candidate ? `→ ${e.candidate.version} (${e.candidate.tag})` : 'up to date'}  [${e.grafts.join(', ')}]`,
+          `${pkgLabel(e)}  verified ${e.verified}  ${e.candidate ? `→ ${e.candidate.version} (${e.candidate.tag})` : 'up to date'}  [${e.grafts.join(', ')}]`,
         );
       }
     });
@@ -379,7 +386,7 @@ const replayCmd = defineCommand({
   args: {
     ...common,
     id: { type: 'positional', required: true },
-    range: { type: 'string', description: 'Only versions in this semver range' },
+    range: { type: 'string', description: "Only versions in this range (the ecosystem's syntax: semver, or PEP 440 for pypi)" },
     prerelease: { type: 'boolean', description: 'Include prereleases' },
   },
   run: guarded(async (args) => {
@@ -422,7 +429,7 @@ const show = defineCommand({
     };
     print(args.json, value, () => {
       console.log(
-        `${graft.id}: ${fm.rootstock.package} (verified ${fm.rootstock.verified}, installed ${installed ?? '—'}) · ${fm.mechanism} · ${fm.status}`,
+        `${graft.id}: ${pkgLabel({ package: fm.rootstock.package, ecosystem: fm.rootstock.ecosystem })} (verified ${fm.rootstock.verified}, installed ${installed ?? '—'}) · ${fm.mechanism} · ${fm.status}`,
       );
       for (const v of value.variants)
         console.log(`  ${v.module === value.selectedForInstalled ? '▶' : ' '} ${v.range.padEnd(20)} ${v.module}`);

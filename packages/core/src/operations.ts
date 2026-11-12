@@ -1,11 +1,9 @@
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import semver from 'semver';
 import { GRAFT_STATUSES, GraftDocumentEditor, type GraftStatus } from '@graftsync/spec';
 import { GraftError } from './errors.js';
 import type { Project } from './project.js';
-import { reinstall } from './install.js';
 import type {
   GraftUpdate,
   InstalledApplyReport,
@@ -20,7 +18,9 @@ import type {
 /** Resolve a version argument, defaulting to the installed version of the graft's rootstock. */
 export async function resolveVersion(project: Project, graft: Graft, version?: string): Promise<string> {
   if (version) {
-    if (!semver.valid(version)) throw new GraftError(`"${version}" is not a valid semver version`, 'version/invalid');
+    version = project.ecosystemFor(graft).normalizeVersion?.(version) ?? version;
+    const scheme = project.schemeFor(graft);
+    if (!scheme.valid(version)) throw new GraftError(`"${version}" is not a valid ${schemeLabel(scheme.name)} version`, 'version/invalid');
     return version;
   }
   const installed = await project.currentVersion(graft);
@@ -66,8 +66,9 @@ export async function updateGraft(project: Project, id: string, input: UpdateSta
   if (input.status && !GRAFT_STATUSES.includes(input.status)) {
     throw new GraftError(`invalid status "${input.status}" (expected ${GRAFT_STATUSES.join(' | ')})`, 'status/invalid');
   }
-  if (input.verified && !semver.valid(input.verified)) {
-    throw new GraftError(`"${input.verified}" is not a valid semver version`, 'version/invalid');
+  const scheme = project.schemeFor(graft);
+  if (input.verified && !scheme.valid(input.verified)) {
+    throw new GraftError(`"${input.verified}" is not a valid ${schemeLabel(scheme.name)} version`, 'version/invalid');
   }
   await editGraft(graft, (doc) => {
     if (input.status) doc.setStatus(input.status);
@@ -77,18 +78,7 @@ export async function updateGraft(project: Project, id: string, input: UpdateSta
   return project.get(id, { allowConflicts: true });
 }
 
-/** Append `<extra>` to every comparator set of `range` (handles `||` unions). */
-function capRange(range: string, upperExclusive: string): string {
-  return range
-    .split('||')
-    .map((set) => `${set.trim()} <${upperExclusive}`.trim())
-    .join(' || ');
-}
-
-function isSatisfiable(range: string): boolean {
-  const min = semver.minVersion(range);
-  return !!min && semver.satisfies(min, range, { includePrerelease: true });
-}
+const schemeLabel = (name: string) => (name === 'pep440' ? 'PEP 440' : 'semver');
 
 export interface RecordVariantOptions {
   /** Refuse to record unless all anchors match at this version (the record is rolled back). */
@@ -115,13 +105,13 @@ export async function recordVariant(
   options: RecordVariantOptions = {},
 ): Promise<RecordVariantResult> {
   const graft = await project.get(id);
-  const opts = { includePrerelease: true };
-  if (!semver.validRange(input.range, opts)) {
-    throw new GraftError(`"${input.range}" is not a valid semver range`, 'variant/invalid-range');
+  const scheme = project.schemeFor(graft);
+  if (!scheme.validRange(input.range)) {
+    throw new GraftError(`"${input.range}" is not a valid ${schemeLabel(scheme.name)} range`, 'variant/invalid-range');
   }
   // Verifying at a version outside the new range would check whichever *other* variant covers
   // that version, and pass without ever looking at the new one.
-  if (options.verifyVersion && !semver.satisfies(options.verifyVersion, input.range, opts)) {
+  if (options.verifyVersion && !scheme.satisfies(options.verifyVersion, input.range)) {
     throw new GraftError(
       `verify version ${options.verifyVersion} is not in the new variant's range "${input.range}"; verify at a version the variant covers`,
       'variant/verify-out-of-range',
@@ -144,11 +134,11 @@ export async function recordVariant(
   const narrow = input.narrow ?? true;
   const updates = new Map<number, string>();
   const narrowed: RecordVariantResult['narrowed'] = [];
-  const newMin = semver.minVersion(input.range);
+  const newMin = scheme.minVersion(input.range);
   variants.forEach((v, i) => {
-    if (!semver.intersects(v.range, input.range, opts)) return;
-    const capped = newMin ? capRange(v.range, newMin.version) : undefined;
-    if (!narrow || !capped || !isSatisfiable(capped) || semver.intersects(capped, input.range, opts)) {
+    if (!scheme.intersects(v.range, input.range)) return;
+    const capped = newMin ? scheme.capBelow(v.range, newMin) : undefined;
+    if (!narrow || !capped || !scheme.satisfiable(capped) || scheme.intersects(capped, input.range)) {
       throw new GraftError(
         `range "${input.range}" overlaps existing variant ${v.module} ("${v.range}") and cannot be narrowed automatically; choose a disjoint range`,
         'variant/overlap',
@@ -216,6 +206,7 @@ export function summarizeMisses(report: AnchorReport, maxFiles = 10): string {
 export interface GraftStatusEntry {
   id: string;
   package: string;
+  ecosystem?: string;
   mechanism: string;
   status: GraftStatus;
   verified: string;
@@ -237,6 +228,7 @@ export async function projectStatus(project: Project): Promise<{
     const entry: GraftStatusEntry = {
       id: graft.id,
       package: fm.rootstock.package,
+      ecosystem: fm.rootstock.ecosystem,
       mechanism: fm.mechanism,
       status: fm.status,
       verified: fm.rootstock.verified,
@@ -262,7 +254,7 @@ export async function projectStatus(project: Project): Promise<{
 
 export interface ApplyToProjectResult {
   /** Grafts whose package-manager configuration was pointed at their selected variant. */
-  configured: { id: string; package: string; version: string; variant: string }[];
+  configured: { id: string; package: string; ecosystem?: string; version: string; variant: string }[];
   /** Reinstall command that was run, if any. */
   installCommand?: string;
   /** Anchor reports at the installed versions, after configuring and reinstalling. */
@@ -288,12 +280,24 @@ export async function applyToProject(project: Project, options: { ids?: string[]
       const variant = project.selectVariant(graft, version);
       if (!variant) throw new GraftError(`no variant covers ${pkg}@${version}`, 'variant/none');
       await project.adapterFor(graft).beforeInstall?.(project.context(graft), version);
-      result.configured.push({ id: graft.id, package: pkg, version, variant: variant.module });
+      result.configured.push({
+        id: graft.id,
+        package: pkg,
+        ecosystem: graft.frontmatter.rootstock.ecosystem,
+        version,
+        variant: variant.module,
+      });
     } catch (err) {
       result.errors.push({ id: graft.id, error: (err as Error).message });
     }
   }
-  if (options.install !== false && result.configured.length) result.installCommand = await reinstall(project.root);
+  if (options.install !== false && result.configured.length) {
+    // One reinstall per ecosystem whose configuration changed (npm, cargo, go, pypi).
+    const ecosystems = [...new Set(result.configured.map((c) => c.ecosystem ?? 'npm'))];
+    const commands: string[] = [];
+    for (const name of ecosystems) commands.push(await project.ecosystemFor(name).reinstall(project));
+    result.installCommand = commands.join(' && ');
+  }
   for (const c of result.configured) {
     const graft = await project.get(c.id);
     result.anchors.push(await project.adapterFor(graft).checkAnchors(project.context(graft), c.version));
@@ -365,7 +369,14 @@ export async function captureVariant(project: Project, id: string, options: { ve
   const version = await resolveVersion(project, graft, options.version);
   const content = await adapter.capture(project.context(graft), version);
   const fm = graft.frontmatter;
-  const scaffold = { id: graft.id, package: fm.rootstock.package, targets: fm.targets, root: project.root, options: {} };
+  const scaffold = {
+    id: graft.id,
+    package: fm.rootstock.package,
+    ecosystem: fm.rootstock.ecosystem,
+    targets: fm.targets,
+    root: project.root,
+    options: {},
+  };
 
   const selected = project.selectVariant(graft, version);
   const current = selected && existsSync(selected.path) ? await readFile(selected.path, 'utf8') : undefined;
@@ -402,9 +413,7 @@ export async function captureVariant(project: Project, id: string, options: { ve
   let rel = `variants/v${version}${ext}`;
   for (let n = 2; existsSync(path.join(graft.dir, rel)); n++) rel = `variants/v${version}-${n}${ext}`;
   const module = `./${rel}`;
-  const range = semver.prerelease(version)
-    ? `>=${semver.major(version)}.${semver.minor(version)}.${semver.patch(version)}-0`
-    : `>=${version}`;
+  const range = project.schemeFor(graft).from(version);
   await mkdir(path.dirname(path.join(graft.dir, rel)), { recursive: true });
   await writeFile(path.join(graft.dir, rel), content);
   const original = await readFile(graft.file, 'utf8');

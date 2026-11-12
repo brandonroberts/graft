@@ -23,15 +23,33 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { detectPackageManager, findPnpRuntime, type UpstreamSource } from '@graftsync/core';
+import { detectPackageManager, findPnpRuntime, type Project, type UpstreamSource } from '@graftsync/core';
+import { cargoVendorApplier } from './cargo.js';
+import { goReplaceApplier } from './go.js';
+import { wheelVendorApplier } from './pypi.js';
 import { configurePnpmPatch, findPnpmWorkspaceRoot, pnpmConfigProblems } from './pnpm.js';
 import { vendorConfigure, vendorProblems } from './vendor.js';
 
-export type ApplierName = 'pnpm' | 'npm' | 'bun' | 'yarn' | 'graft' | 'patch-package' | 'vendor';
+export type ApplierName =
+  | 'pnpm'
+  | 'npm'
+  | 'bun'
+  | 'yarn'
+  | 'graft'
+  | 'patch-package'
+  | 'vendor'
+  | 'cargo-vendor'
+  | 'go-replace'
+  | 'wheel-vendor';
+
+/** `mechanisms.patch.applier`: a name (npm), or a name per ecosystem (`{ "npm": "vendor", "cargo": "cargo-vendor" }`). */
+export type ApplierConfig = string | Partial<Record<string, string>>;
 
 export interface ApplierContext {
   /** Pristine upstream contents, for appliers that build the patched package themselves. */
   upstream?: UpstreamSource;
+  /** The project (ecosystem options, cache directory). */
+  project?: Project;
 }
 
 export interface PatchApplier {
@@ -51,8 +69,26 @@ export interface PatchApplier {
   ): Promise<{ files: string[]; install?: 'reinstall' }>;
 }
 
-/** Pick the applier: explicit config wins, then the project's package manager. */
-export function selectApplier(root: string, configured?: string): PatchApplier {
+/** Appliers of the ecosystems other than npm, and each one's default. */
+const OTHER_ECOSYSTEMS: Record<string, { default: string; appliers: Record<string, PatchApplier> }> = {
+  cargo: { default: 'cargo-vendor', appliers: { 'cargo-vendor': cargoVendorApplier } },
+  go: { default: 'go-replace', appliers: { 'go-replace': goReplaceApplier } },
+  pypi: { default: 'wheel-vendor', appliers: { 'wheel-vendor': wheelVendorApplier } },
+};
+
+/**
+ * Pick the applier: explicit config wins, then the ecosystem's tooling (for npm, the package
+ * manager). A string config names npm's applier; an object names one per ecosystem.
+ */
+export function selectApplier(root: string, config?: ApplierConfig, ecosystem = 'npm'): PatchApplier {
+  const configured = typeof config === 'string' ? (ecosystem === 'npm' ? config : undefined) : config?.[ecosystem];
+  if (ecosystem !== 'npm') {
+    const eco = OTHER_ECOSYSTEMS[ecosystem];
+    if (!eco) throw new Error(`the patch mechanism has no applier for the ${ecosystem} ecosystem`);
+    const applier = eco.appliers[configured ?? eco.default];
+    if (!applier) throw new Error(`unknown ${ecosystem} patch applier "${configured}" (expected ${Object.keys(eco.appliers).join(' | ')})`);
+    return applier;
+  }
   const pm = detectPackageManager(root);
   // npm 12+ patches natively; older npm silently ignores patchedDependencies, so it gets the built-in applier.
   const npmDefault = pm === 'npm' && (npmMajor(root) ?? 0) >= NPM_NATIVE_PATCH_MAJOR ? 'npm' : 'graft';
@@ -467,7 +503,7 @@ export const vendorApplier: PatchApplier = {
   },
 };
 
-const APPLIERS: Record<ApplierName, PatchApplier> = {
+const APPLIERS: Partial<Record<ApplierName, PatchApplier>> = {
   pnpm: pnpmApplier,
   npm: npmApplier,
   bun: bunApplier,

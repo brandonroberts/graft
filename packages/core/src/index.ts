@@ -10,3 +10,6 @@ export * from './sync.js';
 export * from './scaffold.js';
 export * from './outdated.js';
 export * from './replay.js';
+export * from './ecosystem.js';
+export * from './ecosystems/index.js';
+export * from './zip.js';

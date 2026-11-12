@@ -20,13 +20,18 @@ import {
   type ScopedFileDiff,
 } from '@graftsync/core';
 import { applyFilePatch, describeHunk, locateHunk, parsePatchFile, patchTarget, type FilePatch } from './patchfile.js';
-import { selectApplier } from './appliers.js';
+import { selectApplier, type ApplierConfig } from './appliers.js';
 import { applyToInstalledCopy, findInstalledCopies } from './installed.js';
 import { captureInstalledChanges } from './capture.js';
 import type { Project } from '@graftsync/core';
 
-/** The applier for this project (config `mechanisms.patch.applier`, else from the lockfile). */
-const applierFor = (project: Project) => selectApplier(project.root, project.config.mechanisms?.patch?.applier as string | undefined);
+/** The applier for a graft (config `mechanisms.patch.applier`, else from its ecosystem's tooling). */
+const applierFor = (project: Project, graft: Graft) =>
+  selectApplier(
+    project.root,
+    project.config.mechanisms?.patch?.applier as ApplierConfig | undefined,
+    graft.frontmatter.rootstock.ecosystem,
+  );
 
 export const MECHANISM = 'patch';
 
@@ -131,7 +136,7 @@ export function createPatchAdapter(): MechanismAdapter {
       let dir: string;
       try {
         patches = await loadPatch(graft, report.variant);
-        dir = await project.upstream.resolve(pkg, version);
+        dir = await project.upstreamFor(graft).resolve(pkg, version);
       } catch (err) {
         report.errors.push((err as Error).message);
         return report;
@@ -149,10 +154,11 @@ export function createPatchAdapter(): MechanismAdapter {
         const evidence = await upstreamedEvidence(dir, patches);
         if (evidence) report.upstreamed = { evidence };
       }
-      const installed = await project.upstream.installed(pkg);
+      const upstream = project.upstreamFor(graft);
+      const installed = await upstream.installed(pkg);
       if (installed?.version === version) {
         report.errors.push(
-          ...(await applierFor(project).problems(project.root, pkg, version, report.variant.path, { upstream: project.upstream })),
+          ...(await applierFor(project, graft).problems(project.root, pkg, version, report.variant.path, { upstream, project })),
         );
         // Whatever the configuration says, check what actually got installed: each patched file
         // must equal pristine upstream + this variant. Catches patches dropped silently.
@@ -186,7 +192,7 @@ export function createPatchAdapter(): MechanismAdapter {
     async apply(ctx: GraftContext, options = {}): Promise<ApplyResult> {
       const { project, graft } = ctx;
       const pkg = graft.frontmatter.rootstock.package;
-      const version = options.version ?? (await project.installedVersion(pkg));
+      const version = options.version ?? (await project.installedVersion(pkg, graft.frontmatter.rootstock.ecosystem));
       const result: ApplyResult = { graft: graft.id, version: version ?? '?', variant: null, files: [], errors: [], ok: false };
       if (!version) {
         result.errors.push(`${pkg} is not installed`);
@@ -201,7 +207,7 @@ export function createPatchAdapter(): MechanismAdapter {
       let dir: string;
       try {
         patches = await loadPatch(graft, result.variant);
-        dir = await project.upstream.resolve(pkg, version);
+        dir = await project.upstreamFor(graft).resolve(pkg, version);
       } catch (err) {
         result.errors.push((err as Error).message);
         return result;
@@ -231,7 +237,8 @@ export function createPatchAdapter(): MechanismAdapter {
     async scopeDiff(ctx: GraftContext, from: string, to: string): Promise<ScopedDiff> {
       const { project, graft } = ctx;
       const pkg = graft.frontmatter.rootstock.package;
-      const [fromDir, toDir] = await Promise.all([project.upstream.resolve(pkg, from), project.upstream.resolve(pkg, to)]);
+      const upstream = project.upstreamFor(graft);
+      const [fromDir, toDir] = await Promise.all([upstream.resolve(pkg, from), upstream.resolve(pkg, to)]);
       const fromVariant = project.selectVariant(graft, from);
       const patches = fromVariant ? await loadPatch(graft, fromVariant).catch(() => []) : [];
       const touched = new Set<string>([
@@ -272,7 +279,13 @@ export function createPatchAdapter(): MechanismAdapter {
         errors: [] as string[],
         warnings: [] as string[],
       };
-      const primary = await project.upstream.installed(pkg);
+      if (graft.frontmatter.rootstock.ecosystem !== 'npm') {
+        report.errors.push(
+          `graft "${graft.id}": the built-in postinstall applier patches node_modules (npm only); ${graft.frontmatter.rootstock.ecosystem} grafts are applied by \`graft apply\``,
+        );
+        return report;
+      }
+      const primary = await project.upstreamFor(graft).installed(pkg);
       if (!primary) {
         report.warnings.push(`${pkg} is not installed; nothing to apply`);
         return report;
@@ -311,7 +324,7 @@ export function createPatchAdapter(): MechanismAdapter {
     },
 
     async afterInstall(ctx: GraftContext): Promise<void> {
-      if (applierFor(ctx.project).name !== 'graft') return; // the package manager applied it
+      if (applierFor(ctx.project, ctx.graft).name !== 'graft') return; // the package manager applied it
       const report = await this.applyInstalled!(ctx);
       if (report.errors.length) throw new GraftError(report.errors.join('; '), 'apply/installed');
     },
@@ -319,9 +332,16 @@ export function createPatchAdapter(): MechanismAdapter {
     async beforeInstall(ctx: GraftContext, version: string) {
       const variant = ctx.project.selectVariant(ctx.graft, version);
       if (!variant) throw new GraftError(`graft "${ctx.graft.id}": no variant covers ${version}`, 'variant/none');
-      const r = await applierFor(ctx.project).configure(ctx.project.root, ctx.graft.frontmatter.rootstock.package, version, variant.path, {
-        upstream: ctx.project.upstream,
-      });
+      const r = await applierFor(ctx.project, ctx.graft).configure(
+        ctx.project.root,
+        ctx.graft.frontmatter.rootstock.package,
+        version,
+        variant.path,
+        {
+          upstream: ctx.project.upstreamFor(ctx.graft),
+          project: ctx.project,
+        },
+      );
       return r.install ? { install: r.install } : undefined;
     },
 
@@ -331,10 +351,14 @@ export function createPatchAdapter(): MechanismAdapter {
 
     capture: captureInstalledChanges,
 
-    variantTemplate({ id, package: pkg }: { id: string; package: string }) {
-      return `# Replace this file with the patch for ${pkg}.
-# Easiest: edit ${pkg} in node_modules, then run  graft capture ${id}
-# (it writes the difference from the published package here).
+    variantTemplate({ id, package: pkg, ecosystem }: { id: string; package: string; ecosystem?: string }) {
+      const where: Record<string, string> = {
+        npm: `edit ${pkg} in node_modules, then run  graft capture ${id}\n# (it writes the difference from the published package here).`,
+        cargo: `edit ${pkg}'s registry source (cargo metadata shows its manifest_path), then run  graft capture ${id}\n# (it writes the difference from the published .crate here; that copy is shared by every project).`,
+      };
+      return `# Replace this file with the patch for ${pkg}: a git-style diff with paths relative to the
+# published package (a/<file>, b/<file>).
+# ${where[ecosystem ?? 'npm'] ?? `diff a pristine copy (in .grafts/.cache/upstream/${ecosystem}/ after \`graft check\`) against your edited one.`}
 `;
     },
   };
