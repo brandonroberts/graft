@@ -3,8 +3,9 @@ export class GraftError extends Error {
   constructor(
     message: string,
     readonly code: string = 'graft/error',
+    options?: ErrorOptions,
   ) {
-    super(message);
+    super(message, options);
     this.name = 'GraftError';
   }
 }

@@ -24,6 +24,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { detectPackageManager, findPnpRuntime, type Project, type UpstreamSource } from '@graftsync/core';
+import { cargoVendorApplier } from './cargo.js';
 import { configurePnpmPatch, findPnpmWorkspaceRoot, pnpmConfigProblems } from './pnpm.js';
 import { vendorConfigure, vendorProblems } from './vendor.js';
 
@@ -66,12 +67,10 @@ export interface PatchApplier {
   ): Promise<{ files: string[]; install?: 'reinstall' }>;
 }
 
-/** Appliers of the ecosystems other than npm, and each one's default. Registered by their modules. */
-const OTHER_ECOSYSTEMS: Record<string, { default: string; appliers: Record<string, PatchApplier> }> = {};
-
-export function registerEcosystemAppliers(ecosystem: string, defaultName: string, appliers: PatchApplier[]): void {
-  OTHER_ECOSYSTEMS[ecosystem] = { default: defaultName, appliers: Object.fromEntries(appliers.map((a) => [a.name, a])) };
-}
+/** Appliers of the ecosystems other than npm, and each one's default. */
+const OTHER_ECOSYSTEMS: Record<string, { default: string; appliers: Record<string, PatchApplier> }> = {
+  cargo: { default: 'cargo-vendor', appliers: { 'cargo-vendor': cargoVendorApplier } },
+};
 
 /**
  * Pick the applier: explicit config wins, then the ecosystem's tooling (for npm, the package

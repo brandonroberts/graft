@@ -439,3 +439,32 @@ it.
 - **Installed copy:** `node_modules/<pkg>` walking up from the project root (or
   `ecosystems.npm.resolveFrom`), or through Plug'n'Play.
 - **Install and appliers:** §8 and §9.1.
+
+### 10.2 cargo
+
+- **Pristine:** the published `.crate`, fetched by cargo itself: a throwaway package under
+  `.grafts/.cache` that depends on `<crate> = "=<version>"` is `cargo fetch`ed (so the project's
+  `.cargo/config.toml` registries, mirrors and auth apply), and the `.crate` is extracted from
+  cargo's registry cache, never from the shared, editable `registry/src` copy. Its `Cargo.toml`
+  is the one `cargo publish` normalized (the author's file is `Cargo.toml.orig`); variants patch
+  the published files.
+- **Versions:** the registry's sparse index (`ecosystems.cargo.index`, default
+  `https://index.crates.io`); yanked versions are skipped.
+- **Installed copy:** `cargo metadata` for `ecosystems.cargo.manifest` (default `Cargo.toml`):
+  the copy from a path source (the vendored crate) if there is one, else the newest.
+- **Install:** `cargo update -p <crate>@<installed> --precise <version>`; reinstall:
+  `cargo fetch`.
+- **Applier `cargo-vendor` (the default and only one):** pristine + variant is written to
+  `.grafts/.vendor/<crate>-<version>/` (committed), and the workspace root manifest (from
+  `cargo locate-project --workspace`) gets
+  `[patch.<registry>] <crate> = { path = ".grafts/.vendor/<crate>-<version>" }` (`registry`
+  from `ecosystems.cargo.registry`, default `crates-io`). The edit keeps the file's comments
+  and formatting, and refuses a `[patch]` written as dotted keys or an inline table. Other
+  versions' vendored directories are removed.
+- **Silent failure:** a `[patch]` whose version doesn't match what the requirements resolve is
+  not used, yet cargo exits 0 with a warning and records it under `[[patch.unused]]` in
+  `Cargo.lock`. The applier's checks fail on that entry, on any resolution where `cargo metadata`
+  doesn't show the crate at the target version from the vendored directory, and on a vendored
+  directory that isn't exactly pristine + variant.
+- **Capture:** `graft capture` diffs the installed copy against the pristine `.crate`. Cargo's
+  extracted registry sources are shared by every project on the machine.

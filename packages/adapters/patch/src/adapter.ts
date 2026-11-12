@@ -351,10 +351,14 @@ export function createPatchAdapter(): MechanismAdapter {
 
     capture: captureInstalledChanges,
 
-    variantTemplate({ id, package: pkg }: { id: string; package: string }) {
-      return `# Replace this file with the patch for ${pkg}.
-# Easiest: edit ${pkg} in node_modules, then run  graft capture ${id}
-# (it writes the difference from the published package here).
+    variantTemplate({ id, package: pkg, ecosystem }: { id: string; package: string; ecosystem?: string }) {
+      const where: Record<string, string> = {
+        npm: `edit ${pkg} in node_modules, then run  graft capture ${id}\n# (it writes the difference from the published package here).`,
+        cargo: `edit ${pkg}'s registry source (cargo metadata shows its manifest_path), then run  graft capture ${id}\n# (it writes the difference from the published .crate here; that copy is shared by every project).`,
+      };
+      return `# Replace this file with the patch for ${pkg}: a git-style diff with paths relative to the
+# published package (a/<file>, b/<file>).
+# ${where[ecosystem ?? 'npm'] ?? `diff a pristine copy (in .grafts/.cache/upstream/${ecosystem}/ after \`graft check\`) against your edited one.`}
 `;
     },
   };
