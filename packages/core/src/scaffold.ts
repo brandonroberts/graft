@@ -170,7 +170,8 @@ export async function addGraft(project: Project, input: AddGraftInput): Promise<
     }
   }
 
-  const version = input.version ?? (await project.installedVersion(input.package, ecosystem.name));
+  const given = input.version && ecosystem.normalizeVersion ? ecosystem.normalizeVersion(input.version) : input.version;
+  const version = given ?? (await project.installedVersion(input.package, ecosystem.name));
   if (!version) throw new GraftError(`${input.package} is not installed; pass --version`, 'upstream/not-installed');
   if (!ecosystem.scheme.valid(version)) throw new GraftError(`"${version}" is not a valid ${ecosystem.name} version`, 'version/invalid');
   const major = ecosystem.scheme.major(version);

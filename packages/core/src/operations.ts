@@ -18,6 +18,7 @@ import type {
 /** Resolve a version argument, defaulting to the installed version of the graft's rootstock. */
 export async function resolveVersion(project: Project, graft: Graft, version?: string): Promise<string> {
   if (version) {
+    version = project.ecosystemFor(graft).normalizeVersion?.(version) ?? version;
     const scheme = project.schemeFor(graft);
     if (!scheme.valid(version)) throw new GraftError(`"${version}" is not a valid ${schemeLabel(scheme.name)} version`, 'version/invalid');
     return version;

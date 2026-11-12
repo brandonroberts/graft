@@ -468,3 +468,30 @@ it.
   directory that isn't exactly pristine + variant.
 - **Capture:** `graft capture` diffs the installed copy against the pristine `.crate`. Cargo's
   extracted registry sources are shared by every project on the machine.
+
+### 10.3 go
+
+- **Versions** are written as the go command writes them (`v0.14.0`); a version given without
+  the `v` (`--version 0.14.0`) is normalized.
+- **Pristine:** `go mod download -json <module>@<version>`, run outside any module so the
+  project's `go.mod` and `go.sum` are untouched: the module cache's extracted copy, verified
+  against `go.sum` and the checksum database, and read-only. The environment's `GOPROXY`,
+  `GOPRIVATE` and `GONOSUMDB` apply.
+- **Versions:** `go list -m -versions` (retracted versions excluded).
+- **Installed copy:** `go list -m -json <module>` in the main module (`ecosystems.go.module`,
+  default the project root): its `Version`, and `Replace.Dir` (else `Dir`).
+- **Install:** `go get <module>@<version>`; reinstall: `go mod download`. A project with
+  `vendor/modules.txt` also gets `go mod vendor`.
+- **Applier `go-replace` (the default and only one):** pristine + variant is written to
+  `.grafts/.vendor/<module, / as +>-<version>/` (committed; it MUST have a `go.mod`), and a
+  **version-qualified** `replace <module> <version> => ./<that directory>` is set with
+  `go mod edit` in the main module's `go.mod`, or with `go work edit` in `go.work` when
+  `go env GOWORK` names one. Other replaces of the module are dropped. Version-qualified, so after
+  a bump the replace stops applying and the check fails, instead of applying an old variant to
+  new code; for a new version, `sync` installs with `go get`, which moves the `require`.
+- **Silent failure:** a replace for a version that isn't selected is ignored, and `go build`
+  exits 0. The applier's checks fail unless `go list -m` shows the module at the target version
+  from the vendored directory, on an unversioned or other-version replace of the module, on a
+  `vendor/modules.txt` that doesn't record the replacement, and on a vendored directory that
+  isn't exactly pristine + variant.
+- **Capture:** not available; the module cache is read-only.

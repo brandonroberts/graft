@@ -149,7 +149,9 @@ export async function sync(project: Project, options: SyncOptions = {}): Promise
     const ecosystem = pkgGrafts[0]!.frontmatter.rootstock.ecosystem;
     const standalone = project.isStandalone(pkgGrafts[0]!);
     const installedBefore = standalone ? undefined : await project.installedVersion(pkg, ecosystem);
-    const version = options.version ?? (standalone ? pkgGrafts[0]!.frontmatter.rootstock.verified : installedBefore);
+    const eco = project.ecosystemFor(ecosystem);
+    const requested = options.version && eco.normalizeVersion ? eco.normalizeVersion(options.version) : options.version;
+    const version = requested ?? (standalone ? pkgGrafts[0]!.frontmatter.rootstock.verified : installedBefore);
     const base = (g: Graft): SyncGraftResult => ({
       id: g.id,
       package: pkg,
@@ -213,7 +215,6 @@ export async function sync(project: Project, options: SyncOptions = {}): Promise
             if (r && r.install === 'reinstall') bare = true;
           }
           log(`installing ${pkg}@${version}`);
-          const eco = project.ecosystemFor(ecosystem);
           target.installCommand = bare ? await eco.reinstall(project) : await eco.install(project, pkg, version);
           const now = await project.installedVersion(pkg, ecosystem);
           if (now !== version) installError = `installed ${pkg} but found version ${now ?? 'none'}, expected ${version}`;

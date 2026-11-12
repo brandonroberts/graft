@@ -10,6 +10,8 @@ export interface Ecosystem {
   name: EcosystemName;
   /** How versions and variant ranges are validated and compared. */
   scheme: VersionScheme;
+  /** The ecosystem's canonical spelling of a version (Go: `0.14.0` → `v0.14.0`). */
+  normalizeVersion?(version: string): string;
   /** Pristine published contents, installed copies and published versions, for this project. */
   createUpstream(project: Project): UpstreamSource;
   /** The tool that manages this ecosystem's dependencies in the project (e.g. `pnpm`, `cargo`, `uv`). */

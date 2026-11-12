@@ -25,6 +25,7 @@ import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { detectPackageManager, findPnpRuntime, type Project, type UpstreamSource } from '@graftsync/core';
 import { cargoVendorApplier } from './cargo.js';
+import { goReplaceApplier } from './go.js';
 import { configurePnpmPatch, findPnpmWorkspaceRoot, pnpmConfigProblems } from './pnpm.js';
 import { vendorConfigure, vendorProblems } from './vendor.js';
 
@@ -70,6 +71,7 @@ export interface PatchApplier {
 /** Appliers of the ecosystems other than npm, and each one's default. */
 const OTHER_ECOSYSTEMS: Record<string, { default: string; appliers: Record<string, PatchApplier> }> = {
   cargo: { default: 'cargo-vendor', appliers: { 'cargo-vendor': cargoVendorApplier } },
+  go: { default: 'go-replace', appliers: { 'go-replace': goReplaceApplier } },
 };
 
 /**

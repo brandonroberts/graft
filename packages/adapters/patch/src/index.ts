@@ -38,3 +38,4 @@ export { captureInstalledChanges } from './capture.js';
 export { cargoVendorApplier, cargoVendorDir, cargoWorkspaceManifest, unusedPatches } from './cargo.js';
 export { getTomlValue, getTomlKeys, setTomlValue, removeTomlValue, inlineTableString } from './toml.js';
 export { buildPatchedDir, writePatchedDir, patchedDirProblems, treeDifferences, treeFiles } from './vendor-dir.js';
+export { goReplaceApplier, goVendorDir } from './go.js';
