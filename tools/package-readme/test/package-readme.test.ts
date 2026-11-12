@@ -35,6 +35,13 @@ describe('packageReadme', () => {
     ]);
   });
 
+  it('can point images at a commit while links stay on the tag', () => {
+    const md = '[spec](docs/spec.md) ![Flow](docs/flow.png)';
+    expect(packageReadme(md, { root: fixtureRoot(), ref: 'v1.2.3', imageRef: 'abc123' })).toBe(
+      '[spec](https://github.com/brandonroberts/graft/blob/v1.2.3/docs/spec.md) ![Flow](https://raw.githubusercontent.com/brandonroberts/graft/abc123/docs/flow.png)',
+    );
+  });
+
   it('leaves links inside fenced code alone', () => {
     const md = '```md\n[missing](nowhere.md)\n```\n[spec](docs/spec.md)';
     expect(packageReadme(md, { root: fixtureRoot(), ref: 'v1.0.0' })).toBe(
@@ -64,6 +71,10 @@ describe('package-readme.mjs', () => {
     const readme = readFileSync(path.join(pkg, 'README.md'), 'utf8');
     expect(readme).toMatch(/^# Graft/);
     expect(readme).toContain('https://github.com/brandonroberts/graft/blob/v4.5.6/docs/spec.md');
+    // The image points at the packed commit, which is on GitHub before the release tag is.
+    const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).trim();
+    expect(readme).toContain(`https://raw.githubusercontent.com/brandonroberts/graft/${head}/docs/workflow.png`);
+    expect(readme).not.toContain('raw.githubusercontent.com/brandonroberts/graft/v4.5.6/');
     execFileSync(process.execPath, [script, '--clean'], { cwd: pkg });
     expect(existsSync(path.join(pkg, 'README.md'))).toBe(false);
   });
