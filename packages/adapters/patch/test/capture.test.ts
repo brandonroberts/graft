@@ -85,6 +85,17 @@ describe('graft capture (patch)', () => {
     expect(project.selectVariant(graft, '1.0.0')?.module).toBe('./variants/v1.0.0.patch');
   });
 
+  it('refuses an installed copy that is exactly pristine + the selected variant (no new change)', async () => {
+    const { project, installed, graftDir } = await setup();
+    await writeFile(path.join(installed, 'lib/a.js'), 'module.exports = 10\n');
+    await captureVariant(project, 'add-b');
+    // Nothing edited since: capturing again would register a duplicate of v1.patch.
+    await expect(captureVariant(project, 'add-b')).rejects.toThrow(
+      /exactly the published package \+ \.\/variants\/v1\.patch, so there is no new change/,
+    );
+    expect(await readFile(path.join(graftDir, 'graft.md'), 'utf8')).not.toContain('v1.0.0.patch');
+  });
+
   it('refuses binary changes', async () => {
     const { project, installed } = await setup();
     await writeFile(path.join(installed, 'logo.png'), Buffer.from([0x89, 0x50, 0, 1, 2]));
