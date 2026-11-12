@@ -1,5 +1,13 @@
 # @graftsync/adapter-patch
 
+## 0.2.5
+
+### Patch Changes
+
+- Updated dependencies
+  - @graftsync/core@0.2.5
+  - @graftsync/spec@0.2.5
+
 ## 0.2.4
 
 ### Patch Changes

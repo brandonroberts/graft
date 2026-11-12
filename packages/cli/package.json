@@ -1,6 +1,6 @@
 {
   "name": "@graftsync/cli",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "The graft CLI: keep local modifications to upstream npm packages in sync.",
   "type": "module",
   "license": "MIT",
