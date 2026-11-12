@@ -26,6 +26,7 @@ import path from 'node:path';
 import { detectPackageManager, findPnpRuntime, type Project, type UpstreamSource } from '@graftsync/core';
 import { cargoVendorApplier } from './cargo.js';
 import { goReplaceApplier } from './go.js';
+import { wheelVendorApplier } from './pypi.js';
 import { configurePnpmPatch, findPnpmWorkspaceRoot, pnpmConfigProblems } from './pnpm.js';
 import { vendorConfigure, vendorProblems } from './vendor.js';
 
@@ -72,6 +73,7 @@ export interface PatchApplier {
 const OTHER_ECOSYSTEMS: Record<string, { default: string; appliers: Record<string, PatchApplier> }> = {
   cargo: { default: 'cargo-vendor', appliers: { 'cargo-vendor': cargoVendorApplier } },
   go: { default: 'go-replace', appliers: { 'go-replace': goReplaceApplier } },
+  pypi: { default: 'wheel-vendor', appliers: { 'wheel-vendor': wheelVendorApplier } },
 };
 
 /**

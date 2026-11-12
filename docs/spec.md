@@ -495,3 +495,40 @@ it.
   `vendor/modules.txt` that doesn't record the replacement, and on a vendored directory that
   isn't exactly pristine + variant.
 - **Capture:** not available; the module cache is read-only.
+
+### 10.4 pypi
+
+- **Names** compare normalized (PEP 503: `Typing_Extensions` is `typing-extensions`).
+- **Versions** use PEP 440 (§4.1). In YAML, quote a version that would read as a number
+  (`verified: "24.0"`); the scaffold does.
+- **Pristine:** the published **wheel**, the artifact that gets installed: `pip download --no-deps
+  --only-binary :all: <name>==<version>` (the project's interpreter's pip, else `python3`'s; the
+  pip configuration and index apply), extracted. For packages that publish only platform wheels,
+  `ecosystems.pypi.platform` picks the platform tag. A package with only an sdist can't be a
+  `patch` graft (its source belongs in the `fork` mechanism).
+- **Versions:** the index's JSON API (`ecosystems.pypi.index`, default `https://pypi.org/pypi`);
+  yanked releases are skipped.
+- **Installed copy:** the project's interpreter (`ecosystems.pypi.python`, else
+  `.venv/bin/python`, else `python3`) reports the distribution's version and site-packages
+  directory (`importlib.metadata`); wheel paths are relative to it.
+- **Tool:** uv when `uv.lock` exists, poetry when `poetry.lock` exists, else pip.
+- **Install:** uv: `uv lock --upgrade-package <name>==<version>` and `uv sync`; pip:
+  `python -m pip install <name>==<version>`. Reinstall: uv: `uv lock --upgrade-package` for each
+  vendored wheel, then `uv sync`; pip: `pip install -r` the requirements file, then
+  `pip install --force-reinstall --no-deps` the vendored wheels.
+- **Applier `wheel-vendor` (the default and only one):** pristine wheel + variant is repacked,
+  with `RECORD` regenerated and the published wheel's filename and version (a `+local` label
+  would be another version to resolvers), as `.grafts/.vendor/<wheel>` (committed). uv projects
+  get `[tool.uv.sources] <name> = { path = ".grafts/.vendor/<wheel>" }` in `pyproject.toml`;
+  uv applies sources to direct dependencies only, so a package that isn't in
+  `[project] dependencies` is refused with a reason. pip projects get the package's line in
+  `ecosystems.pypi.requirements` (default `requirements.txt`) replaced by the wheel's path
+  (its trailing comment kept). Poetry projects are refused for now.
+- **Silent failures:** pip treats a wheel of the same name and version as "already satisfied"
+  even when its contents changed, and exits 0, so the installed copy stays unpatched or stale;
+  uv refuses a changed wheel (hash mismatch) but keeps the old hash on a plain `uv lock`. The
+  applier's checks fail on a vendored wheel that isn't pristine + variant, on a `uv.lock` that
+  doesn't lock the package to the wheel or pins another build's hash, and on a requirements file
+  that doesn't install the wheel; the installed-files check (§9.1) catches an installed copy
+  that isn't pristine + variant whatever the tool did.
+- **Capture:** not available yet.

@@ -135,3 +135,9 @@ export function inlineTableString(value: string | undefined, field: string): str
   const m = new RegExp(`(?:^|[{,\\s])${escape(field)}\\s*=\\s*(?:"((?:[^"\\\\]|\\\\.)*)"|'([^']*)')`).exec(value);
   return m ? (m[1] !== undefined ? JSON.parse(`"${m[1]}"`) : m[2]) : undefined;
 }
+
+/** The body lines of `[table]` (without the header), or undefined when there is no such table. */
+export function getTomlTableBody(text: string, table: string): string | undefined {
+  const { lines, header, end } = locate(text, table);
+  return header < 0 ? undefined : lines.slice(header + 1, end).join('\n');
+}

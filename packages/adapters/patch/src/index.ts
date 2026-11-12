@@ -36,6 +36,7 @@ export { applyToInstalledCopy, findInstalledCopies, writeNewInode } from './inst
 export { patchAdapter as default } from './adapter.js';
 export { captureInstalledChanges } from './capture.js';
 export { cargoVendorApplier, cargoVendorDir, cargoWorkspaceManifest, unusedPatches } from './cargo.js';
-export { getTomlValue, getTomlKeys, setTomlValue, removeTomlValue, inlineTableString } from './toml.js';
+export { getTomlValue, getTomlKeys, getTomlTableBody, setTomlValue, removeTomlValue, inlineTableString } from './toml.js';
 export { buildPatchedDir, writePatchedDir, patchedDirProblems, treeDifferences, treeFiles } from './vendor-dir.js';
 export { goReplaceApplier, goVendorDir } from './go.js';
+export { wheelVendorApplier, buildPatchedWheel } from './pypi.js';
