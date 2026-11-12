@@ -1,4 +1,5 @@
-// Graft GitHub Action: poll upstream dist-tags, run the deterministic first pass, open PRs, and
+// Graft GitHub Action: poll upstream versions (npm dist-tags; the newest stable and prerelease for
+// cargo, go and pypi), run the deterministic first pass, open PRs, and
 // hand grafts that need an agent to a configurable agent command. Uses only Node builtins and
 // the git / gh CLIs, so it runs from a checkout of this repository with no build step.
 import { spawn } from 'node:child_process';
@@ -60,6 +61,33 @@ export function sh(command, { cwd, env, onOutput } = {}) {
 const quote = (s) => `'${String(s).replaceAll("'", "'\\''")}'`;
 const slug = (s) => s.replace(/^@/, '').replace(/[^a-zA-Z0-9.-]+/g, '-');
 
+/** A rootstock's ecosystem (`outdated` entries before ecosystems had none: npm). */
+const ecosystemOf = (e) => e.ecosystem ?? 'npm';
+/** A package as people read it: `name`, or `ecosystem:name` outside npm. */
+export const packageLabel = (c) => (ecosystemOf(c) === 'npm' ? c.package : `${c.ecosystem}:${c.package}`);
+/** Where a candidate version came from: an npm dist-tag, or another registry's newest release / prerelease. */
+export const sourceLabel = (c) =>
+  ecosystemOf(c) === 'npm' ? `dist-tag \`${c.tag}\`` : `\`${c.tag}\`: the newest ${c.tag === 'next' ? 'prerelease' : 'release'}`;
+/** `--ecosystem <name>` for graft commands outside npm (npm commands stay as they were). */
+const ecosystemFlag = (c) => (ecosystemOf(c) === 'npm' ? '' : ` --ecosystem ${quote(c.ecosystem)}`);
+
+/**
+ * What resets the dependencies a candidate installed outside git, before the next candidate, by
+ * ecosystem. Cargo and Go keep their lockfiles and vendored copies in git, so the checkout resets
+ * them; a Python environment and node_modules are not in git. Null: nothing to reset.
+ */
+export function detectResetCommand(cwd, ecosystem, installCommand) {
+  if (ecosystem === 'cargo' || ecosystem === 'go') return null;
+  if (ecosystem === 'pypi') {
+    if (existsSync(path.join(cwd, 'uv.lock'))) return 'uv sync --locked';
+    if (existsSync(path.join(cwd, 'poetry.lock'))) return 'poetry install';
+    if (!existsSync(path.join(cwd, 'requirements.txt'))) return null;
+    const python = existsSync(path.join(cwd, '.venv/bin/python')) ? '.venv/bin/python' : 'python3';
+    return `${python} -m pip install -r requirements.txt`;
+  }
+  return installCommand || detectInstallCommand(cwd);
+}
+
 /** yarn 2+ (berry) rather than yarn classic: `packageManager: yarn@2+`, `.yarnrc.yml`, a PnP runtime, or berry's lockfile header. */
 export function isYarnBerry(cwd) {
   try {
@@ -94,12 +122,12 @@ export function renderPrBody({ candidate, report, agentBody, outcome }) {
   if (agentBody?.trim()) {
     lines.push(agentBody.trim(), '');
   } else {
-    lines.push(`## Graft sync: ${candidate.package} ${candidate.verified} → ${candidate.version}`, '');
+    lines.push(`## Graft sync: ${packageLabel(candidate)} ${candidate.verified} → ${candidate.version}`, '');
   }
   lines.push(
     candidate.standalone
       ? `Upstream \`${candidate.package}\` at \`${candidate.version}\` (${candidate.tag}); this branch is the fork rebased onto it.`
-      : `Upstream \`${candidate.package}@${candidate.version}\` (dist-tag \`${candidate.tag}\`).`,
+      : `Upstream \`${packageLabel(candidate)}@${candidate.version}\` (${sourceLabel(candidate)}).`,
     '',
   );
   if (outcome === 'needs-agent') {
@@ -168,7 +196,7 @@ export function renderAgentPrompt({ candidate, report, files }) {
   const needs = report.grafts.filter((g) => g.outcome === 'needs-agent').map((g) => g.id);
   return `Graft sync needs an agent.
 
-Upstream ${candidate.package} was released as ${candidate.version} (dist-tag "${candidate.tag}"); the grafts were verified against ${candidate.verified}.
+Upstream ${packageLabel(candidate)} was released as ${candidate.version} (${sourceLabel(candidate).replaceAll('`', '"')}); the grafts were verified against ${candidate.verified}.
 The deterministic first pass could not re-verify these grafts: ${needs.join(', ')}.
 
 Follow the graft-sync skill: ${files.skill}
@@ -177,7 +205,7 @@ Drive Graft with its CLI, \`${files.graftCommand}\` (also in $GRAFT_COMMAND; eve
 
 You are running inside the Graft GitHub Action on branch ${files.branch}:
 - Do NOT commit, push, or open a pull request; the action does that after re-verifying your work.
-- Make the grafts pass for ${candidate.package}@${candidate.version} by adding new variants (never edit existing ones), registering them with \`variant add --verify-version ${candidate.version}\`, and checking them with \`${files.graftCommand} sync --version ${candidate.version} --package ${candidate.package} --install\`.
+- Make the grafts pass for ${packageLabel(candidate)}@${candidate.version} by adding new variants (never edit existing ones), registering them with \`variant add --verify-version ${candidate.version}\`, and checking them with \`${files.graftCommand} sync --version ${candidate.version} --package ${candidate.package}${ecosystemFlag(candidate)} --install\`.
 - Verify each graft's Invariants with the project's own tests at ${candidate.version} (add a test where none covers one). Graft only checks that a variant fits and installs; the behavior is yours to prove.
 - If an invariant cannot be satisfied, mark the graft conflicted (\`mark <id> --status conflicted --history "…"\`) instead of forcing a pass.
 - Write the pull request description (the skill's format, including how you verified the Invariants) to ${files.prBody}.
@@ -247,7 +275,6 @@ export async function runAction(options, deps) {
 
   // 2. Sync: look for newer upstream versions and propose them.
   const base = options.baseBranch || (await git('rev-parse', '--abbrev-ref', 'HEAD'));
-  const reinstall = options.installCommand || detectInstallCommand(cwd);
   const skill = options.skillPath || path.resolve(deps.actionPath ?? '.', '../skill/SKILL.md');
   await mkdir(deps.tmpDir, { recursive: true });
 
@@ -255,10 +282,13 @@ export async function runAction(options, deps) {
   const outdated = await run(outdatedCmd);
   if (outdated.code !== 0) throw new Error(`\`${outdatedCmd}\` failed (exit ${outdated.code}):\n${outdated.stderr || outdated.stdout}`);
   const entries = JSON.parse(outdated.stdout);
+  // `packages` names a package (`lib`), or one in an ecosystem (`cargo:lib`).
+  const wanted = (e) => !options.packages.length || options.packages.includes(e.package) || options.packages.includes(packageLabel(e));
   const candidates = entries
-    .filter((e) => e.candidate && (!options.packages.length || options.packages.includes(e.package)))
+    .filter((e) => e.candidate && wanted(e))
     .map((e) => ({
       package: e.package,
+      ecosystem: ecosystemOf(e),
       version: e.candidate.version,
       tag: e.candidate.tag,
       verified: e.verified,
@@ -267,8 +297,8 @@ export async function runAction(options, deps) {
     }));
 
   const results = entries
-    .filter((e) => !e.candidate && (!options.packages.length || options.packages.includes(e.package)))
-    .map((e) => ({ package: e.package, from: e.verified, outcome: 'up-to-date' }));
+    .filter((e) => !e.candidate && wanted(e))
+    .map((e) => ({ package: e.package, ecosystem: ecosystemOf(e), from: e.verified, outcome: 'up-to-date' }));
   if (!candidates.length) log('graft: all rootstock packages are up to date');
 
   // Syncing switches branches and resets the working tree (`checkout -f`, `clean -fd`), and
@@ -296,9 +326,11 @@ export async function runAction(options, deps) {
   }
 
   let dirty = false;
+  let previous;
   for (const candidate of candidates) {
     const result = {
       package: candidate.package,
+      ecosystem: candidate.ecosystem,
       from: candidate.verified,
       to: candidate.version,
       tag: candidate.tag,
@@ -306,9 +338,11 @@ export async function runAction(options, deps) {
       reasons: [],
     };
     results.push(result);
-    const branch = `${options.branchPrefix}${slug(candidate.package)}-${candidate.version}`;
+    // Outside npm the branch names the ecosystem too, so an npm `ms` and a crate `ms` never share one.
+    const ecoPart = candidate.ecosystem === 'npm' ? '' : `${candidate.ecosystem}-`;
+    const branch = `${options.branchPrefix}${ecoPart}${slug(candidate.package)}-${candidate.version}`;
     result.branch = branch;
-    log(`graft: ${candidate.package} ${candidate.verified} → ${candidate.version} (${candidate.tag}) on ${branch}`);
+    log(`graft: ${packageLabel(candidate)} ${candidate.verified} → ${candidate.version} (${candidate.tag}) on ${branch}`);
     try {
       const remote = await run(`git ls-remote --exit-code --heads origin ${quote(branch)}`);
       if (remote.code === 0) {
@@ -320,18 +354,21 @@ export async function runAction(options, deps) {
       if (dirty) {
         await git('checkout', '-f', base);
         await git('clean', '-fd');
-        // A repo-mode graft installs nothing, so there is nothing to reset for it.
-        if (!candidate.standalone) {
-          const r = await run(reinstall);
-          if (r.code !== 0) throw new Error(`\`${reinstall}\` failed:\n${r.stderr || r.stdout}`);
+        // Reset what the previous candidate installed outside git, in its own ecosystem. A repo-mode
+        // graft installs nothing, and Cargo and Go keep everything they install in git.
+        const reset = previous && !previous.standalone ? detectResetCommand(cwd, previous.ecosystem, options.installCommand) : null;
+        if (reset) {
+          const r = await run(reset);
+          if (r.code !== 0) throw new Error(`\`${reset}\` failed:\n${r.stderr || r.stdout}`);
         }
       }
       dirty = true;
+      previous = candidate;
       await git('checkout', '-B', branch, base);
 
       const syncCmd = candidate.standalone
         ? `${options.graftCommand} sync --json --version ${quote(candidate.version)} --id ${quote(candidate.grafts.join(','))}`
-        : `${options.graftCommand} sync --json --version ${quote(candidate.version)} --package ${quote(candidate.package)} --install`;
+        : `${options.graftCommand} sync --json --version ${quote(candidate.version)} --package ${quote(candidate.package)}${ecosystemFlag(candidate)} --install`;
       // Repo mode: Graft leaves its result (or, for an agent, git's merge with conflict markers)
       // as a branch in its cache clone; the PR branch takes that whole tree. When Graft names the
       // upstream commit the result sits on, the commit is a merge of it (with the result's tree),
@@ -381,7 +418,7 @@ export async function runAction(options, deps) {
       result.syncExitCode = code;
       if (code === 2) {
         result.reasons.push(...report.grafts.filter((g) => g.outcome === 'error').flatMap((g) => g.reasons));
-        throw new Error(`graft sync reported a tooling error for ${candidate.package}@${candidate.version}`);
+        throw new Error(`graft sync reported a tooling error for ${packageLabel(candidate)}@${candidate.version}`);
       }
       await adoptFrom(report, code);
 
@@ -400,7 +437,7 @@ export async function runAction(options, deps) {
           files.prompt,
           (candidate.standalone ? renderStandaloneAgentPrompt : renderAgentPrompt)({ candidate, report, files }),
         );
-        log(`graft: handing ${candidate.package}@${candidate.version} to the agent`);
+        log(`graft: handing ${packageLabel(candidate)}@${candidate.version} to the agent`);
         const agent = await run(options.agentCommand, {
           env: {
             GRAFT_PROMPT_FILE: files.prompt,
@@ -410,6 +447,7 @@ export async function runAction(options, deps) {
             GRAFT_REPORT_MD: files.reportMarkdown,
             GRAFT_PR_BODY_FILE: files.prBody,
             GRAFT_PACKAGE: candidate.package,
+            GRAFT_ECOSYSTEM: candidate.ecosystem,
             GRAFT_TARGET_VERSION: candidate.version,
             GRAFT_BRANCH: branch,
           },
@@ -441,7 +479,7 @@ export async function runAction(options, deps) {
         (await git('status', '--porcelain'))
           .split('\n')
           .filter((l) => l.trim() && !(tmpRel && !tmpRel.startsWith('..') && l.slice(3).startsWith(tmpRel.split('/')[0]))).length > 0;
-      const title = `graft: sync ${candidate.package} to ${candidate.version}${outcome === 'needs-agent' ? ' (needs attention)' : ''}`;
+      const title = `graft: sync ${packageLabel(candidate)} to ${candidate.version}${outcome === 'needs-agent' ? ' (needs attention)' : ''}`;
       const body = renderPrBody({ candidate, report, agentBody, outcome });
       if (!changed && outcome === 'green') {
         result.outcome = 'no-changes';
@@ -473,7 +511,7 @@ export async function runAction(options, deps) {
       if (tmpRel && !tmpRel.startsWith('..')) await run(`git reset -q -- ${quote(tmpRel.split('/')[0])}`);
       await deps
         .sh(
-          `git -c user.name=${quote(authorName)} -c user.email=${quote(authorEmail)} commit -q -m ${quote(title)} -m ${quote(`Upstream ${candidate.package}@${candidate.version} (${candidate.tag}). Generated by graft sync.`)}`,
+          `git -c user.name=${quote(authorName)} -c user.email=${quote(authorEmail)} commit -q -m ${quote(title)} -m ${quote(`Upstream ${packageLabel(candidate)}@${candidate.version} (${candidate.tag}). Generated by graft sync.`)}`,
           { cwd },
         )
         .then((r) => {
@@ -524,7 +562,7 @@ export async function runAction(options, deps) {
     } catch (err) {
       result.outcome = 'error';
       result.reasons.push(err.message);
-      log(`graft: ${candidate.package}@${candidate.version} failed: ${err.message}`);
+      log(`graft: ${packageLabel(candidate)}@${candidate.version} failed: ${err.message}`);
     }
   }
 
@@ -615,8 +653,10 @@ const ICON = {
 export function renderSummary(results) {
   const lines = ['## Graft sync', '', '| Package | Verified → Candidate | Outcome | Link |', '|---|---|---|---|'];
   for (const r of results)
-    lines.push(`| ${r.package} | ${r.from} → ${r.to ?? '—'} | ${ICON[r.outcome] ?? ''} ${r.outcome} | ${r.pullRequest ?? r.issue ?? ''} |`);
+    lines.push(
+      `| ${packageLabel(r)} | ${r.from} → ${r.to ?? '—'} | ${ICON[r.outcome] ?? ''} ${r.outcome} | ${r.pullRequest ?? r.issue ?? ''} |`,
+    );
   const notes = results.filter((r) => r.reasons?.length);
-  for (const r of notes) lines.push('', `**${r.package}**`, ...r.reasons.map((x) => `- ${x.split('\n')[0]}`));
+  for (const r of notes) lines.push('', `**${packageLabel(r)}**`, ...r.reasons.map((x) => `- ${x.split('\n')[0]}`));
   return `${lines.join('\n')}\n`;
 }

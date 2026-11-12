@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error -- plain .mjs module without type declarations
-import { detectInstallCommand, parseInputs, renderPrBody, runAction, sh } from '../src/sync-action.mjs';
+import { detectInstallCommand, detectResetCommand, parseInputs, renderPrBody, runAction, sh } from '../src/sync-action.mjs';
 
 const FAKE_GRAFT = path.join(import.meta.dirname, 'fake-graft.mjs');
 
@@ -320,6 +320,63 @@ describe('graft GitHub Action', () => {
     dirtyWork(upToDate);
     expect((await upToDate.run()).results[0]).toMatchObject({ outcome: 'up-to-date' });
     expect(readFileSync(path.join(upToDate.work, 'notes.txt'), 'utf8')).toBe('mine\n');
+  });
+
+  it('syncs packages of other ecosystems with --ecosystem, on their own branches, resetting only what needs it', async () => {
+    const eco = (ecosystem: string, pkg: string, version: string) => ({ ...entry(pkg, version), ecosystem });
+    const t = setup({
+      outdated: [eco('cargo', 'lib', '1.1.0'), eco('npm', 'lib', '1.1.0'), eco('npm', 'other', '2.1.0')],
+      sync: { lib: 'green', other: 'green' },
+    });
+    const { results, failed } = await t.run({ 'install-command': 'echo REINSTALL >> "$FAKE_LOG"' });
+    expect(failed).toBe(false);
+    expect(results.map((r: any) => [r.ecosystem, r.package, r.branch])).toEqual([
+      ['cargo', 'lib', 'graft/sync-cargo-lib-1.1.0'],
+      ['npm', 'lib', 'graft/sync-lib-1.1.0'],
+      ['npm', 'other', 'graft/sync-other-2.1.0'],
+    ]);
+    expect(t.calls()).toMatch(/graft sync --json --version 1\.1\.0 --package lib --ecosystem cargo --install\n/);
+    expect(t.calls()).toMatch(/graft sync --json --version 1\.1\.0 --package lib --install\n/);
+    // Cargo keeps what it installs in git, so the checkout alone resets it; npm's node_modules is reinstalled.
+    expect(t.calls().match(/REINSTALL/g)).toHaveLength(1);
+    const create = t
+      .calls()
+      .split('\n')
+      .find((l) => l.includes('"create"') && l.includes('cargo:lib'))!;
+    expect(create).toContain('graft: sync cargo:lib to 1.1.0');
+    expect(t.summary()).toContain('| cargo:lib | 1.0.0 → 1.1.0 | ✅ pr |');
+
+    // `packages` tells same-named packages apart by ecosystem.
+    const only = setup({ outdated: [eco('cargo', 'lib', '1.1.0'), eco('npm', 'lib', '1.1.0')], sync: { lib: 'green' } });
+    const picked = await only.run({ packages: 'cargo:lib' });
+    expect(picked.results.map((r: any) => r.branch)).toEqual(['graft/sync-cargo-lib-1.1.0']);
+  });
+
+  it('picks the reset between packages by ecosystem', () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'graft-reset-'));
+    expect(detectResetCommand(dir, 'cargo', 'x')).toBeNull();
+    expect(detectResetCommand(dir, 'go', 'x')).toBeNull();
+    expect(detectResetCommand(dir, 'pypi')).toBeNull();
+    expect(detectResetCommand(dir, 'npm', 'pnpm install')).toBe('pnpm install');
+    expect(detectResetCommand(dir, 'npm')).toBe('npm install');
+    writeFileSync(path.join(dir, 'requirements.txt'), 'packaging==24.0\n');
+    expect(detectResetCommand(dir, 'pypi')).toBe('python3 -m pip install -r requirements.txt');
+    mkdirSync(path.join(dir, '.venv/bin'), { recursive: true });
+    writeFileSync(path.join(dir, '.venv/bin/python'), '');
+    expect(detectResetCommand(dir, 'pypi')).toBe('.venv/bin/python -m pip install -r requirements.txt');
+    writeFileSync(path.join(dir, 'uv.lock'), '');
+    expect(detectResetCommand(dir, 'pypi', 'npm ci')).toBe('uv sync --locked');
+  });
+
+  it('describes versions outside npm without dist-tags', () => {
+    const body = renderPrBody({
+      candidate: { package: 'itoa', ecosystem: 'cargo', verified: '1.0.17', version: '1.0.18', tag: 'latest' },
+      outcome: 'green',
+      report: { grafts: [{ id: 'g', from: '1.0.17', to: '1.0.18', outcome: 'green', reasons: [] }] },
+    });
+    expect(body).toContain('## Graft sync: cargo:itoa 1.0.17 → 1.0.18');
+    expect(body).toContain('`cargo:itoa@1.0.18` (`latest`: the newest release)');
+    expect(body).not.toContain('dist-tag');
   });
 
   it('renders PR bodies with per-graft failure details', () => {

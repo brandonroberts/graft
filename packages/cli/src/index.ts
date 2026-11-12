@@ -328,6 +328,7 @@ const syncCmd = defineCommand({
     ...common,
     version: { type: 'string', description: 'Target upstream version (default: installed)' },
     package: { type: 'string', description: 'Only grafts on this upstream package' },
+    ecosystem: { type: 'string', description: 'Only grafts on packages of this ecosystem (npm | cargo | go | pypi)' },
     id: { type: 'string', description: 'Comma-separated graft ids' },
     install: { type: 'boolean', description: 'Install the target version if it is not installed' },
     'dry-run': { type: 'boolean', description: 'Do not update graft.md on success' },
@@ -338,6 +339,7 @@ const syncCmd = defineCommand({
     const report = await sync(project, {
       version: args.version,
       package: args.package,
+      ecosystem: args.ecosystem,
       ids: args.id
         ?.split(',')
         .map((s) => s.trim())

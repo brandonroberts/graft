@@ -1,6 +1,6 @@
 # Graft sync GitHub Action
 
-First runs **`graft check`** on the installed tree, then polls npm dist-tags for each graft's rootstock package (or, for [repo-mode forks](#repo-mode-forks-that-are-the-product), the upstream's git tags or a tracked branch). When there's a newer version, it runs
+First runs **`graft check`** on the installed tree, then polls for a newer version of each graft's rootstock package: npm dist-tags, the newest release and prerelease for Cargo, Go and PyPI packages (`latest`, `next`), or, for [repo-mode forks](#repo-mode-forks-that-are-the-product), the upstream's git tags or a tracked branch. When there's a newer version, it runs
 Graft's deterministic first pass and then does one of the following:
 
 | `graft sync` result | Action |
@@ -11,7 +11,7 @@ Graft's deterministic first pass and then does one of the following:
 | 📝 a PR to open, but Actions may not open PRs here | Pushes the branch anyway and opens an **issue** with the report and a one-click "Open the pull request" link (see [Tokens](#tokens-and-pull-requests)). Not an error |
 | ❌ tooling error | Fails the job for that package and still processes the others |
 
-Each package@version gets its own branch (`graft/sync-<package>-<version>`). A branch or issue that already exists is skipped, so the action is safe to run on a schedule.
+Each package@version gets its own branch (`graft/sync-<package>-<version>`; outside npm, `graft/sync-<ecosystem>-<package>-<version>`). A branch or issue that already exists is skipped, so the action is safe to run on a schedule.
 
 Syncing switches branches and resets the working tree, so when there is something to sync the action **requires a clean working tree**. That's what CI gives it. If the tree has uncommitted changes or untracked files that aren't gitignored, it stops before touching any branch and lists them. This includes `dry-run`. Without the check it would discard them, or commit them into a sync PR. Check-only runs (`sync: false`) and runs with nothing to sync don't need a clean tree.
 
@@ -20,9 +20,9 @@ Syncing switches branches and resets the working tree, so when there is somethin
 Before touching any branch, the action checks the project as the workflow installed it. For every active graft:
 - **the package-manager configuration** must apply the selected variant;
 - **anchors** must match;
-- **each patched file in `node_modules`** must equal pristine upstream + that variant.
+- **each patched file in the installed copy** (`node_modules`, the crate or module cargo and go resolve, site-packages) must equal pristine upstream + that variant.
 
-This catches grafts that were silently dropped: an `--ignore-scripts` install, a stale vendored tarball, a hand-edited lock, a patch reverted by a "repair" pass.
+This catches grafts that were silently dropped: an `--ignore-scripts` install, a stale vendored tarball, a hand-edited lock, a patch reverted by a "repair" pass, a Cargo `[patch]` listed under `[[patch.unused]]`, a Go `replace` the go command ignores, a wheel pip left "already satisfied".
 
 - `check: fail` (default) annotates each problem and fails the job, after the sync work is done.
 - `check: warn` annotates only. `check: off` skips it.
@@ -58,6 +58,17 @@ jobs:
 ```
 
 Enable **Settings → Actions → General → Allow GitHub Actions to create and approve pull requests**, or use a GitHub App token (below).
+
+**Cargo, Go and PyPI projects** have no `package.json` to install the CLI from, so run it with `npx` and set up the project's own tool first (cargo, go, and uv or pip with the project's virtualenv: Graft reads the installed copy through `.venv/bin/python` by default):
+
+```yaml
+      - uses: actions/setup-node@v7
+        with: { node-version: 24 }
+      - run: uv sync --locked            # or: python -m venv .venv && .venv/bin/pip install -r requirements.txt
+      - uses: brandonroberts/graft/packages/action@main
+        with:
+          graft-command: npx --yes @graftsync/cli@^0.2.3   # 0.2.3 added Cargo, Go and PyPI
+```
 
 ## Tokens and pull requests
 
@@ -103,7 +114,7 @@ The project must gitignore `.grafts/.cache/` and `.grafts/.report/`.
 | `GRAFT_COMMAND` | How to run the graft CLI (the `graft-command` input) |
 | `GRAFT_REPORT_MD`, `GRAFT_REPORT_JSON` | The sync report |
 | `GRAFT_PR_BODY_FILE` | Where the agent writes the PR description |
-| `GRAFT_PACKAGE`, `GRAFT_TARGET_VERSION`, `GRAFT_BRANCH` | What's being synced |
+| `GRAFT_PACKAGE`, `GRAFT_ECOSYSTEM`, `GRAFT_TARGET_VERSION`, `GRAFT_BRANCH` | What's being synced |
 
 Example with Claude Code. Adjust the flags to your agent and your CLI version:
 
@@ -129,10 +140,10 @@ The agent must not commit, push or open PRs. The action does that after re-verif
 | `working-directory` | `.` | Directory containing `.grafts/` |
 | `graft-command` | `npx --no-install graft` | How to run the CLI |
 | `tags` | `latest,next,rc,beta` | Dist-tags to consider. The highest newer version wins, so prereleases are preferred |
-| `packages` | all | Restrict to these rootstock packages |
+| `packages` | all | Restrict to these rootstock packages (`cargo:itoa` names one outside npm) |
 | `agent-command` | — | See above |
 | `on-needs-agent` | `report` | `report`: a draft PR if there are changes, otherwise an issue. `skip`: job summary only |
-| `install-command` | from lockfile | Reinstall used between packages |
+| `install-command` | from lockfile | Reinstall used between npm packages. Other ecosystems reset themselves between packages: nothing for Cargo and Go (their lockfiles and vendored copies are in git), `uv sync --locked`, `poetry install` or `pip install -r requirements.txt` for PyPI |
 | `base-branch` | checked-out branch | PR base |
 | `branch-prefix` | `graft/sync-` | |
 | `labels` | — | Labels for PRs and issues; they must already exist |

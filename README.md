@@ -190,6 +190,7 @@ graft status                          # grafts, versions, status, anchor health
 graft check [<id>] [--version X]      # anchor report against installed or X
 graft diff <id> [<from>] [<to>]       # scoped upstream diff
 graft sync [--version X] [--install]  # deterministic first pass; writes the report
+                                      # (--package <pkg> [--ecosystem <eco>] to pick one rootstock)
 graft outdated                        # newer dist-tagged upstream versions
 graft replay <id> [--range R]         # static checks across every published version
 ```
@@ -302,7 +303,7 @@ yarn 4.18 was verified the same way, under both Plug'n'Play and `nodeLinker: nod
 In a monorepo where the upstream package is declared by a workspace package rather than the root, tell Graft where to resolve it from in `.grafts/config.json`:
 
 ```json
-{ "resolveFrom": { "semver": "packages/core", "yaml": "packages/spec" } }
+{ "resolveFrom": { "semver": "packages/spec", "yaml": "packages/spec" } }
 ```
 
 ### Other ecosystems: Cargo, Go, PyPI
