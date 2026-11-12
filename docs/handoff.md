@@ -297,6 +297,7 @@ Graft keeps three of its own CommonJS dependencies converted to native ESM, as r
 - **#4:** real-agent evaluation (needs agent and API credentials). This is the most important unanswered question. angular-tr's 7 conflicting pages are a ready test case.
 - **#5:** a design partner. angular-tr is ready to pitch (`examples/angular-tr`, 0.1.1); contacting its maintainer is the owner's call.
 - **#6:** freeze spec v1. The spec matches the code; the decision is whether to keep the repo-mode hooks flat or group them (see the spec review in #6).
+- **Ecosystems beyond npm:** proposal in [`ecosystems.md`](ecosystems.md) (Cargo, then Go, then PyPI). It asks to reserve `rootstock.ecosystem` (npm only) in the v1 freeze so later ecosystems are additive. Not implemented.
 - **#17:** waiting for yaml 3.0.0 stable (retire `yaml-esm`).
 - **Known gaps:**
   - regeneration when the target is already installed under pnpm falls back to an agent;
