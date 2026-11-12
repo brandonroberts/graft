@@ -2,9 +2,13 @@
 // Writes the repository README into a package as README.md when it is packed, so npm shows it.
 // Relative links are rewritten to the release's tag on GitHub (npm resolves none of them), and a
 // relative link to anything that doesn't exist in the repository is an error, never a broken link.
+// Images point at the packed commit instead of the tag: the Release workflow tags only after
+// publishing, so a tag URL is a 404 when npmjs.com first fetches (and caches) the image, while the
+// commit being published is already on GitHub.
 //
 //   node ../../tools/package-readme/package-readme.mjs          # prepack: write ./README.md
 //   node ../../tools/package-readme/package-readme.mjs --clean  # postpack: remove it
+import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,11 +17,11 @@ export const REPOSITORY = 'https://github.com/brandonroberts/graft';
 const RAW = 'https://raw.githubusercontent.com/brandonroberts/graft';
 
 /**
- * Rewrite the relative links and images in `markdown` to absolute GitHub URLs at `ref`:
- * directories to /tree/, files to /blob/, images to raw content. Links in fenced code blocks,
- * absolute URLs and same-page anchors are left alone.
+ * Rewrite the relative links and images in `markdown` to absolute GitHub URLs: links at `ref`
+ * (directories to /tree/, files to /blob/), images to raw content at `imageRef` (default `ref`).
+ * Links in fenced code blocks, absolute URLs and same-page anchors are left alone.
  */
-export function packageReadme(markdown, { root, ref }) {
+export function packageReadme(markdown, { root, ref, imageRef = ref }) {
   const missing = [];
   let fenced = false;
   const lines = markdown.split('\n').map((line) => {
@@ -34,7 +38,7 @@ export function packageReadme(markdown, { root, ref }) {
         missing.push(target);
         return match;
       }
-      const url = bang ? `${RAW}/${ref}/${rel}` : `${REPOSITORY}/${statSync(abs).isDirectory() ? 'tree' : 'blob'}/${ref}/${rel}`;
+      const url = bang ? `${RAW}/${imageRef}/${rel}` : `${REPOSITORY}/${statSync(abs).isDirectory() ? 'tree' : 'blob'}/${ref}/${rel}`;
       return `${bang}[${text}](${url}${anchor})`;
     });
   });
@@ -51,7 +55,25 @@ function main() {
   }
   const { version } = JSON.parse(readFileSync('package.json', 'utf8'));
   if (!version) throw new Error('package.json has no version, so there is no release tag to link to');
-  writeFileSync(out, packageReadme(readFileSync(path.join(root, 'README.md'), 'utf8'), { root, ref: `v${version}` }));
+  writeFileSync(
+    out,
+    packageReadme(readFileSync(path.join(root, 'README.md'), 'utf8'), {
+      root,
+      ref: `v${version}`,
+      imageRef: packedCommit(root) ?? `v${version}`,
+    }),
+  );
+}
+
+/** The commit being packed (images point at it: it exists on GitHub before the release tag does). */
+function packedCommit(root) {
+  try {
+    return (
+      execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() || undefined
+    );
+  } catch {
+    return undefined;
+  }
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();
