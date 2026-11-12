@@ -1,13 +1,15 @@
-import semver from 'semver';
 import { ACTIVE_STATUSES } from '@graftsync/spec';
 import type { Project } from './project.js';
 
 export interface OutdatedEntry {
   package: string;
+  /** The package's ecosystem (`npm`, `cargo`, `go`, `pypi`). */
+  ecosystem?: string;
   grafts: string[];
   /** Lowest rootstock.verified among the package's grafts. */
   verified: string;
   installed?: string;
+  /** npm dist-tags; other ecosystems report `latest` (newest stable) and `next` (newest prerelease). */
   distTags: Record<string, string>;
   /** Highest dist-tagged version (among `tags`) newer than every graft's verified version, if any. */
   candidate?: { version: string; tag: string };
@@ -30,26 +32,30 @@ export async function outdated(project: Project, options: OutdatedOptions = {}):
   const byPackage = new Map<string, typeof grafts>();
   // Standalone grafts track a source repository, not an npm package with dist-tags.
   for (const g of grafts.filter((g) => ACTIVE_STATUSES.includes(g.frontmatter.status) && !project.isStandalone(g))) {
-    const list = byPackage.get(g.frontmatter.rootstock.package) ?? [];
+    const key = `${g.frontmatter.rootstock.ecosystem}\0${g.frontmatter.rootstock.package}`;
+    const list = byPackage.get(key) ?? [];
     list.push(g);
-    byPackage.set(g.frontmatter.rootstock.package, list);
+    byPackage.set(key, list);
   }
   const entries: OutdatedEntry[] = [];
-  for (const [pkg, list] of byPackage) {
-    const verified = list.map((g) => g.frontmatter.rootstock.verified).sort(semver.compare)[0]!;
-    const newest = list.map((g) => g.frontmatter.rootstock.verified).sort(semver.rcompare)[0]!;
-    const { distTags } = await project.upstream.versions(pkg);
+  for (const list of byPackage.values()) {
+    const { package: pkg, ecosystem } = list[0]!.frontmatter.rootstock;
+    const scheme = project.schemeFor(ecosystem);
+    const sorted = list.map((g) => g.frontmatter.rootstock.verified).sort(scheme.compare);
+    const [verified, newest] = [sorted[0]!, sorted.at(-1)!];
+    const { distTags } = await project.upstreamFor(ecosystem).versions(pkg);
     let candidate: OutdatedEntry['candidate'];
     for (const tag of tags) {
       const v = distTags[tag];
-      if (!v || !semver.valid(v) || !semver.gt(v, newest)) continue;
-      if (!candidate || semver.gt(v, candidate.version)) candidate = { version: v, tag };
+      if (!v || !scheme.valid(v) || scheme.compare(v, newest) <= 0) continue;
+      if (!candidate || scheme.compare(v, candidate.version) > 0) candidate = { version: v, tag };
     }
     entries.push({
       package: pkg,
+      ecosystem,
       grafts: list.map((g) => g.id),
       verified,
-      installed: await project.installedVersion(pkg),
+      installed: await project.installedVersion(pkg, ecosystem),
       distTags,
       candidate,
     });

@@ -1,7 +1,7 @@
-import semver from 'semver';
 import { parse as parseYaml } from 'yaml';
 import { parseSections, splitFrontmatter, findSection, type Section } from './document.js';
 import { GraftFrontmatterSchema, REQUIRED_SECTIONS, type GraftFrontmatter } from './schema.js';
+import { ECOSYSTEMS, isEcosystem, semverScheme, versionScheme, type VersionScheme } from './versions.js';
 
 export type DiagnosticSeverity = 'error' | 'warning';
 
@@ -119,7 +119,16 @@ export function parseGraft(text: string, options: ParseOptions = {}): ParseResul
     });
   }
 
-  diagnostics.push(...checkVariantRanges(fm));
+  if (!isEcosystem(fm.rootstock.ecosystem)) {
+    diagnostics.push({
+      severity: 'error',
+      code: 'frontmatter/unknown-ecosystem',
+      path: 'rootstock.ecosystem',
+      message: `unknown ecosystem "${fm.rootstock.ecosystem}" (expected ${ECOSYSTEMS.join(' | ')})`,
+    });
+  } else {
+    diagnostics.push(...checkVariantRanges(fm, versionScheme(fm.rootstock.ecosystem)));
+  }
   if (fm.mechanism === 'fork' && !fm.fork) {
     diagnostics.push({
       severity: 'error',
@@ -132,12 +141,11 @@ export function parseGraft(text: string, options: ParseOptions = {}): ParseResul
   return done({ frontmatter: fm, body: split.body, sections });
 }
 
-function checkVariantRanges(fm: GraftFrontmatter): Diagnostic[] {
+function checkVariantRanges(fm: GraftFrontmatter, scheme: VersionScheme): Diagnostic[] {
   const out: Diagnostic[] = [];
-  const opts = { includePrerelease: true };
   fm.variants.forEach((a, i) => {
     fm.variants.slice(i + 1).forEach((b, j) => {
-      if (semver.intersects(a.range, b.range, opts)) {
+      if (scheme.intersects(a.range, b.range)) {
         out.push({
           severity: 'error',
           code: 'variants/overlap',
@@ -159,7 +167,7 @@ function checkVariantRanges(fm: GraftFrontmatter): Diagnostic[] {
     }
     modules.add(v.module);
   });
-  if (!fm.variants.some((v) => semver.satisfies(fm.rootstock.verified, v.range, opts))) {
+  if (!fm.variants.some((v) => scheme.satisfies(fm.rootstock.verified, v.range))) {
     out.push({
       severity: 'warning',
       code: 'variants/verified-uncovered',
@@ -170,7 +178,14 @@ function checkVariantRanges(fm: GraftFrontmatter): Diagnostic[] {
   return out;
 }
 
-/** Return the variant whose range contains `version` (prereleases included), if any. */
-export function selectVariant<V extends { range: string }>(variants: readonly V[], version: string): V | undefined {
-  return variants.find((v) => semver.satisfies(version, v.range, { includePrerelease: true }));
+/**
+ * Return the variant whose range contains `version` (prereleases included), if any. `scheme` is the
+ * rootstock ecosystem's version scheme (default semver; see `versionScheme`).
+ */
+export function selectVariant<V extends { range: string }>(
+  variants: readonly V[],
+  version: string,
+  scheme: VersionScheme = semverScheme,
+): V | undefined {
+  return variants.find((v) => scheme.satisfies(version, v.range));
 }

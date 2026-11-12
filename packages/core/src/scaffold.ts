@@ -1,7 +1,6 @@
 import { existsSync, statSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import semver from 'semver';
 import { ACTIVE_STATUSES, GRAFT_ID_PATTERN, renderGraftTemplate } from '@graftsync/spec';
 import { GraftError } from './errors.js';
 import { GRAFT_FILE, GRAFTS_DIR, type Project } from './project.js';
@@ -135,6 +134,8 @@ export async function setupAgent(root: string, input: SetupAgentInput): Promise<
 export interface AddGraftInput {
   id: string;
   package: string;
+  /** The package's ecosystem (`npm`, `cargo`, `go`, `pypi`); default npm. */
+  ecosystem?: string;
   /** Defaults to the installed version. */
   version?: string;
   mechanism: string;
@@ -151,11 +152,13 @@ export async function addGraft(project: Project, input: AddGraftInput): Promise<
   const adapter = project.adapter(input.mechanism);
   if (!adapter)
     throw new GraftError(`unknown mechanism "${input.mechanism}" (available: ${project.adapterNames.join(', ')})`, 'adapter/unknown');
+  const ecosystem = project.ecosystemFor(input.ecosystem ?? 'npm');
   if (adapter.exclusivePerPackage) {
     const existing = (await project.loadAll()).grafts.find(
       (g) =>
         g.frontmatter.mechanism === input.mechanism &&
         g.frontmatter.rootstock.package === input.package &&
+        g.frontmatter.rootstock.ecosystem === ecosystem.name &&
         ACTIVE_STATUSES.includes(g.frontmatter.status),
     );
     if (existing) {
@@ -167,13 +170,19 @@ export async function addGraft(project: Project, input: AddGraftInput): Promise<
     }
   }
 
-  const version = input.version ?? (await project.installedVersion(input.package));
-  if (!version || !semver.valid(version)) {
-    throw new GraftError(`${input.package} is not installed; pass --version`, 'upstream/not-installed');
-  }
-  const major = semver.major(version);
+  const version = input.version ?? (await project.installedVersion(input.package, ecosystem.name));
+  if (!version) throw new GraftError(`${input.package} is not installed; pass --version`, 'upstream/not-installed');
+  if (!ecosystem.scheme.valid(version)) throw new GraftError(`"${version}" is not a valid ${ecosystem.name} version`, 'version/invalid');
+  const major = ecosystem.scheme.major(version);
   const variantFile = `./variants/v${major}${project.adapter(input.mechanism)?.variantExtension ?? '.ts'}`;
-  const scaffold = { id: input.id, package: input.package, targets: input.targets, root: project.root, options: input.options ?? {} };
+  const scaffold = {
+    id: input.id,
+    package: input.package,
+    ecosystem: ecosystem.name,
+    targets: input.targets,
+    root: project.root,
+    options: input.options ?? {},
+  };
 
   await initProject(project.root);
   await mkdir(path.join(dir, 'variants'), { recursive: true });
@@ -182,10 +191,10 @@ export async function addGraft(project: Project, input: AddGraftInput): Promise<
       path.join(dir, GRAFT_FILE),
       renderGraftTemplate({
         id: input.id,
-        rootstock: { package: input.package, verified: version },
+        rootstock: { package: input.package, ...(ecosystem.name === 'npm' ? {} : { ecosystem: ecosystem.name }), verified: version },
         mechanism: input.mechanism,
         ...(input.targets?.length ? { targets: input.targets } : {}),
-        variants: [{ range: `>=${major}.0.0-0`, module: variantFile }],
+        variants: [{ range: ecosystem.scheme.fromMajor(version), module: variantFile }],
         ...adapter.scaffoldFrontmatter?.({ ...scaffold, version }),
         status: 'applied',
       }),

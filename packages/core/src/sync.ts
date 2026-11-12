@@ -1,10 +1,8 @@
 import { existsSync } from 'node:fs';
 import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import semver from 'semver';
 import { ACTIVE_STATUSES } from '@graftsync/spec';
 import { GraftError } from './errors.js';
-import { installPackage, reinstall } from './install.js';
 import { runCommand } from './command.js';
 import { recordVariant, summarizeMisses, updateGraft } from './operations.js';
 import type { Project } from './project.js';
@@ -15,6 +13,8 @@ export type SyncOutcome = 'green' | 'needs-agent' | 'skipped' | 'error';
 export interface SyncGraftResult {
   id: string;
   package: string;
+  /** The rootstock's ecosystem (`npm`, `cargo`, `go`, `pypi`). */
+  ecosystem?: string;
   /** rootstock.verified before this sync. */
   from: string;
   /** Version synced against. */
@@ -51,6 +51,7 @@ export interface SyncGraftResult {
 
 export interface SyncTarget {
   package: string;
+  ecosystem?: string;
   version: string;
   installedBefore?: string;
   installCommand?: string;
@@ -118,6 +119,7 @@ export async function sync(project: Project, options: SyncOptions = {}): Promise
     results.push({
       id: g.id,
       package: g.frontmatter.rootstock.package,
+      ecosystem: g.frontmatter.rootstock.ecosystem,
       from: g.frontmatter.rootstock.verified,
       outcome: 'skipped',
       reasons: [`status is ${g.frontmatter.status}`],
@@ -125,7 +127,7 @@ export async function sync(project: Project, options: SyncOptions = {}): Promise
   }
   selected = selected.filter((g) => ACTIVE_STATUSES.includes(g.frontmatter.status));
 
-  const packages = [...new Set(selected.map((g) => g.frontmatter.rootstock.package))];
+  const packages = [...new Set(selected.map((g) => packageLabel(g)))];
   if (options.version && packages.length > 1) {
     throw new GraftError(
       `--version is ambiguous: selected grafts target ${packages.join(', ')}; pass a package filter`,
@@ -137,19 +139,21 @@ export async function sync(project: Project, options: SyncOptions = {}): Promise
   // installs nothing, so it is its own group, and defaults to re-verifying its verified version.
   const groups = new Map<string, Graft[]>();
   for (const g of selected) {
-    const key = project.isStandalone(g) ? `\0${g.id}` : g.frontmatter.rootstock.package;
+    const key = project.isStandalone(g) ? `\0${g.id}` : `${g.frontmatter.rootstock.ecosystem}\0${g.frontmatter.rootstock.package}`;
     groups.set(key, [...(groups.get(key) ?? []), g]);
   }
 
   const targets: SyncTarget[] = [];
   for (const pkgGrafts of groups.values()) {
     const pkg = pkgGrafts[0]!.frontmatter.rootstock.package;
+    const ecosystem = pkgGrafts[0]!.frontmatter.rootstock.ecosystem;
     const standalone = project.isStandalone(pkgGrafts[0]!);
-    const installedBefore = standalone ? undefined : await project.installedVersion(pkg);
+    const installedBefore = standalone ? undefined : await project.installedVersion(pkg, ecosystem);
     const version = options.version ?? (standalone ? pkgGrafts[0]!.frontmatter.rootstock.verified : installedBefore);
     const base = (g: Graft): SyncGraftResult => ({
       id: g.id,
       package: pkg,
+      ecosystem,
       from: g.frontmatter.rootstock.verified,
       to: version,
       outcome: 'green',
@@ -160,7 +164,12 @@ export async function sync(project: Project, options: SyncOptions = {}): Promise
         results.push({ ...base(g), outcome: 'error', reasons: [`${pkg} is not installed and no --version was given`] });
       continue;
     }
-    const target: SyncTarget = { package: pkg, version, installedBefore, ...(standalone ? { standalone: true } : {}) };
+    if (!project.schemeFor(ecosystem).valid(version)) {
+      for (const g of pkgGrafts)
+        results.push({ ...base(g), outcome: 'error', reasons: [`"${version}" is not a valid ${ecosystem} version`] });
+      continue;
+    }
+    const target: SyncTarget = { package: pkg, ecosystem, version, installedBefore, ...(standalone ? { standalone: true } : {}) };
     targets.push(target);
 
     // Phase 1: static checks (variant, anchors, apply) against the fetched target version.
@@ -204,10 +213,9 @@ export async function sync(project: Project, options: SyncOptions = {}): Promise
             if (r && r.install === 'reinstall') bare = true;
           }
           log(`installing ${pkg}@${version}`);
-          target.installCommand = bare
-            ? await reinstall(project.root)
-            : await installPackage(project.root, pkg, project.upstream.installSpec(pkg, version));
-          const now = await project.installedVersion(pkg);
+          const eco = project.ecosystemFor(ecosystem);
+          target.installCommand = bare ? await eco.reinstall(project) : await eco.install(project, pkg, version);
+          const now = await project.installedVersion(pkg, ecosystem);
           if (now !== version) installError = `installed ${pkg} but found version ${now ?? 'none'}, expected ${version}`;
           else for (const s of ready) await project.adapterFor(s.graft).afterInstall?.(project.context(s.graft), version);
         } catch (err) {
@@ -260,6 +268,7 @@ async function staticCheck(project: Project, graft: Graft, version: string, mark
   const result: SyncGraftResult = {
     id: graft.id,
     package: fm.rootstock.package,
+    ecosystem: fm.rootstock.ecosystem,
     from: fm.rootstock.verified,
     to: version,
     outcome: 'green',
@@ -400,8 +409,7 @@ async function tryRegenerate(
   }
   if (!existsSync(out)) return fail(`exited 0 but did not write ${module}`);
 
-  const prerelease = semver.prerelease(version);
-  const range = prerelease ? `>=${semver.major(version)}.${semver.minor(version)}.${semver.patch(version)}-0` : `>=${version}`;
+  const range = project.schemeFor(graft).from(version);
   const original = await readFile(graft.file, 'utf8');
   const restore = () => writeFile(graft.file, original);
   let candidate: Graft;
@@ -595,4 +603,10 @@ export function renderSyncMarkdown(report: SyncReport, root: string = report.roo
     }
   }
   return lines.join('\n');
+}
+
+/** A package as reports name it: `pkg`, or `ecosystem:pkg` outside npm. */
+function packageLabel(g: Graft): string {
+  const { ecosystem, package: pkg } = g.frontmatter.rootstock;
+  return ecosystem === 'npm' ? pkg : `${ecosystem}:${pkg}`;
 }

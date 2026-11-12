@@ -1,4 +1,3 @@
-import semver from 'semver';
 import { summarizeMisses } from './operations.js';
 import type { Project } from './project.js';
 import type { AnchorReport, ApplyResult } from './types.js';
@@ -29,11 +28,12 @@ export async function replay(project: Project, id: string, options: ReplayOption
   const graft = await project.get(id);
   const adapter = project.adapterFor(graft);
   const ctx = project.context(graft);
-  const { versions } = await project.upstream.versions(graft.frontmatter.rootstock.package);
+  const scheme = project.schemeFor(graft);
+  const { versions } = await project.upstreamFor(graft).versions(graft.frontmatter.rootstock.package);
   const list = versions
-    .filter((v) => semver.valid(v) && (options.prerelease || !semver.prerelease(v)))
-    .filter((v) => !options.range || semver.satisfies(v, options.range, { includePrerelease: !!options.prerelease }))
-    .sort(semver.compare);
+    .filter((v) => scheme.valid(v) && (options.prerelease || !scheme.isPrerelease(v)))
+    .filter((v) => !options.range || scheme.satisfies(v, options.range))
+    .sort(scheme.compare);
   const entries: ReplayEntry[] = [];
   for (const version of list) {
     const variant = project.selectVariant(graft, version);

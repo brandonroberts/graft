@@ -2,10 +2,21 @@ import { existsSync } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createJiti } from 'jiti';
-import { ACTIVE_STATUSES, parseGraft, selectVariant, type Diagnostic, type VariantRef } from '@graftsync/spec';
+import {
+  ACTIVE_STATUSES,
+  DEFAULT_ECOSYSTEM,
+  parseGraft,
+  selectVariant,
+  type Diagnostic,
+  type EcosystemName,
+  type VariantRef,
+  type VersionScheme,
+} from '@graftsync/spec';
+import type { Ecosystem } from './ecosystem.js';
+import { BUILTIN_ECOSYSTEMS } from './ecosystems/index.js';
 import { GraftError } from './errors.js';
 import type { Graft, GraftContext, InvalidGraft, MechanismAdapter, ResolvedVariant } from './types.js';
-import { NpmUpstreamSource, type UpstreamSource } from './upstream.js';
+import type { UpstreamSource } from './upstream.js';
 
 export const GRAFTS_DIR = '.grafts';
 export const GRAFT_FILE = 'graft.md';
@@ -13,13 +24,16 @@ export const CONFIG_FILE = 'config.json';
 
 /** Optional `.grafts/config.json`. */
 export interface ProjectConfig {
-  /** Per-package upstream spec templates, e.g. `{ "lib": "file:../mirror/lib-{version}" }`. */
+  /** npm: per-package upstream spec templates, e.g. `{ "lib": "file:../mirror/lib-{version}" }`. Alias of `ecosystems.npm.upstream`. */
   upstream?: Record<string, string>;
   /**
-   * Per-package directory, relative to the project root, whose node_modules resolution
+   * npm: per-package directory, relative to the project root, whose node_modules resolution
    * determines the installed version (e.g. `{ "pacote": "packages/core" }` in a monorepo).
+   * Alias of `ecosystems.npm.resolveFrom`.
    */
   resolveFrom?: Record<string, string>;
+  /** Per-ecosystem options, e.g. `{ "cargo": { "manifest": "crates/app/Cargo.toml" } }`. */
+  ecosystems?: Partial<Record<EcosystemName, Record<string, unknown>>>;
   /** Mechanism-specific options, e.g. `{ "patch": { "applier": "patch-package" } }`. */
   mechanisms?: Record<string, Record<string, unknown>>;
 }
@@ -28,8 +42,10 @@ export interface ProjectOptions {
   /** Project root (directory containing `.grafts/`). */
   root: string;
   adapters: MechanismAdapter[];
-  /** Override the upstream source (defaults to installed packages + npm registry). */
+  /** Override the npm upstream source (defaults to installed packages + npm registry). */
   upstream?: UpstreamSource;
+  /** Override the upstream source of other ecosystems (tests, offline evals). */
+  upstreams?: Partial<Record<EcosystemName, UpstreamSource>>;
 }
 
 export class Project {
@@ -37,9 +53,10 @@ export class Project {
   readonly graftsDir: string;
   readonly cacheDir: string;
   readonly reportDir: string;
-  readonly upstream: UpstreamSource;
   readonly config: ProjectConfig;
   private readonly adapters = new Map<string, MechanismAdapter>();
+  private readonly ecosystems = new Map<string, Ecosystem>(BUILTIN_ECOSYSTEMS.map((e) => [e.name, e]));
+  private readonly upstreams = new Map<string, UpstreamSource>();
   private readonly jiti;
 
   private constructor(options: ProjectOptions, config: ProjectConfig) {
@@ -49,15 +66,8 @@ export class Project {
     this.reportDir = path.join(this.graftsDir, '.report');
     this.config = config;
     for (const adapter of options.adapters) this.adapters.set(adapter.name, adapter);
-    this.upstream =
-      options.upstream ??
-      new NpmUpstreamSource({
-        root: this.root,
-        cacheDir: this.cacheDir,
-        specs: config.upstream,
-        specBase: this.graftsDir,
-        resolveFrom: Object.fromEntries(Object.entries(config.resolveFrom ?? {}).map(([pkg, dir]) => [pkg, path.resolve(this.root, dir)])),
-      });
+    if (options.upstream) this.upstreams.set('npm', options.upstream);
+    for (const [name, source] of Object.entries(options.upstreams ?? {})) if (source) this.upstreams.set(name, source);
     // No module cache: agents edit variants and re-check within one long-lived process.
     this.jiti = createJiti(path.join(this.root, 'noop.js'), { moduleCache: false, fsCache: false });
   }
@@ -73,6 +83,36 @@ export class Project {
       }
     }
     return new Project(options, config);
+  }
+
+  /** The npm upstream source (kept for callers that predate ecosystems; prefer {@link upstreamFor}). */
+  get upstream(): UpstreamSource {
+    return this.upstreamFor('npm');
+  }
+
+  /** The ecosystem a graft's rootstock belongs to (`rootstock.ecosystem`, default npm), or by name. */
+  ecosystemFor(target: Graft | string): Ecosystem {
+    const name = typeof target === 'string' ? target : (target.frontmatter.rootstock.ecosystem ?? DEFAULT_ECOSYSTEM);
+    const eco = this.ecosystems.get(name);
+    if (!eco)
+      throw new GraftError(`unknown ecosystem "${name}" (expected ${[...this.ecosystems.keys()].join(' | ')})`, 'ecosystem/unknown');
+    return eco;
+  }
+
+  /** Where pristine upstream contents, installed copies and versions come from, for a graft (or an ecosystem by name). */
+  upstreamFor(target: Graft | string): UpstreamSource {
+    const eco = this.ecosystemFor(target);
+    let source = this.upstreams.get(eco.name);
+    if (!source) {
+      source = eco.createUpstream(this);
+      this.upstreams.set(eco.name, source);
+    }
+    return source;
+  }
+
+  /** The version scheme of a graft's ecosystem (semver, or PEP 440 for pypi). */
+  schemeFor(target: Graft | string): VersionScheme {
+    return this.ecosystemFor(target).scheme;
   }
 
   /** Walk up from `from` to find the nearest directory containing `.grafts/`. */
@@ -132,7 +172,7 @@ export class Project {
     for (const g of grafts) {
       const fm = g.frontmatter;
       if (!ACTIVE_STATUSES.includes(fm.status) || !this.adapters.get(fm.mechanism)?.exclusivePerPackage) continue;
-      const key = `${fm.mechanism}\0${fm.rootstock.package}`;
+      const key = `${fm.mechanism}\0${fm.rootstock.ecosystem}\0${fm.rootstock.package}`;
       byKey.set(key, [...(byKey.get(key) ?? []), g]);
     }
     const out = new Map<string, Diagnostic>();
@@ -213,7 +253,7 @@ export class Project {
 
   /** The variant valid for `version`, or null. */
   selectVariant(graft: Graft, version: string): ResolvedVariant | null {
-    const ref = selectVariant(graft.frontmatter.variants, version);
+    const ref = selectVariant(graft.frontmatter.variants, version, this.schemeFor(graft));
     return ref ? this.resolveVariant(graft, ref) : null;
   }
 
@@ -233,10 +273,12 @@ export class Project {
    * or for standalone grafts (nothing installed) the last verified version.
    */
   async currentVersion(graft: Graft): Promise<string | undefined> {
-    return this.isStandalone(graft) ? graft.frontmatter.rootstock.verified : this.installedVersion(graft.frontmatter.rootstock.package);
+    const { rootstock } = graft.frontmatter;
+    return this.isStandalone(graft) ? rootstock.verified : this.installedVersion(rootstock.package, rootstock.ecosystem);
   }
 
-  async installedVersion(pkg: string): Promise<string | undefined> {
-    return (await this.upstream.installed(pkg))?.version;
+  /** The installed version of `pkg` in an ecosystem (default npm). */
+  async installedVersion(pkg: string, ecosystem: string = DEFAULT_ECOSYSTEM): Promise<string | undefined> {
+    return (await this.upstreamFor(ecosystem).installed(pkg))?.version;
   }
 }

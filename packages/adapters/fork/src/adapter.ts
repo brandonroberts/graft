@@ -103,6 +103,15 @@ export const VERIFIED = '@verified';
 function forkConfig(graft: Graft): ForkConfig {
   const cfg = graft.frontmatter.fork;
   if (!cfg) throw new GraftError(`graft "${graft.id}": mechanism "fork" needs a \`fork:\` block ({ repo, upstream, tag })`, 'fork/config');
+  // Package mode packs with npm and installs through npm overrides. Repo mode installs nothing,
+  // so it works for any repository whatever rootstock.ecosystem says.
+  const ecosystem = graft.frontmatter.rootstock.ecosystem;
+  if (cfg.install !== 'none' && ecosystem !== 'npm') {
+    throw new GraftError(
+      `graft "${graft.id}": the fork mechanism installs packages for npm only (rootstock.ecosystem is "${ecosystem}"); use the patch mechanism, or \`fork.install: none\` (repo mode)`,
+      'fork/ecosystem',
+    );
+  }
   return cfg;
 }
 

@@ -1,5 +1,5 @@
-import semver from 'semver';
 import { z } from 'zod';
+import { DEFAULT_ECOSYSTEM, isEcosystem, versionScheme } from './versions.js';
 
 /** Lifecycle of a graft. */
 export const GRAFT_STATUSES = ['applied', 'conflicted', 'upstreamed', 'obsolete'] as const;
@@ -14,22 +14,21 @@ export type RequiredSection = (typeof REQUIRED_SECTIONS)[number];
 
 export const GRAFT_ID_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
 
-const semverVersion = z.string().refine((v) => semver.valid(v) !== null, { message: 'must be a valid semver version (e.g. "4.2.0")' });
-
-const semverRange = z.string().refine((r) => semver.validRange(r, { includePrerelease: true }) !== null, {
-  message: 'must be a valid semver range (e.g. ">=4.0.0 <5.0.0")',
-});
-
 export const RootstockSchema = z.object({
-  /** npm package name of the upstream. */
+  /** Name of the upstream package in its ecosystem (npm name, crate, Go module path, PyPI project). */
   package: z.string().min(1),
-  /** Last upstream version this graft was verified against (by sync's checks, or by an agent). */
-  verified: semverVersion,
+  /**
+   * The package ecosystem (`npm`, `cargo`, `go`, `pypi`). Selects the version scheme, where pristine
+   * upstream comes from, and the appliers. Checked by the parser (`frontmatter/unknown-ecosystem`).
+   */
+  ecosystem: z.string().min(1).default(DEFAULT_ECOSYSTEM),
+  /** Last upstream version this graft was verified against (by sync's checks, or by an agent). Validated by the ecosystem's scheme. */
+  verified: z.string().min(1),
 });
 
 export const VariantRefSchema = z.object({
-  /** Upstream version range this variant is valid for. */
-  range: semverRange,
+  /** Upstream version range this variant is valid for, in the ecosystem's range syntax. */
+  range: z.string(),
   /** Path to the variant module, relative to the graft directory. */
   module: z.string().min(1),
 });
@@ -81,7 +80,7 @@ export const GeneratorSchema = z.object({
   timeout: z.number().int().positive().optional(),
 });
 
-export const GraftFrontmatterSchema = z.object({
+const FrontmatterObject = z.object({
   id: z.string().regex(GRAFT_ID_PATTERN, 'must be lowercase kebab-case'),
   rootstock: RootstockSchema,
   /** Name of the mechanism adapter that applies this graft (e.g. patch). */
@@ -94,6 +93,29 @@ export const GraftFrontmatterSchema = z.object({
   /** For `mechanism: fork`: where the modification lives as commits, and how to build it. */
   fork: ForkSchema.optional(),
   status: z.enum(GRAFT_STATUSES).default('applied'),
+});
+
+/** Versions and ranges are checked with the rootstock ecosystem's version scheme (semver, or PEP 440 for pypi). */
+export const GraftFrontmatterSchema = FrontmatterObject.superRefine((fm, ctx) => {
+  if (!isEcosystem(fm.rootstock.ecosystem)) return; // reported as frontmatter/unknown-ecosystem
+  const scheme = versionScheme(fm.rootstock.ecosystem);
+  const label = scheme.name === 'pep440' ? 'PEP 440' : 'semver';
+  if (!scheme.valid(fm.rootstock.verified)) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['rootstock', 'verified'],
+      message: `must be a valid ${label} version (e.g. "${scheme.example.version}")`,
+    });
+  }
+  fm.variants.forEach((v, i) => {
+    if (!scheme.validRange(v.range)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['variants', i, 'range'],
+        message: `must be a valid ${label} range (e.g. "${scheme.example.range}")`,
+      });
+    }
+  });
 });
 
 export type Rootstock = z.infer<typeof RootstockSchema>;
