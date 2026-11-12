@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { applyToProject, checkAnchors, outdated, Project, sync } from '@graftsync/core';
+import { applyToProject, captureVariant, checkAnchors, outdated, Project, sync } from '@graftsync/core';
 import { patchAdapter, selectApplier } from '../src/index.js';
 
 const hasGo = spawnSync('go', ['version']).status === 0;
@@ -61,6 +61,9 @@ describe.skipIf(!hasGo)('go-replace applier (real go, module proxy)', () => {
       expect(selectApplier(root, undefined, 'go').name).toBe('go-replace');
       expect(await project.installedVersion(MOD, 'go')).toBe('v0.10.0');
 
+      // The module cache is read-only and pristine: capture says where to edit instead.
+      await expect(captureVariant(project, 'sync-grafted')).rejects.toThrow(/module cache, which is read-only and pristine/);
+
       const before = await checkAnchors(project, 'sync-grafted');
       expect(before.anchors.every((a) => a.matched)).toBe(true);
       expect(before.errors.join('\n')).toMatch(/go\.mod has no `replace golang\.org\/x\/sync v0\.10\.0 =>/);
@@ -81,6 +84,14 @@ describe.skipIf(!hasGo)('go-replace applier (real go, module proxy)', () => {
       expect(mod).toContain('replace golang.org/x/sync v0.11.0 => ./.grafts/.vendor/golang.org+x+sync-v0.11.0');
       expect(mod).not.toContain('v0.10.0');
       expect(go('run', '.').trim()).toBe('grafted');
+
+      // graft capture: edit the vendored module (what the replace points at); the variant file has no double v.
+      const errgroup = path.join(root, '.grafts/.vendor/golang.org+x+sync-v0.11.0/errgroup/errgroup.go');
+      await writeFile(errgroup, (await readFile(errgroup, 'utf8')).replace('return "grafted" }', 'return "grafted, captured" }'));
+      expect(await captureVariant(project, 'sync-grafted')).toMatchObject({ module: './variants/v0.11.0.patch', range: '>=0.11.0' });
+      await applyToProject(project);
+      expect((await checkAnchors(project, 'sync-grafted')).ok).toBe(true);
+      expect(go('run', '.').trim()).toBe('grafted, captured');
 
       // A release where errgroup's code moved: the variant no longer fits, so it needs an agent.
       const moved = await sync(project, { version: 'v0.23.0', dryRun: true, install: true });

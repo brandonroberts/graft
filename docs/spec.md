@@ -316,7 +316,7 @@ under the name used in `mechanism`.
 | `recordsInResult?(ctx, version)` | no | True when a green sync at `version` is recorded in the materialized result instead of graft.md; `afterVerified` then receives the update. |
 | `newerVersion?(ctx)` | no | For standalone grafts (no dist-tags): the newest upstream version above `verified`, with where it came from. `outdated` lists one entry per such graft (`standalone: true`). |
 | `prepareAgent?(ctx, version)` | no | Called by `sync` when a graft needs an agent: prepare a starting point and return `{ description, repo?, ref?, upstream?, conflicts?, next? }` (`agentStart`; `description` is shown as "Start from", and `next`, when set, replaces the report's usual "write a new variant" next step). |
-| `capture?(ctx, version)` | no | `graft capture`: the change made to the installed copy at `version`, as a variant module (the patch mechanism: the diff against the pristine package). Throw when there's nothing capturable. The tooling replaces the selected variant only while it is still the scaffold stub, otherwise registers a new one (§4.2), and keeps it only if it applies to pristine `version`. |
+| `capture?(ctx, version)` | no | `graft capture`: the change made to the installed copy at `version`, as a variant module (the patch mechanism: the diff against the pristine package; what the installed copy is depends on the ecosystem, §10). Throw when there's nothing capturable (`capture/no-changes`), including an installed copy that is exactly pristine + the selected variant, which would only register a duplicate of it. The tooling replaces the selected variant only while it is still the scaffold stub, otherwise registers a new one (§4.2), and keeps it only if it applies to pristine `version`. |
 | `validateVariant?(ctx, variant)` | no | Validate a new variant before it is registered; throw to reject. |
 | `exclusivePerPackage?` | no | When true, at most one active graft with this mechanism may target a package; more is a validation error. |
 | `variantExtension?` | no | File extension for scaffolded variant modules (default `.ts`). |
@@ -466,8 +466,10 @@ it.
   `Cargo.lock`. The applier's checks fail on that entry, on any resolution where `cargo metadata`
   doesn't show the crate at the target version from the vendored directory, and on a vendored
   directory that isn't exactly pristine + variant.
-- **Capture:** `graft capture` diffs the installed copy against the pristine `.crate`. Cargo's
-  extracted registry sources are shared by every project on the machine.
+- **Capture:** `graft capture` diffs the copy cargo resolves (the vendored crate after
+  `graft apply`, else the registry source, which every project on the machine shares) against
+  the pristine `.crate`. A `target/` directory and cargo's `.cargo-ok` marker are not part of the
+  package.
 
 ### 10.3 go
 
@@ -494,7 +496,10 @@ it.
   from the vendored directory, on an unversioned or other-version replace of the module, on a
   `vendor/modules.txt` that doesn't record the replacement, and on a vendored directory that
   isn't exactly pristine + variant.
-- **Capture:** not available; the module cache is read-only.
+- **Capture:** `graft capture` diffs the module's replacement directory (the vendored module
+  after `graft apply`, or any directory a `replace` points at) against the pristine module. When
+  the module resolves to the module cache, which is read-only and pristine, capture is refused
+  with `capture/read-only`, saying where to edit instead.
 
 ### 10.4 pypi
 
@@ -531,4 +536,9 @@ it.
   doesn't lock the package to the wheel or pins another build's hash, and on a requirements file
   that doesn't install the wheel; the installed-files check (§9.1) catches an installed copy
   that isn't pristine + variant whatever the tool did.
-- **Capture:** not available yet.
+- **Capture:** `graft capture` diffs the distribution's files in site-packages against the
+  pristine wheel: the wheel's own top-level packages and modules, walked in site-packages (so a
+  file added or removed there is part of the change), never the rest of site-packages.
+  `.dist-info` and `.data` (rewritten or relocated by installers), `__pycache__` and `.pyc` files
+  are not compared. Installers may hardlink site-packages files from their cache (uv on Linux),
+  so an edit there can reach the cache too; `graft apply` replaces the installed copy.

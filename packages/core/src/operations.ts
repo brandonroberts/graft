@@ -410,8 +410,10 @@ export async function captureVariant(project: Project, id: string, options: { ve
 
   // A real variant exists: add a new one for this version onwards.
   const ext = adapter.variantExtension ?? '.patch';
-  let rel = `variants/v${version}${ext}`;
-  for (let n = 2; existsSync(path.join(graft.dir, rel)); n++) rel = `variants/v${version}-${n}${ext}`;
+  // Go versions carry their own `v`: name the file v0.11.0, not vv0.11.0.
+  const bare = version.replace(/^v/, '');
+  let rel = `variants/v${bare}${ext}`;
+  for (let n = 2; existsSync(path.join(graft.dir, rel)); n++) rel = `variants/v${bare}-${n}${ext}`;
   const module = `./${rel}`;
   const range = project.schemeFor(graft).from(version);
   await mkdir(path.dirname(path.join(graft.dir, rel)), { recursive: true });

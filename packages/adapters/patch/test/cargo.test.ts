@@ -5,7 +5,7 @@ import { appendFile, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promise
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { applyToProject, checkAnchors, outdated, Project, sparseIndexPath, sync } from '@graftsync/core';
+import { applyToProject, captureVariant, checkAnchors, outdated, Project, sparseIndexPath, sync } from '@graftsync/core';
 import {
   getTomlValue,
   inlineTableString,
@@ -133,6 +133,15 @@ describe.skipIf(!hasCargo)('cargo-vendor applier (real cargo, crates.io)', () =>
     expect((await checkAnchors(project, 'itoa-grafted')).errors.join('\n')).toMatch(/itoa-1\.0\.18 is stale: src\/udiv128\.rs/);
     await applyToProject(project);
     expect((await checkAnchors(project, 'itoa-grafted')).ok).toBe(true);
+
+    // graft capture: edit the vendored crate (what cargo builds), and the edit becomes a new variant.
+    await expect(captureVariant(project, 'itoa-grafted')).rejects.toThrow(/no new change to capture/);
+    const lib = path.join(root, '.grafts/.vendor/itoa-1.0.18/src/lib.rs');
+    await writeFile(lib, (await readFile(lib, 'utf8')).replace('    "grafted"\n', '    "grafted, captured"\n'));
+    expect(await captureVariant(project, 'itoa-grafted')).toMatchObject({ module: './variants/v1.0.18.patch', range: '>=1.0.18' });
+    await applyToProject(project);
+    expect((await checkAnchors(project, 'itoa-grafted')).ok).toBe(true);
+    expect(cargo('run', '-q').trim()).toBe('grafted, captured 7');
 
     // The silent failure: a requirement the vendored version can't meet. cargo only warns and
     // records [[patch.unused]]; graft check must fail.

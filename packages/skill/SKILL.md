@@ -181,14 +181,19 @@ When asked to capture a modification as a graft (new, or migrating an existing p
   paths relative to the *published* artifact:
   - cargo: the `.crate` (pristine copy in `.grafts/.cache/upstream/cargo/<crate>@<version>/`
     after `graft check`). Its `Cargo.toml` is the normalized one `cargo publish` wrote; patch
-    that, not `Cargo.toml.orig`. `graft capture` works on the crate's registry source (shared by
-    every project on the machine: undo your edit there afterwards).
+    that, not `Cargo.toml.orig`.
   - go: the module (pristine copy: `go mod download -json <module>@<version>`, field `Dir`,
-    read-only). Copy it, edit the copy, and diff with `git diff --no-index`, fixing the paths.
+    read-only).
   - pypi: the wheel, paths relative to site-packages (`requests/api.py`); pristine copy in
     `.grafts/.cache/upstream/pypi/<name>@<version>/`.
+  The easy way to write one is `graft capture <id>` after editing what the tool uses: for cargo
+  and go, the vendored copy `graft apply` wrote under `.grafts/.vendor/` (go's module cache is
+  read-only; cargo's registry source is shared by every project, so prefer the vendored copy);
+  for pypi, the package in site-packages. Capture writes the whole change against pristine as
+  the variant; then `graft apply` rebuilds the vendored copy from it. Never commit a hand-edited
+  vendored copy: `graft check` reports it as stale.
   `graft apply` writes `.grafts/.vendor/` (a patched crate directory, module directory or wheel:
-  commit it, never edit it) and the tool's override: `[patch.crates-io]` in Cargo.toml, a
+  commit it as `graft apply` wrote it) and the tool's override: `[patch.crates-io]` in Cargo.toml, a
   version-qualified `replace` in go.mod/go.work, `[tool.uv.sources]` or the requirements line.
   Don't edit those by hand either. If `graft check` reports `[[patch.unused]]`, a replace the
   go command ignores, or a stale `uv.lock` hash, the patched package is NOT in use even though

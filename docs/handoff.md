@@ -310,7 +310,7 @@ Graft keeps three of its own CommonJS dependencies converted to native ESM, as r
 - **#4:** real-agent evaluation (needs agent and API credentials). This is the most important unanswered question. angular-tr's 7 conflicting pages are a ready test case.
 - **#5:** a design partner. angular-tr is ready to pitch (`examples/angular-tr`, 0.1.1); contacting its maintainer is the owner's call.
 - **#6:** freeze spec v1. The spec matches the code; the decision is whether to keep the repo-mode hooks flat or group them (see the spec review in #6).
-- **#26, ecosystems beyond npm:** cargo, go and pypi are implemented for the `patch` mechanism (§6, [`ecosystems.md`](ecosystems.md)). Not yet: poetry (refused with a reason), uv for transitive dependencies (`[tool.uv.sources]` applies to direct ones only), `graft capture` for go and pypi, the `fork` mechanism's package mode outside npm (`cargo package`, a module copy, a wheel build), and freezing `rootstock.ecosystem` into spec v1 (#6).
+- **#26, ecosystems beyond npm:** cargo, go and pypi are implemented for the `patch` mechanism (§6, [`ecosystems.md`](ecosystems.md)). Not yet: poetry (refused with a reason), uv for transitive dependencies (`[tool.uv.sources]` applies to direct ones only), the `fork` mechanism's package mode outside npm (`cargo package`, a module copy, a wheel build), and freezing `rootstock.ecosystem` into spec v1 (#6).
 - **#17:** waiting for yaml 3.0.0 stable (retire `yaml-esm`).
 - **Known gaps:**
   - regeneration when the target is already installed under pnpm falls back to an agent;

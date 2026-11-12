@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { applyToProject, checkAnchors, outdated, Project, readZip, sync, writeZip } from '@graftsync/core';
+import { applyToProject, captureVariant, checkAnchors, outdated, Project, readZip, sync, writeZip } from '@graftsync/core';
 import { patchAdapter, selectApplier } from '../src/index.js';
 
 describe('zip', () => {
@@ -85,6 +85,21 @@ describe.skipIf(!hasPip)('wheel-vendor applier with pip (real pip, PyPI)', () =>
     const report = await sync(project, { version: '24.1', install: true });
     expect(report.grafts[0]).toMatchObject({ outcome: 'green', ecosystem: 'pypi', from: '24.0', to: '24.1' });
     expect(grafted(root)).toBe('grafted 24.1');
+
+    // graft capture from site-packages: only the wheel's own files count (not __pycache__, not other
+    // packages, not .dist-info), and a module added there is part of the change.
+    await expect(captureVariant(project, 'packaging-grafted')).rejects.toThrow(/no new change to capture/);
+    const site = execFileSync(path.join(root, '.venv/bin/python'), ['-c', 'import sysconfig; print(sysconfig.get_paths()["purelib"])'], {
+      encoding: 'utf8',
+    }).trim();
+    const init = path.join(site, 'packaging/__init__.py');
+    await writeFile(init, (await readFile(init, 'utf8')).replace('GRAFTED = "grafted"', 'GRAFTED = "grafted, captured"'));
+    await writeFile(path.join(site, 'packaging/_extra.py'), 'X = 1\n');
+    const captured = await captureVariant(project, 'packaging-grafted');
+    expect(captured).toMatchObject({ module: './variants/v24.1.patch', range: '>=24.1' });
+    expect(captured.apply.files.map((f) => f.file).sort()).toEqual(['packaging/__init__.py', 'packaging/_extra.py']);
+    await applyToProject(project);
+    expect(grafted(root)).toBe('grafted, captured 24.1');
 
     // pip reinstalling the published wheel drops the patch, and pip says nothing about it.
     execFileSync(path.join(root, '.venv/bin/python'), ['-m', 'pip', 'install', '-q', '--force-reinstall', '--no-deps', 'packaging==24.1'], {

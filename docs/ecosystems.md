@@ -311,8 +311,11 @@ Python (`site-packages`). Go's module cache is read-only, so there's nothing to 
 - **The Go version scheme** is node-semver itself (it accepts the `v`), plus a
   `normalizeVersion` hook on `Ecosystem` so `--version 0.11.0` means `v0.11.0`.
 - **Deferred:** poetry, uv for transitive dependencies, the `fork` mechanism's package mode
-  outside npm (it refuses with `fork/ecosystem`), and `graft capture` for go (read-only module
-  cache) and pypi. `capture` works for cargo.
+  outside npm (it refuses with `fork/ecosystem`).
+- **`graft capture`** works in every ecosystem, on what the tool actually uses: cargo's and go's
+  vendored copy (or cargo's registry source; go's read-only module cache is refused with
+  directions), and the wheel's own files in site-packages. Go modules turned out capturable after
+  all, through the replacement directory.
 - **Open questions (§7)** were answered as proposed: ecosystems are listed in the spec and
   implemented in core (no plugin API); Cargo uses node-semver ranges; a pypi graft patches one
   wheel (`ecosystems.pypi.platform` picks it); the names are `npm`, `cargo`, `go`, `pypi`.
