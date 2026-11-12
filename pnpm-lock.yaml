@@ -130,9 +130,6 @@ importers:
       jiti:
         specifier: ^2.7.0
         version: 2.7.0
-      semver:
-        specifier: ^7.8.6
-        version: 7.8.6(patch_hash=0947e43b5ed23af7999e3f96c9aff3b942a900e128439305229a9b031d0890b4)
       tar:
         specifier: ^7.5.22
         version: 7.5.22

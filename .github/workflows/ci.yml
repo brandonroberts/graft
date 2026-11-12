@@ -43,6 +43,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
+      # The ecosystem tests run against the real tools: the runners ship cargo, go and pip, not uv.
+      - run: pipx install uv
       - run: pnpm test
       # Dogfood: this repo's own grafts must be applied. In a fresh checkout pnpm links the
       # `graft` bin before dist exists, so call the built file directly.

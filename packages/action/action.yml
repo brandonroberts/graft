@@ -1,5 +1,5 @@
 name: Graft sync
-description: Keep local modifications to upstream npm packages in sync. Checks the installed grafts, polls dist-tags, re-verifies grafts, opens PRs, and hands failures to your agent.
+description: Keep local modifications to upstream packages (npm, Cargo, Go, PyPI) in sync. Checks the installed grafts, polls for new releases, re-verifies grafts, opens PRs, and hands failures to your agent.
 author: Graft
 branding:
   icon: git-merge
@@ -19,16 +19,16 @@ inputs:
     description: How to run the graft CLI in the project.
     default: npx --no-install graft
   tags:
-    description: Comma-separated npm dist-tags to consider (default latest,next,rc,beta; prereleases preferred).
+    description: Comma-separated npm dist-tags to consider (default latest,next,rc,beta; prereleases preferred). Cargo, Go and PyPI packages report latest (newest release) and next (newest prerelease).
     default: ''
   packages:
-    description: Comma-separated rootstock packages to consider (default all).
+    description: Comma-separated rootstock packages to consider (default all). Name a package outside npm as ecosystem:name (e.g. cargo:itoa) to tell it from an npm package of the same name.
     default: ''
   agent-command:
     description: >
       Shell command that runs your coding agent when grafts need one (sync exit 1). It receives
       GRAFT_PROMPT_FILE, GRAFT_SKILL_PATH, GRAFT_COMMAND, GRAFT_REPORT_JSON, GRAFT_REPORT_MD,
-      GRAFT_PR_BODY_FILE, GRAFT_PACKAGE, GRAFT_TARGET_VERSION and GRAFT_BRANCH. The action re-runs
+      GRAFT_PR_BODY_FILE, GRAFT_PACKAGE, GRAFT_ECOSYSTEM, GRAFT_TARGET_VERSION and GRAFT_BRANCH. The action re-runs
       graft sync afterwards; the agent's word is never trusted. Empty: no agent.
     default: ''
   on-needs-agent:
@@ -38,7 +38,10 @@ inputs:
       "skip": only record it in the job summary.
     default: report
   install-command:
-    description: Reinstall command used to reset node_modules between packages (default detected from the lockfile).
+    description: >
+      Reinstall command used to reset node_modules between npm packages (default detected from the lockfile).
+      Other ecosystems reset themselves - Cargo and Go need nothing, PyPI runs uv sync --locked, poetry install
+      or pip install -r requirements.txt.
     default: ''
   base-branch:
     description: Branch to open PRs against (default the checked-out branch).

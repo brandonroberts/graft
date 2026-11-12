@@ -200,8 +200,8 @@ of whoever changes the graft, usually an agent, with the project's own tests.
 
 ## 6. Sync
 
-`sync` is the deterministic first pass. For each active graft (optionally filtered by id or
-package), grouped by `rootstock.package`, with target version `T` (the given version, else
+`sync` is the deterministic first pass. For each active graft (optionally filtered by id, package or
+ecosystem), grouped by `rootstock.package`, with target version `T` (the given version, else
 the installed version). A standalone graft (§9) is a group of its own: its default `T` is
 `rootstock.verified` (a re-verification), and it has no install step.
 

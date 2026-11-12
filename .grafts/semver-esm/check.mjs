@@ -4,7 +4,7 @@ import { assert, assertNoCommonJS, consumerRequire, differential, installedDir, 
 
 const formats = trackFormats();
 const mode = process.env.GRAFT_MODE ?? 'esm';
-const require = consumerRequire('packages/core');
+const require = consumerRequire('packages/spec');
 const dir = installedDir(require, 'semver');
 const { version } = require('semver/package.json');
 if (process.env.GRAFT_UPSTREAM_VERSION) assert.equal(version, process.env.GRAFT_UPSTREAM_VERSION);

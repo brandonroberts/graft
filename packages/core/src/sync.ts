@@ -75,6 +75,8 @@ export interface SyncOptions {
   version?: string;
   /** Restrict to grafts on this upstream package. */
   package?: string;
+  /** Restrict to grafts whose rootstock is in this ecosystem (`npm`, `cargo`, `go`, `pypi`). */
+  ecosystem?: string;
   /** Restrict to these graft ids. */
   ids?: string[];
   /** Install the target version when it differs from the installed one. */
@@ -105,7 +107,9 @@ export async function sync(project: Project, options: SyncOptions = {}): Promise
 
   let selected = grafts.filter(
     (g) =>
-      (!options.ids?.length || options.ids.includes(g.id)) && (!options.package || g.frontmatter.rootstock.package === options.package),
+      (!options.ids?.length || options.ids.includes(g.id)) &&
+      (!options.package || g.frontmatter.rootstock.package === options.package) &&
+      (!options.ecosystem || g.frontmatter.rootstock.ecosystem === options.ecosystem),
   );
   if (options.ids?.length) {
     for (const id of options.ids) {
@@ -130,7 +134,7 @@ export async function sync(project: Project, options: SyncOptions = {}): Promise
   const packages = [...new Set(selected.map((g) => packageLabel(g)))];
   if (options.version && packages.length > 1) {
     throw new GraftError(
-      `--version is ambiguous: selected grafts target ${packages.join(', ')}; pass a package filter`,
+      `--version is ambiguous: selected grafts target ${packages.join(', ')}; pass a package (and ecosystem) filter`,
       'sync/ambiguous-version',
     );
   }
