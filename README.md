@@ -14,7 +14,7 @@ Graft does not ship its own agent or call an LLM, and there is no hosted service
 
 The format and tooling contract are specified in [`docs/spec.md`](docs/spec.md) (draft v1). For how this compares with handing every upgrade to an agent, see [`docs/why-graft.md`](docs/why-graft.md).
 
-> **Status: early development.** The spec, core, `patch` mechanism and `graft` CLI work. Graft keeps its own CommonJS dependencies converted to native ESM through its own sync loop ([dogfood](#dogfood-validation)). The agent skill and GitHub Action are built. See [Roadmap](#roadmap).
+> **Status: early development.** The spec, core, `patch` mechanism and `graft` CLI work, for npm packages, Rust crates, Go modules and Python packages ([other ecosystems](#other-ecosystems-cargo-go-pypi)). Graft keeps its own CommonJS dependencies converted to native ESM through its own sync loop ([dogfood](#dogfood-validation)). The agent skill and GitHub Action are built. See [Roadmap](#roadmap).
 
 ## Quick start
 
@@ -111,6 +111,7 @@ The full, normative description of this layout and of `graft.md` is in [`docs/sp
 id: request-retry
 rootstock:
   package: example-http-lib
+  # ecosystem: npm               # npm (default) | cargo | go | pypi
   verified: 4.2.0
 mechanism: patch
 targets:
@@ -181,6 +182,7 @@ The Invariants are the contract, so make them checkable:
 ```sh
 graft init [--package <pkg>] [--agent] # create .grafts/ (a starter graft; agent setup)
 graft add <id> --package <pkg>        # scaffold graft.md and a variant stub
+graft add <id> --package <pkg> --ecosystem cargo|go|pypi   # a crate, Go module or Python package
 graft add <id> --package <name> --mechanism fork --in-place --version <X[+sha]>
                                       # a fork that is the product, graft in the fork (repo mode)
 graft apply [<id>]                    # wire the package manager to selected variants, reinstall
@@ -302,6 +304,29 @@ In a monorepo where the upstream package is declared by a workspace package rath
 ```json
 { "resolveFrom": { "semver": "packages/core", "yaml": "packages/spec" } }
 ```
+
+### Other ecosystems: Cargo, Go, PyPI
+
+A graft's `rootstock.ecosystem` (default `npm`) says where its package comes from. `patch` grafts work the same way in every ecosystem: the variant is a git-style patch against the **published** artifact, every hunk is an anchor, and `graft apply` / `sync --install` wire it in. What differs is the artifact, the version syntax and how the tool is made to use the patched package. None of these tools applies patch files itself, so each applier commits *pristine upstream + the variant* under `.grafts/.vendor/` (never edit it by hand; `graft check` rebuilds it and reports a stale one) and points the tool's own override mechanism at it.
+
+| Ecosystem | Pristine artifact (what anchors and diffs read) | Versions and ranges | Applier: how the patched package is used | Silent failure Graft prevents |
+|---|---|---|---|---|
+| `cargo` | the published `.crate`, fetched by cargo (project `.cargo/config.toml` applies); its `Cargo.toml` is the normalized one | semver: `1.0.19`, `>=1.0.0 <2.0.0` | `cargo-vendor`: `.grafts/.vendor/<crate>-<version>/` + `[patch.crates-io] <crate> = { path = … }` in the workspace root manifest (comments kept) | A `[patch]` whose version doesn't match what the requirements resolve is *not used*, yet cargo exits 0 with only a warning and records it under `[[patch.unused]]`. `graft check` fails on that entry and unless `cargo metadata` shows the vendored copy |
+| `go` | the module cache's verified, read-only copy (`go mod download`) | semver with `v`: `v0.14.0`; ranges `>=0.14.0`; a version without `v` is normalized | `go-replace`: `.grafts/.vendor/<module>-<version>/` + a *version-qualified* `replace` in `go.mod` (or `go.work`), via `go mod edit` | A replace for a version that isn't selected is ignored and `go build` exits 0. `graft check` fails unless `go list -m` shows the vendored copy; `sync --install` moves the `require` with `go get` |
+| `pypi` | the published wheel, from `pip download` | PEP 440: `"24.0"` (quoted in YAML), `>=24.dev0`, `>=2.0,<3`, `~=2.31` | `wheel-vendor`: the wheel repacked (RECORD regenerated, same filename and version) as `.grafts/.vendor/<wheel>`, + `[tool.uv.sources]` (uv) or the requirements-file line (pip). Poetry isn't supported yet | pip treats a rebuilt wheel of the same version as "already satisfied", exits 0 and keeps the old code; uv keeps a stale wheel hash on a plain `uv lock`. Graft reinstalls with `--force-reinstall` / `uv lock --upgrade-package`, and `graft check` compares site-packages with pristine + variant |
+
+```sh
+graft add itoa-fast --package itoa --ecosystem cargo          # version: the installed one
+graft add sync-trace --package golang.org/x/sync --ecosystem go
+graft add pkg-fix --package packaging --ecosystem pypi
+# write the variant (paths relative to the published package), then:
+graft apply && graft check
+graft sync --version 1.0.18 --install                         # go: --version 0.11.0 works too
+```
+
+Ecosystem options go under `ecosystems` in `.grafts/config.json`: `cargo.manifest` (default `Cargo.toml`), `cargo.index`, `cargo.registry` (default `crates-io`); `go.module` (the main module's directory); `pypi.python` (default `.venv/bin/python`, else `python3`), `pypi.index`, `pypi.platform` (for packages with only platform wheels), `pypi.requirements` (default `requirements.txt`). `outdated` reports `latest` (newest stable) and `next` (newest prerelease) for these ecosystems, which have no dist-tags. `graft capture` works for cargo (the registry source is shared by every project on the machine) but not yet for go (the module cache is read-only) or pypi.
+
+Each applier was verified with the real tool against its registry: cargo 1.97 (`itoa` 1.0.17 → 1.0.18), go 1.24 (`golang.org/x/sync` v0.10.0 → v0.11.0, including a `go.work` workspace and `go mod vendor`), and pip 24 and uv 0.11 (`packaging` 24.0 → 24.1): `graft apply`, the patched code running, `sync --version … --install`, and each silent failure in the table, which `graft check` caught. The tests run the same flows wherever the tool is installed. Repo-mode forks (`fork.install: none`) already work for any language; the `fork` mechanism's package mode (`npm pack`) is npm only and refuses other ecosystems (`fork/ecosystem`).
 
 ### `fork` (modification kept as commits on a fork)
 

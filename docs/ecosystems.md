@@ -1,7 +1,8 @@
 # Proposal: ecosystems beyond npm
 
-> **Status: proposal, for discussion in [#6](https://github.com/brandonroberts/graft/issues/6)
-> before any code.** Nothing here is normative until it lands in [`spec.md`](spec.md).
+> **Status: implemented for the `patch` mechanism** ([#26](https://github.com/brandonroberts/graft/issues/26)).
+> The normative text is now [`spec.md`](spec.md) (§2.1, §4.1, §7 and §10). This page keeps the
+> proposal as written, followed by what changed during implementation (§8).
 
 ## 1. Goal
 
@@ -291,3 +292,27 @@ Python (`site-packages`). Go's module cache is read-only, so there's nothing to 
    tools), and `cargo` rather than `crates` or `rust`. These follow the
    [package-URL](https://github.com/package-url/purl-spec) types (`npm`, `cargo`, `golang`,
    `pypi`) except `go`; adopting `golang` instead would make a later purl export trivial.
+
+## 8. What implementation changed
+
+- **The uv / pip question (§5.3)** was tested first. uv pins a path wheel's hash in `uv.lock`
+  and fails `uv sync` loudly on a changed wheel, but a plain `uv lock` keeps the old hash, so
+  reinstall runs `uv lock --upgrade-package <name>`. pip treats a changed wheel of the same name
+  and version as "already satisfied", exits 0 and keeps the old code: a silent failure, so
+  reinstall force-reinstalls the vendored wheels, and the installed-files check catches the
+  rest. The wheel keeps its published filename (no hash in the name was needed).
+- **Go's vendored directory** is `<module, / as +>-<version>`, not `…@<version>`: in `go.work`,
+  `go work edit` reads the `@` as a version.
+- **Go installs with `go get`**, not a bare reinstall: for a new version the `require` must move,
+  and the version-qualified replace then applies.
+- **PEP 440 matching** follows Python's `packaging` 26, which compares `<V` and `>V` against the
+  exact version rather than its base release (older `packaging` differed on post- and
+  prereleases). Verified on a 21 × 21 version/specifier matrix.
+- **The Go version scheme** is node-semver itself (it accepts the `v`), plus a
+  `normalizeVersion` hook on `Ecosystem` so `--version 0.11.0` means `v0.11.0`.
+- **Deferred:** poetry, uv for transitive dependencies, the `fork` mechanism's package mode
+  outside npm (it refuses with `fork/ecosystem`), and `graft capture` for go (read-only module
+  cache) and pypi. `capture` works for cargo.
+- **Open questions (§7)** were answered as proposed: ecosystems are listed in the spec and
+  implemented in core (no plugin API); Cargo uses node-semver ranges; a pypi graft patches one
+  wheel (`ecosystems.pypi.platform` picks it); the names are `npm`, `cargo`, `go`, `pypi`.

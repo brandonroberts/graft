@@ -1,6 +1,6 @@
 ---
 name: graft-sync
-description: Keep local modifications ("grafts") to upstream npm packages working when upstream releases a new version. Use when a repo has a `.grafts/` directory and an upstream dependency was bumped, `graft sync` reported `needs-agent`, a graft's anchors miss or its tests fail after an upgrade, or you are asked to sync, repair, add, or retire a graft.
+description: Keep local modifications ("grafts") to upstream packages (npm, Cargo crates, Go modules, PyPI) working when upstream releases a new version. Use when a repo has a `.grafts/` directory and an upstream dependency was bumped, `graft sync` reported `needs-agent`, a graft's anchors miss or its tests fail after an upgrade, or you are asked to sync, repair, add, or retire a graft.
 ---
 
 # Graft sync
@@ -19,6 +19,10 @@ https://github.com/brandonroberts/graft/blob/main/docs/spec.md
 
 - `rootstock.package` / `rootstock.verified` — upstream package and the last version the graft
   was verified against.
+- `rootstock.ecosystem` — `npm` (the default), `cargo`, `go` or `pypi`. It decides the version
+  syntax: semver for npm and cargo (`>=1.0.0 <2.0.0`, `-0` for prereleases), semver with the
+  `v` for go (`v0.11.0`), PEP 440 for pypi (`"24.0"` quoted in YAML, `>=24.dev0`,
+  `>=2.0,<3`).
 - `mechanism` — how it is applied (e.g. `patch`: a pnpm `patchedDependencies` patch file).
 - `variants` — one implementation per upstream version range (`range` + `module` path).
   Ranges are disjoint; exactly one variant applies to any version.
@@ -173,7 +177,24 @@ When asked to capture a modification as a graft (new, or migrating an existing p
   version, `graft check` reports any configuration that would apply something else or fail
   silently, and any patched file in `node_modules` that doesn't match pristine upstream + the
   variant.
-- Keep hunk context away from lines that change every release (`"version"` in package.json).
+- **Cargo, Go and PyPI** (`rootstock.ecosystem`): the variant is the same kind of patch, with
+  paths relative to the *published* artifact:
+  - cargo: the `.crate` (pristine copy in `.grafts/.cache/upstream/cargo/<crate>@<version>/`
+    after `graft check`). Its `Cargo.toml` is the normalized one `cargo publish` wrote; patch
+    that, not `Cargo.toml.orig`. `graft capture` works on the crate's registry source (shared by
+    every project on the machine: undo your edit there afterwards).
+  - go: the module (pristine copy: `go mod download -json <module>@<version>`, field `Dir`,
+    read-only). Copy it, edit the copy, and diff with `git diff --no-index`, fixing the paths.
+  - pypi: the wheel, paths relative to site-packages (`requests/api.py`); pristine copy in
+    `.grafts/.cache/upstream/pypi/<name>@<version>/`.
+  `graft apply` writes `.grafts/.vendor/` (a patched crate directory, module directory or wheel:
+  commit it, never edit it) and the tool's override: `[patch.crates-io]` in Cargo.toml, a
+  version-qualified `replace` in go.mod/go.work, `[tool.uv.sources]` or the requirements line.
+  Don't edit those by hand either. If `graft check` reports `[[patch.unused]]`, a replace the
+  go command ignores, or a stale `uv.lock` hash, the patched package is NOT in use even though
+  the build passes; `graft apply` (or `sync --install`) fixes the wiring.
+- Keep hunk context away from lines that change every release (`"version"` in package.json,
+  `version` in Cargo.toml).
 - If the graft's variants are generated, give it a `generator: { command }` in its
   frontmatter (`{version}` and `{out}` are substituted; e.g.
   `node tools/cjs-to-esm/make-variant.mjs semver {version} {out}`). `graft sync` then
@@ -190,7 +211,7 @@ When asked to capture a modification as a graft (new, or migrating an existing p
   version>" }`. The change is the fork's diff from `tag(base)` to `ref`. Every hunk is an
   anchor, located in the upstream source at the target version's tag (fuzz 0).
 - Graft installs a version by rebasing that diff onto the target tag, running `build`, and
-  `npm pack`. The tarball goes in `.grafts/.vendor/`, installed through overrides. Don't edit
+  `npm pack` (npm packages only; repo mode, `fork.install: none`, works for any repository). The tarball goes in `.grafts/.vendor/`, installed through overrides. Don't edit
   the tarball or the overrides by hand; `graft apply` / `graft sync --install` write them.
 - When `sync` says the change no longer rebases onto a new tag:
   1. Work in the fork repository, not in `node_modules`. Create a new branch from the new
