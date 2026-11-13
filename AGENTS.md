@@ -97,7 +97,7 @@ Keep these in step with the code, in the same commit:
   1. Add `.changeset/*.md`. While in 0.x, `minor` means breaking and `patch` means everything else.
   2. Run `pnpm version-packages`. Check the generated CHANGELOGs for nested bullets.
   3. Commit and push.
-  4. Run the **Release** workflow manually. It publishes without provenance, then tags `v<version>` and creates the GitHub release from `packages/cli/CHANGELOG.md`. Re-running it backfills a missing tag.
+  4. Run the **Release** workflow manually. It publishes with npm provenance (the workflow's `id-token: write` and `NPM_CONFIG_PROVENANCE`; every package's `repository` must name this repo), then tags `v<version>` and creates the GitHub release from `packages/cli/CHANGELOG.md`. Re-running it backfills a missing tag.
   5. Publishing is irreversible: confirm with the maintainer first.
 - **The sync workflow** (`.github/workflows/graft-sync.yml`) and Release are manual-trigger only. Don't add schedules unless asked.
 - **GitHub posts:** comment on issues and PRs only when asked or when it records a result. Close issues with a comment saying what was done and verified.

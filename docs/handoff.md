@@ -277,7 +277,7 @@ Graft keeps three of its own CommonJS dependencies converted to native ESM, as r
 | npm packages only | `rootstock.ecosystem`: npm, cargo, go, pypi (#26) | The format and sync loop were never npm-specific; only the pristine source, versions, installed copy and appliers were. Each new ecosystem lands behind the `Ecosystem` interface without touching `MechanismAdapter` |
 | Forks as dependencies only | Repo mode: forks that are the product, verified in place with one permanent variant (`@worktree` / `@verified`) | Translated docs sites and the like are long-lived forks with no consumer to install into (angular-tr) |
 | The oracle: a per-graft command, run by sync, as the only proof | Removed (0.2). Sync checks fit (anchors, apply, install); the agent verifies the Invariants with the project's own tests | Projects already have verification tests, and a separate oracle duplicated them heavily (the blog's needed Playwright, a build and a dev server). Behavior belongs to the project's tests and CI; Graft's job is the mechanical part |
-| Publish with provenance, tags per package | No provenance; one `v<version>` tag and GitHub release per release | Maintainer preference; the packages share one version |
+| Publish with provenance, tags per package | Provenance (since 0.2.6); one `v<version>` tag and GitHub release per release | Provenance was off by maintainer preference until 0.2.5; the packages share one version |
 
 ## 12. Milestones
 

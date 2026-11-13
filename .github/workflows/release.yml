@@ -6,6 +6,10 @@
 #
 # Requires: the `graftsync` npm org, and an NPM_TOKEN repository secret that can publish to it.
 # Without NPM_TOKEN, the release step is skipped.
+#
+# Packages are published with npm provenance: a signed statement, made from this run's GitHub
+# OIDC token (`id-token: write`), of the repository, commit and workflow that built them, shown on
+# npmjs.com and checked by `npm audit signatures`. npm fails the publish if it can't make one.
 name: Release
 
 on:
@@ -14,6 +18,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  id-token: write # npm provenance
 
 concurrency: release
 
@@ -46,6 +51,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # changeset publish runs pnpm publish, which publishes through the npm CLI: this turns on
+          # provenance for every package. The package.json `repository` fields must name this repo.
+          NPM_CONFIG_PROVENANCE: 'true'
       # One tag and one GitHub release per release, not one per package. With no changesets
       # pending, the action ran `pnpm release`, which either published this version (or found it
       # already published) or failed the job, so the version is on npm, or is being staged there
