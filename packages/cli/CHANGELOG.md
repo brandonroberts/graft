@@ -1,5 +1,20 @@
 # @graftsync/cli
 
+## 0.2.6
+
+### Patch Changes
+
+- GitHub Action (pin `packages/action@v0.2.6`): sync commits and pushes no longer run the repository's git hooks, so a commitlint `commit-msg` hook no longer blocks them (#32). A sync branch that an earlier run pushed but couldn't open a pull request for is now resumed on the next run instead of being skipped forever (#33).
+- 76609ec: The README and skill now recommend a plain `graft check` step in CI (no third-party action needed), pinning the GitHub Action to a release tag with the CLI at the same version, and `tags: latest` when only stable upstream releases should get sync PRs.
+- a35120e: The setup prompt and the skill's "Adding a new graft" steps now ask the developer whether to automate re-verification with the Graft GitHub Action, and say how to set up the workflow, the CI check and the GitHub-side settings.
+- Updated dependencies [76609ec]
+- Updated dependencies [a35120e]
+  - @graftsync/skill@0.2.6
+  - @graftsync/adapter-fork@0.2.6
+  - @graftsync/adapter-patch@0.2.6
+  - @graftsync/core@0.2.6
+  - @graftsync/spec@0.2.6
+
 ## 0.2.5
 
 ### Patch Changes
