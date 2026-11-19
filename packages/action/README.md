@@ -15,6 +15,8 @@ Each package@version gets its own branch (`graft/sync-<package>-<version>`; outs
 
 Syncing switches branches and resets the working tree, so when there is something to sync the action **requires a clean working tree**. That's what CI gives it. If the tree has uncommitted changes or untracked files that aren't gitignored, it stops before touching any branch and lists them. This includes `dry-run`. Without the check it would discard them, or commit them into a sync PR. Check-only runs (`sync: false`) and runs with nothing to sync don't need a clean tree.
 
+The action's own git operations (switching branches, the sync commit, the push) run **without the repository's git hooks**. A commitlint `commit-msg` hook would reject the `graft: sync …` commit, and `pre-push` or `post-checkout` hooks aren't meant for a bot. The action re-runs `graft sync` itself, and your CI checks the PR. The repository's hook configuration isn't changed, and an `agent-command` runs with your hooks as usual.
+
 ## `graft check`
 
 Before touching any branch, the action checks the project as the workflow installed it. For every active graft:
