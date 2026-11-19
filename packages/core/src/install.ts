@@ -105,3 +105,34 @@ export async function reinstall(root: string): Promise<string> {
   if (!result.passed) throw new GraftError(`\`${command}\` failed:\n${result.output}`, 'install/failed');
   return command;
 }
+
+/**
+ * The project's own upgrade command for `pkg` (`.grafts/config.json` `upgrade`), with
+ * `{package}` and `{version}` substituted, or undefined when the project has none.
+ * A key `<ecosystem>:<name>` wins over a bare name. Throws `config/invalid` for a command
+ * without `{version}`: it couldn't install the version being synced.
+ */
+export function upgradeCommand(
+  upgrade: Record<string, unknown> | undefined,
+  ecosystem: string,
+  pkg: string,
+  version: string,
+): string | undefined {
+  const key = upgrade && `${ecosystem}:${pkg}` in upgrade ? `${ecosystem}:${pkg}` : pkg;
+  const template = upgrade?.[key];
+  if (template === undefined) return undefined;
+  if (typeof template !== 'string' || !template.includes('{version}')) {
+    throw new GraftError(`.grafts/config.json: upgrade["${key}"] must be a command containing {version}`, 'config/invalid');
+  }
+  return template.replaceAll('{package}', pkg).replaceAll('{version}', version);
+}
+
+/** Run a project's upgrade command from the project root. Throws `install/failed` with its output on failure. */
+export async function runUpgrade(root: string, command: string): Promise<string> {
+  const result = await runCommand(command, { cwd: root, timeoutMs: 30 * 60_000 });
+  if (!result.passed) {
+    const why = result.timedOut ? 'timed out after 30 minutes' : `exit ${result.exitCode}`;
+    throw new GraftError(`upgrade command \`${command}\` failed (${why}):\n${result.output}`, 'install/failed');
+  }
+  return command;
+}
