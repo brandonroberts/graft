@@ -1,5 +1,15 @@
 # @graftsync/core
 
+## 0.2.8
+
+### Patch Changes
+
+- cb41451: The `upgrade` command can also be set per ecosystem, as `ecosystems.<name>.upgrade` in `.grafts/config.json`, like the other per-ecosystem options. It wins over the top-level `upgrade` map.
+- e33f389: `graft sync` streams an `upgrade` command's output, as it does a generator's, to stderr, also with `--json` (stdout stays the JSON report; `--quiet` silences it). The GitHub Action shows each `graft sync`'s progress and command output in a collapsible log group.
+- 462aa7d: An `upgrade` entry can be `{ "command": …, "timeoutMinutes": 90 }` for upgrades that take longer than the default 30 minutes. Command timeouts now stop everything the command started: before, only its shell was killed, so a timed-out install, generator or fork build kept running and Graft waited for it.
+- Updated dependencies
+  - @graftsync/spec@0.2.8
+
 ## 0.2.7
 
 ### Patch Changes
