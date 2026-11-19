@@ -16,8 +16,16 @@ export interface Ecosystem {
   createUpstream(project: Project): UpstreamSource;
   /** The tool that manages this ecosystem's dependencies in the project (e.g. `pnpm`, `cargo`, `uv`). */
   detect(root: string): string;
-  /** Install exactly `pkg@version`; returns the command(s) run. Throws (`install/failed`) on failure. */
-  install(project: Project, pkg: string, version: string): Promise<string>;
+  /**
+   * Install exactly `pkg@version`, and each of `siblings` at the same version in the same
+   * install; returns the command(s) run. Throws (`install/failed`) on failure.
+   */
+  install(project: Project, pkg: string, version: string, siblings?: string[]): Promise<string>;
+  /**
+   * The project's dependencies released together with `pkg` (§6): declared by the project,
+   * installed at `pkg`'s installed version, from the same repository. Ecosystems without it have none.
+   */
+  siblings?(project: Project, pkg: string): Promise<string[]>;
   /** Re-resolve the project's dependencies after an applier changed configuration; returns the command(s) run. */
   reinstall(project: Project): Promise<string>;
 }

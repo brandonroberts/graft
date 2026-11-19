@@ -318,6 +318,8 @@ yarn 4.18 was verified the same way, under both Plug'n'Play and `nodeLinker: nod
 
 **Installs that skip scripts.** `--ignore-scripts` skips `postinstall`, and with it the built-in and patch-package appliers. The native and vendored appliers don't depend on scripts. Run `graft check` in CI after installing (the GitHub Action also does this before syncing). It compares installed files with pristine upstream + the selected variant, so it fails the build however the patch was skipped.
 
+**Packages released together.** `sync --install` also moves the project's dependencies that come from the upstream package's repository at its installed version, so upgrading `nx` moves `@nx/angular` and `@nx/vite` with it. If one isn't published at the new version, sync fails instead of leaving it behind. With pnpm catalogs, Graft updates the catalog entries in `pnpm-workspace.yaml` rather than the manifests.
+
 In a monorepo where the upstream package is declared by a workspace package rather than the root, tell Graft where to resolve it from in `.grafts/config.json`:
 
 ```json
