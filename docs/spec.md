@@ -212,7 +212,8 @@ Grafts are grouped by `(rootstock.ecosystem, rootstock.package)`, so an npm `ms`
    of `T`: select the variant (§4.1), check its anchors, and apply it into
    `.grafts/.report/<id>/applied/`. Any failure marks the graft `needs-agent`.
 2. **Install.** If `T` isn't installed and every graft on the package passed step 1, install
-   `T` (only when installing was requested; otherwise the grafts get `error`). The adapter's
+   `T` (only when installing was requested; otherwise the grafts get `error`, except in a dry run,
+   which then reports the result of the static checks, with a reason saying so). The adapter's
    `beforeInstall` runs first and `afterInstall` after. When `.grafts/config.json` sets an
    `upgrade` command for the package (§7), the tooling runs that command from the project root
    instead of its own install. It MUST fail (`install/failed`, with the command's output) when the

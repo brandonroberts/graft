@@ -213,6 +213,14 @@ export async function sync(project: Project, options: SyncOptions = {}): Promise
           s.result.outcome = 'skipped';
           s.result.reasons.push(`not recorded: ${pkg}@${version} was not installed because other grafts on ${pkg} need attention first`);
         }
+      } else if (!options.install && options.dryRun) {
+        // A dry run without an install checks only what can be checked against the pristine
+        // target (variant, anchors, apply), and records nothing either way.
+        for (const s of ready) {
+          s.result.reasons.push(
+            `static checks only: ${pkg}@${version} is not installed (installed: ${installedBefore ?? 'none'}); add --install to install it`,
+          );
+        }
       } else if (!options.install) {
         installError = `${pkg}@${version} is not installed (installed: ${installedBefore ?? 'none'}); rerun with --install to install it and record the graft against it (or --dry-run for the static checks only)`;
       } else {
