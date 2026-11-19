@@ -39,7 +39,7 @@ class LocalRegistry extends NpmUpstreamSource {
 
 const KIT = { lib: 'github:acme/kit', plugin: { type: 'git', url: 'git+https://github.com/acme/kit.git' }, old: 'acme/kit' };
 
-async function fixture(published: Record<string, string[]>) {
+async function fixture(published: Record<string, string[]>, config: (pkgs: string) => Record<string, unknown> = () => ({})) {
   const base = await mkdtemp(path.join(os.tmpdir(), 'graft-siblings-'));
   const pkgs = path.join(base, 'pkgs');
   const make = async (name: string, version: string, repository: unknown) => {
@@ -74,7 +74,10 @@ async function fixture(published: Record<string, string[]>) {
     path.join(g, 'graft.md'),
     `---\nid: add-c\nrootstock: { package: lib, verified: 1.0.0 }\nmechanism: patch\nvariants:\n  - range: ">=1.0.0"\n    module: ./variants/v1.patch\n---\n## Why\nw\n## Invariants\ni\n## Where to look\nl\n## Anchors\na\n## History\n- created\n`,
   );
-  await writeFile(path.join(root, '.grafts', 'config.json'), JSON.stringify({ mechanisms: { patch: { applier: 'graft' } } }));
+  await writeFile(
+    path.join(root, '.grafts', 'config.json'),
+    JSON.stringify({ mechanisms: { patch: { applier: 'graft' } }, ...config(pkgs) }),
+  );
   const specs = Object.fromEntries(['lib', 'plugin', 'other', 'old'].map((n) => [n, `file:${path.join(pkgs, `${n}-{version}`)}`]));
   const project = await Project.open({ root, adapters: [patchAdapter], upstream: new LocalRegistry(root, specs, published) });
   const version = async (name: string) =>
@@ -133,6 +136,19 @@ describe('packages released with the rootstock (siblings)', () => {
     expect(manifest.devDependencies.plugin).toContain('plugin-1.1.0');
     expect(manifest.dependencies.plugin).toBeUndefined();
     expect(await readFile(path.join(root, 'node_modules/lib/index.js'), 'utf8')).toContain('const c = 3'); // the graft applied
+  });
+
+  it("leaves siblings to the project's upgrade command when it sets one", async () => {
+    let upgrade = '';
+    const { project, version } = await fixture({ lib: ['1.0.0', '1.1.0'], plugin: ['1.0.0'] }, (pkgs) => {
+      upgrade = `npm install --ignore-scripts ${path.join(pkgs, 'lib-{version}')}`;
+      return { upgrade: { lib: upgrade } };
+    }); // plugin@1.1.0 is "unpublished": only the upgrade command decides
+    const report = await sync(project, { version: '1.1.0', install: true, writeReport: false });
+    expect(report.exitCode, JSON.stringify(report.grafts)).toBe(0);
+    expect(report.targets[0]!.siblings).toBeUndefined();
+    expect(report.targets[0]!.installCommand).toBe(upgrade.replace('{version}', '1.1.0'));
+    expect([await version('lib'), await version('plugin')]).toEqual(['1.1.0', '1.0.0']);
   });
 
   it('fails loudly, installing nothing, when a sibling is not published at the target', async () => {

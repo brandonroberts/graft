@@ -32,6 +32,12 @@ export interface ProjectConfig {
    * Alias of `ecosystems.npm.resolveFrom`.
    */
   resolveFrom?: Record<string, string>;
+  /**
+   * The project's own upgrade command per rootstock package, run by `sync --install` instead of
+   * Graft's single-package install. Keys are package names, or `<ecosystem>:<name>`; `{version}`
+   * (required) and `{package}` are substituted. E.g. `{ "nx": "pnpm nx migrate {version} && …" }`.
+   */
+  upgrade?: Record<string, string>;
   /** Per-ecosystem options, e.g. `{ "cargo": { "manifest": "crates/app/Cargo.toml" } }`. */
   ecosystems?: Partial<Record<EcosystemName, Record<string, unknown>>>;
   /** Mechanism-specific options, e.g. `{ "patch": { "applier": "patch-package" } }`. */

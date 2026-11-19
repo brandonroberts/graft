@@ -4,6 +4,7 @@ import path from 'node:path';
 import { ACTIVE_STATUSES } from '@graftsync/spec';
 import { GraftError } from './errors.js';
 import { runCommand } from './command.js';
+import { runUpgrade, upgradeCommand } from './install.js';
 import { recordVariant, summarizeMisses, updateGraft } from './operations.js';
 import type { Project } from './project.js';
 import type { AgentStart, AnchorReport, ApplyResult, FetchableRef, Graft, GraftUpdate, ResolvedVariant } from './types.js';
@@ -220,9 +221,18 @@ export async function sync(project: Project, options: SyncOptions = {}): Promise
             const r = await project.adapterFor(s.graft).beforeInstall?.(project.context(s.graft), version);
             if (r && r.install === 'reinstall') bare = true;
           }
-          // Packages released together with this one move with it, or the project ends up with
-          // mismatched versions (e.g. `nx` upgraded, `@nx/angular` left behind).
-          const siblings = (await eco.siblings?.(project, pkg)) ?? [];
+          // The project's own upgrade command (e.g. one that also moves companion packages and
+          // runs migrations) replaces Graft's install, sibling handling included.
+          const upgrade = upgradeCommand(project.config.upgrade, ecosystem, pkg, version);
+          if (upgrade && bare) {
+            throw new GraftError(
+              `.grafts/config.json sets an upgrade command for ${pkg}, but its graft installs ${pkg} from a vendored build (fork package mode); remove the upgrade command`,
+              'config/upgrade-unsupported',
+            );
+          }
+          // Otherwise packages released together with this one move with it, or the project ends up
+          // with mismatched versions (e.g. `nx` upgraded, `@nx/angular` left behind).
+          const siblings = upgrade ? [] : ((await eco.siblings?.(project, pkg)) ?? []);
           if (siblings.length) {
             target.siblings = siblings;
             const upstream = project.upstreamFor(ecosystem);
@@ -235,12 +245,17 @@ export async function sync(project: Project, options: SyncOptions = {}): Promise
               );
             }
           }
-          log(`installing ${pkg}@${version}${siblings.length ? ` with ${siblings.join(', ')}` : ''}`);
-          const commands: string[] = [];
-          // A bare reinstall (the adapter pins the package itself) still needs the siblings moved first.
-          if (bare && siblings.length) commands.push(await eco.install(project, siblings[0]!, version, siblings.slice(1)));
-          commands.push(bare ? await eco.reinstall(project) : await eco.install(project, pkg, version, siblings));
-          target.installCommand = commands.join(' && ');
+          if (upgrade) {
+            log(`upgrading ${pkg} to ${version}: ${upgrade}`);
+            target.installCommand = await runUpgrade(project.root, upgrade);
+          } else {
+            log(`installing ${pkg}@${version}${siblings.length ? ` with ${siblings.join(', ')}` : ''}`);
+            const commands: string[] = [];
+            // A bare reinstall (the adapter pins the package itself) still needs the siblings moved first.
+            if (bare && siblings.length) commands.push(await eco.install(project, siblings[0]!, version, siblings.slice(1)));
+            commands.push(bare ? await eco.reinstall(project) : await eco.install(project, pkg, version, siblings));
+            target.installCommand = commands.join(' && ');
+          }
           const now = await project.installedVersion(pkg, ecosystem);
           const behind: string[] = [];
           for (const s of siblings) {
