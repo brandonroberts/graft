@@ -109,6 +109,7 @@ if (args[0] === 'sync' && arg('--id') && arg('--id') !== 'sync') {
   }
 }
 if (args[0] === 'sync') {
+  console.error(`graft: upgrading ${arg('--package')} to ${arg('--version')}`); // like the real CLI's progress on stderr
   const pkg = arg('--package');
   const version = arg('--version');
   const mode = scenario.sync[pkg];

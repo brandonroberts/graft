@@ -264,6 +264,10 @@ reported as `error`.
 | `1` | One or more grafts need an agent, and none errored. |
 | `2` | Tooling error: an invalid graft, a failed install, an uninstalled target without `--install`, or another error. Takes precedence over `1`. |
 
+**Output:** the tooling streams the output of the commands sync runs on the project's behalf
+(generators, `upgrade` commands) to stderr, also with `--json`, whose stdout is only the report;
+`--quiet` silences it. A failing command's output is also in the graft's reasons.
+
 **Report files:** `.grafts/.report/sync.json` (the full machine-readable report) and
 `.grafts/.report/sync.md` (a human/agent summary with reasons, missed anchors, the diff path
 and the agent's starting point).

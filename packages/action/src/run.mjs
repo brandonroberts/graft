@@ -27,6 +27,7 @@ try {
     tmpDir,
     actionPath: process.env.GITHUB_ACTION_PATH || path.resolve(import.meta.dirname, '..'),
     streamAgent: true,
+    streamSync: (chunk) => process.stdout.write(chunk),
   });
   for (const r of results) console.log(`${r.package}: ${r.outcome}${r.pullRequest ? ` ${r.pullRequest}` : ''}`);
   if (failed) {

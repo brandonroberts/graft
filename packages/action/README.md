@@ -112,6 +112,10 @@ For a `fork` graft with `install: none` that lives in the fork itself (e.g. a tr
 
 The project must gitignore `.grafts/.cache/` and `.grafts/.report/`.
 
+## Logs
+
+Each `graft sync` run shows in the job log as a collapsible group with Graft's progress and the output of the commands it runs, such as an `upgrade` command (`nx migrate`, and any agent it starts). The JSON report it parses isn't printed.
+
 ## Handing failures to an agent
 
 `agent-command` is any shell command. The action doesn't assume a particular agent. The command runs on the sync branch with these variables set:

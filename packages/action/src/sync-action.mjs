@@ -40,7 +40,7 @@ export function parseInputs(raw = {}) {
 }
 
 /** Run a shell command (user-supplied commands may contain pipes, env, etc.). */
-export function sh(command, { cwd, env, onOutput } = {}) {
+export function sh(command, { cwd, env, onOutput, onStderr } = {}) {
   return new Promise((resolve) => {
     const child = spawn(command, { cwd, env: { ...process.env, ...env }, shell: true, stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '';
@@ -52,6 +52,7 @@ export function sh(command, { cwd, env, onOutput } = {}) {
     child.stderr.on('data', (d) => {
       stderr += d;
       onOutput?.(String(d));
+      onStderr?.(String(d));
     });
     child.on('error', (err) => resolve({ code: 127, stdout, stderr: `${stderr}${err.message}` }));
     child.on('close', (code) => resolve({ code: code ?? 1, stdout, stderr }));
@@ -505,7 +506,11 @@ export async function runAction(options, deps) {
         else if (code === 1 && g?.agentStart?.ref) await adopt(g.agentStart);
       };
       const syncOnce = async () => {
-        const r = await run(syncCmd);
+        // Graft's progress and the output of the commands it runs (an upgrade command such as
+        // `nx migrate`) go to stderr; stdout is the JSON report.
+        deps.streamSync?.(`::group::${syncCmd}\n`);
+        const r = await run(syncCmd, deps.streamSync ? { onStderr: deps.streamSync } : {});
+        deps.streamSync?.('::endgroup::\n');
         let report;
         try {
           report = JSON.parse(r.stdout);

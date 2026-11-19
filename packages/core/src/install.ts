@@ -224,9 +224,17 @@ export function resolveUpgrade(
   return topLevelUpgrade(config.upgrade, ecosystem, pkg, version);
 }
 
-/** Run a project's upgrade command from the project root. Throws `install/failed` with its output on failure or timeout. */
-export async function runUpgrade(root: string, command: string, timeoutMinutes: number = DEFAULT_UPGRADE_TIMEOUT_MINUTES): Promise<string> {
-  const result = await runCommand(command, { cwd: root, timeoutMs: timeoutMinutes * 60_000 });
+/**
+ * Run a project's upgrade command from the project root, streaming its output to `onOutput`.
+ * Throws `install/failed` with its output on failure or timeout.
+ */
+export async function runUpgrade(
+  root: string,
+  command: string,
+  timeoutMinutes: number = DEFAULT_UPGRADE_TIMEOUT_MINUTES,
+  onOutput?: (chunk: string) => void,
+): Promise<string> {
+  const result = await runCommand(command, { cwd: root, timeoutMs: timeoutMinutes * 60_000, onOutput });
   if (!result.passed) {
     const why = result.timedOut ? `timed out after ${timeoutMinutes} minutes` : `exit ${result.exitCode}`;
     throw new GraftError(`upgrade command \`${command}\` failed (${why}):\n${result.output}`, 'install/failed');

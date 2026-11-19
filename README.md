@@ -207,7 +207,7 @@ graft outdated                        # newer dist-tagged upstream versions
 graft replay <id> [--range R]         # static checks across every published version
 ```
 
-Every command takes `--json` and `--root`.
+Every command takes `--json` and `--root`. With `--json`, stdout is the JSON result; `graft sync` still streams the output of the commands it runs for you (generators, `upgrade` commands) to stderr, unless `--quiet`.
 
 ## Agents: CLI and skill
 

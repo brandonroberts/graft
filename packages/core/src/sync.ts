@@ -88,6 +88,7 @@ export interface SyncOptions {
   dryRun?: boolean;
   /** Write `.grafts/.report/sync.{json,md}` (default true). */
   writeReport?: boolean;
+  /** Output of the commands sync runs on the project's behalf: generators and `upgrade` commands. */
   onOutput?: (chunk: string) => void;
   onProgress?: (message: string) => void;
 }
@@ -247,7 +248,7 @@ export async function sync(project: Project, options: SyncOptions = {}): Promise
           }
           if (upgrade) {
             log(`upgrading ${pkg} to ${version} (up to ${upgrade.timeoutMinutes} min): ${upgrade.command}`);
-            target.installCommand = await runUpgrade(project.root, upgrade.command, upgrade.timeoutMinutes);
+            target.installCommand = await runUpgrade(project.root, upgrade.command, upgrade.timeoutMinutes, options.onOutput);
           } else {
             log(`installing ${pkg}@${version}${siblings.length ? ` with ${siblings.join(', ')}` : ''}`);
             const commands: string[] = [];

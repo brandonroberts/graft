@@ -332,7 +332,7 @@ const syncCmd = defineCommand({
     id: { type: 'string', description: 'Comma-separated graft ids' },
     install: { type: 'boolean', description: 'Install the target version if it is not installed' },
     'dry-run': { type: 'boolean', description: 'Do not update graft.md on success' },
-    quiet: { type: 'boolean', description: 'Do not stream generator output' },
+    quiet: { type: 'boolean', description: 'Do not stream the output of generators and upgrade commands' },
   },
   run: guarded(async (args) => {
     const project = await open(args.root);
@@ -347,7 +347,8 @@ const syncCmd = defineCommand({
       install: args.install,
       dryRun: args['dry-run'],
       onProgress: args.json ? undefined : (m) => console.error(`graft: ${m}`),
-      onOutput: args.json || args.quiet ? undefined : (c) => process.stderr.write(c),
+      // stderr, so --json keeps stdout to the report.
+      onOutput: args.quiet ? undefined : (c) => process.stderr.write(c),
     });
     print(args.json, report, () => {
       for (const g of report.grafts) {
