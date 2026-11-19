@@ -334,7 +334,7 @@ In a monorepo where the upstream package is declared by a workspace package rath
 { "upgrade": { "nx": "pnpm nx migrate {version} && pnpm install --no-frozen-lockfile && pnpm nx migrate --run-migrations --if-exists" } }
 ```
 
-Graft runs it from the project root instead of its own install, fails with its output if it fails, then checks that the package really is at the new version. Whatever the command changes (lockfile, migrated files) goes into the sync PR. It works in every ecosystem. To scope a command to one ecosystem, put it under `ecosystems`, like the other per-ecosystem options (`{ "ecosystems": { "cargo": { "upgrade": { "itoa": "…" } } } }`), or use a `"cargo:itoa"`-style key. The `ecosystems` entry wins.
+It may run for 30 minutes; for a longer one (an upgrade that runs an agent, say) write `{ "command": "…", "timeoutMinutes": 90 }`. Graft runs it from the project root instead of its own install, fails with its output if it fails, then checks that the package really is at the new version. Whatever the command changes (lockfile, migrated files) goes into the sync PR. It works in every ecosystem. To scope a command to one ecosystem, put it under `ecosystems`, like the other per-ecosystem options (`{ "ecosystems": { "cargo": { "upgrade": { "itoa": "…" } } } }`), or use a `"cargo:itoa"`-style key. The `ecosystems` entry wins.
 
 ### Other ecosystems: Cargo, Go, PyPI
 

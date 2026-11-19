@@ -4,7 +4,7 @@ import path from 'node:path';
 import { ACTIVE_STATUSES } from '@graftsync/spec';
 import { GraftError } from './errors.js';
 import { runCommand } from './command.js';
-import { resolveUpgradeCommand, runUpgrade } from './install.js';
+import { resolveUpgrade, runUpgrade } from './install.js';
 import { recordVariant, summarizeMisses, updateGraft } from './operations.js';
 import type { Project } from './project.js';
 import type { AgentStart, AnchorReport, ApplyResult, FetchableRef, Graft, GraftUpdate, ResolvedVariant } from './types.js';
@@ -223,7 +223,7 @@ export async function sync(project: Project, options: SyncOptions = {}): Promise
           }
           // The project's own upgrade command (e.g. one that also moves companion packages and
           // runs migrations) replaces Graft's install, sibling handling included.
-          const upgrade = resolveUpgradeCommand(project.config, ecosystem, pkg, version);
+          const upgrade = resolveUpgrade(project.config, ecosystem, pkg, version);
           if (upgrade && bare) {
             throw new GraftError(
               `.grafts/config.json sets an upgrade command for ${pkg}, but its graft installs ${pkg} from a vendored build (fork package mode); remove the upgrade command`,
@@ -246,8 +246,8 @@ export async function sync(project: Project, options: SyncOptions = {}): Promise
             }
           }
           if (upgrade) {
-            log(`upgrading ${pkg} to ${version}: ${upgrade}`);
-            target.installCommand = await runUpgrade(project.root, upgrade);
+            log(`upgrading ${pkg} to ${version} (up to ${upgrade.timeoutMinutes} min): ${upgrade.command}`);
+            target.installCommand = await runUpgrade(project.root, upgrade.command, upgrade.timeoutMinutes);
           } else {
             log(`installing ${pkg}@${version}${siblings.length ? ` with ${siblings.join(', ')}` : ''}`);
             const commands: string[] = [];
