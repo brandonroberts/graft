@@ -63,13 +63,16 @@ keeps working, and keeps being re-verified, when upstream releases new versions.
    pass with it.
 6. Run `graft apply` (except for a fork that is the product), then `graft sync`, until it is
    green. `graft replay <id>` shows which published versions the variant already fits.
-7. Ask me whether to automate the re-verification with the Graft GitHub Action
-   (https://github.com/brandonroberts/graft/tree/main/packages/action). If I say yes, ask how
-   often it should run and whether failing grafts should go to a coding agent (`agent-command`)
-   or to an issue. Then add `.github/workflows/graft-sync.yml` as that README shows, and add
-   `graft check` (the action with `sync: false`) to my CI after install. Tell me what I must set
-   up on GitHub myself: "Allow GitHub Actions to create and approve pull requests" (or a GitHub
-   App token), and the agent's API key as a repository secret.
+7. Add a `graft check` step to my CI right after dependencies are installed, so a graft that
+   isn't applied fails the build. Then ask me whether to automate re-verification with the Graft
+   GitHub Action (https://github.com/brandonroberts/graft/tree/main/packages/action). If I say
+   yes, ask how often it should run, whether it should propose prereleases or only stable
+   releases (`tags: latest`), and whether failing grafts should go to a coding agent
+   (`agent-command`) or to an issue. Then add `.github/workflows/graft-sync.yml` as that README
+   shows, with the action pinned to the release tag of the CLI version you used and
+   `graft-command` running that same version. Tell me what I must set up on GitHub myself:
+   "Allow GitHub Actions to create and approve pull requests" (or a GitHub App token), and the
+   agent's API key as a repository secret.
 8. Don't commit. Summarize what you set up, and show me the tests failing without the change
    and passing with it.
 ````
@@ -238,16 +241,24 @@ This repo uses it on itself: [`.claude/skills/graft-sync`](.claude/skills/graft-
 
 ## GitHub Action
 
-[`packages/action`](packages/action) runs the loop, from a scheduled or manually triggered workflow. It first runs `graft check` on the installed tree, and fails the job by default if any graft isn't actually applied. With `sync: false` it does only that, which suits ordinary CI right after install. Then:
+[`packages/action`](packages/action) runs the loop, from a scheduled or manually triggered workflow. It first runs `graft check` on the installed tree, and fails the job by default if any graft isn't actually applied. Then:
 1. Poll each rootstock package's npm dist-tags.
 2. Run `graft sync --install` on a branch per package@version.
 3. If green, open a PR.
 4. If a graft needs an agent, run your `agent-command` (with the prompt, skill and report; the agent uses the `graft` CLI), then re-run `sync` on the agent's work. Green opens a PR; still failing opens a draft PR. With no agent, or nothing to commit, it opens an issue with the report.
 
 ```yaml
-      - uses: brandonroberts/graft/packages/action@main
+      - uses: brandonroberts/graft/packages/action@v0.2.5   # a release tag, matching the CLI
         with:
+          graft-command: npx -y @graftsync/cli@0.2.5          # omit if the project depends on @graftsync/cli
+          tags: latest                                        # stable releases only; the default also proposes prereleases
           agent-command: ''   # optional: any agent CLI; see packages/action/README.md
+```
+
+In ordinary CI, check the grafts right after installing. It needs no action:
+
+```yaml
+      - run: npx -y @graftsync/cli@0.2.5 check   # or: npx graft check, if the project depends on it
 ```
 
 This repo runs it on itself, triggered manually ([`.github/workflows/graft-sync.yml`](.github/workflows/graft-sync.yml)). Its first real (dry) run found yaml **3.0.0-2** on `next`. That release is native ESM, so the `yaml-esm` patch correctly no longer applies, because upstream has absorbed the graft. The action routes that to a human through an issue.
@@ -305,7 +316,7 @@ yarn 4.18 was verified the same way, under both Plug'n'Play and `nodeLinker: nod
 - The `yarn` applier assumes the package comes from the npm registry (`npm:` protocol). Packages from git, `file:` or `workspace:` sources need `vendor`, or a hand-written resolution.
 - With yarn 2+, `sync --install` bumps a package with `yarn up`, which fails for a package no workspace declares. For a grafted package that doesn't matter: the `yarn` and `vendor` appliers pin it with a resolution and `sync` runs a bare `yarn install` instead.
 
-**Installs that skip scripts.** `--ignore-scripts` skips `postinstall`, and with it the built-in and patch-package appliers. The native and vendored appliers don't depend on scripts. Run `graft check` in CI after installing. The GitHub Action does this by default; use `sync: false` for check-only. It compares installed files with pristine upstream + the selected variant, so it fails the build however the patch was skipped.
+**Installs that skip scripts.** `--ignore-scripts` skips `postinstall`, and with it the built-in and patch-package appliers. The native and vendored appliers don't depend on scripts. Run `graft check` in CI after installing (the GitHub Action also does this before syncing). It compares installed files with pristine upstream + the selected variant, so it fails the build however the patch was skipped.
 
 In a monorepo where the upstream package is declared by a workspace package rather than the root, tell Graft where to resolve it from in `.grafts/config.json`:
 

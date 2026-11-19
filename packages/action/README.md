@@ -26,13 +26,14 @@ This catches grafts that were silently dropped: an `--ignore-scripts` install, a
 
 - `check: fail` (default) annotates each problem and fails the job, after the sync work is done.
 - `check: warn` annotates only. `check: off` skips it.
-- `sync: false` runs only the check. Use that in ordinary CI right after installing:
+- `sync: false` runs only the check, with annotations and the job summary.
+
+In ordinary CI you don't need the action for this: run the CLI right after installing. Some organizations only allow approved third-party actions, and a `run` step needs no approval.
 
 ```yaml
       - run: npm ci --ignore-scripts
-      - uses: brandonroberts/graft/packages/action@main
-        with:
-          sync: false        # just verify the installed grafts
+      - run: npx graft check                        # the project depends on @graftsync/cli
+      # or, without the dependency: npx -y @graftsync/cli@0.2.5 check
 ```
 
 ## Usage
@@ -54,8 +55,14 @@ jobs:
       - uses: actions/setup-node@v7
         with: { node-version: 24 }
       - run: npm ci            # the project must depend on @graftsync/cli
-      - uses: brandonroberts/graft/packages/action@main
+      - uses: brandonroberts/graft/packages/action@v0.2.5
+        with:
+          tags: latest         # only stable releases (see below)
 ```
+
+**Pin the action to a release tag** (`v<version>`, or that tag's commit SHA) and keep the CLI at the same version. A project that doesn't depend on `@graftsync/cli` (or isn't an npm project) passes it as `graft-command: npx -y @graftsync/cli@<version>`; the default, `npx --no-install graft`, needs the dependency. `@main` works but follows unreleased changes.
+
+**Prereleases:** the default `tags` (`latest,next,rc,beta`) proposes the highest newer version on any of them, so a beta of your dependency gets a sync PR. Set `tags: latest` to follow stable releases only.
 
 Enable **Settings → Actions → General → Allow GitHub Actions to create and approve pull requests**, or use a GitHub App token (below).
 
@@ -65,9 +72,9 @@ Enable **Settings → Actions → General → Allow GitHub Actions to create and
       - uses: actions/setup-node@v7
         with: { node-version: 24 }
       - run: uv sync --locked            # or: python -m venv .venv && .venv/bin/pip install -r requirements.txt
-      - uses: brandonroberts/graft/packages/action@main
+      - uses: brandonroberts/graft/packages/action@v0.2.5
         with:
-          graft-command: npx --yes @graftsync/cli@^0.2.3   # 0.2.3 added Cargo, Go and PyPI
+          graft-command: npx --yes @graftsync/cli@0.2.5   # 0.2.3 added Cargo, Go and PyPI
 ```
 
 ## Tokens and pull requests
@@ -85,7 +92,7 @@ A **GitHub App token** (or a fine-grained PAT with contents, pull requests and i
         with:
           app-id: ${{ vars.GRAFT_APP_ID }}
           private-key: ${{ secrets.GRAFT_APP_PRIVATE_KEY }}
-      - uses: brandonroberts/graft/packages/action@main
+      - uses: brandonroberts/graft/packages/action@v0.2.5
         with:
           github-token: ${{ steps.app-token.outputs.token }}
 ```
@@ -119,7 +126,7 @@ The project must gitignore `.grafts/.cache/` and `.grafts/.report/`.
 Example with Claude Code. Adjust the flags to your agent and your CLI version:
 
 ```yaml
-      - uses: brandonroberts/graft/packages/action@main
+      - uses: brandonroberts/graft/packages/action@v0.2.5
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         with:
