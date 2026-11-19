@@ -107,6 +107,20 @@ describe('sync with the patch adapter', () => {
     expect(await readFile(path.join(root, '.grafts/add-c/graft.md'), 'utf8')).toContain('verified: 1.1.0');
   });
 
+  it('a dry run against an uninstalled version runs the static checks only and records nothing (#51)', async () => {
+    const { project, root } = await fixture('1.0.0');
+    const report = await sync(project, { version: '1.1.0', dryRun: true, writeReport: false });
+    expect(report.exitCode, JSON.stringify(report.grafts)).toBe(0);
+    expect(report.targets[0]?.installCommand).toBeUndefined();
+    expect(report.grafts[0]).toMatchObject({ outcome: 'green' });
+    expect(report.grafts[0]!.reasons.join('\n')).toMatch(/static checks only: lib@1\.1\.0 is not installed \(installed: 1\.0\.0\)/);
+    expect(await readFile(path.join(root, '.grafts/add-c/graft.md'), 'utf8')).toContain('verified: 1.0.0');
+    // A broken target still fails the static checks in a dry run.
+    expect((await sync(project, { version: '2.0.0', dryRun: true, writeReport: false })).grafts[0]?.outcome).toBe('needs-agent');
+    // Without --dry-run it still needs --install.
+    expect((await sync(project, { version: '1.1.0', writeReport: false })).exitCode).toBe(2);
+  });
+
   it('hands off to an agent without installing when anchors miss', async () => {
     const { project } = await fixture('1.0.0');
     const report = await sync(project, { version: '2.0.0', install: true });
