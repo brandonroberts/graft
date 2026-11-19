@@ -231,8 +231,14 @@ export function repoWebUrl(env, originUrl) {
 export async function runAction(options, deps) {
   const { cwd, log } = deps;
   const run = (command, extra = {}) => deps.sh(command, { cwd, ...extra });
+  // The action's own git operations (branch switches, merges, the sync commit, the push) run
+  // without the repository's hooks: a commitlint `commit-msg` hook rejects `graft: sync …`, and
+  // `post-checkout` or `pre-push` hooks aren't meant for a bot (#32). An empty hooks directory
+  // disables them on every platform; the action re-runs `graft sync` and CI checks the PR instead.
+  const noHooks = `-c core.hooksPath=${quote(path.join(deps.tmpDir, 'no-hooks'))}`;
+  const gitCmd = (rest) => `git ${noHooks} ${rest}`;
   const git = async (...args) => {
-    const r = await deps.sh(`git ${args.map(quote).join(' ')}`, { cwd });
+    const r = await deps.sh(gitCmd(args.map(quote).join(' ')), { cwd });
     if (r.code !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr || r.stdout}`);
     return r.stdout.trim();
   };
@@ -250,6 +256,67 @@ export async function runAction(options, deps) {
     );
     if (issue.code !== 0) throw new Error(`gh issue create failed: ${issue.stderr || issue.stdout}`);
     return { url: issue.stdout.trim().split('\n').pop(), existing: false };
+  };
+  /**
+   * Open the pull request for a pushed sync branch. If Actions may not open PRs here, open an
+   * issue with a one-click link instead. Any other `gh pr create` failure throws; the branch stays
+   * pushed and the next run resumes it (see the existing-branch check).
+   */
+  const proposeBranch = async (result, { branch, base, title, body, draft, file }) => {
+    const bodyFile = path.join(deps.tmpDir, `body-${file}.md`);
+    await writeFile(bodyFile, body);
+    const pr = await run(
+      [
+        'gh pr create',
+        `--base ${quote(base)}`,
+        `--head ${quote(branch)}`,
+        `--title ${quote(title)}`,
+        `--body-file ${quote(bodyFile)}`,
+        draft ? '--draft' : '',
+        ...options.labels.map((l) => `--label ${quote(l)}`),
+      ]
+        .filter(Boolean)
+        .join(' '),
+    );
+    if (pr.code !== 0 && isPrRefusal(`${pr.stderr}\n${pr.stdout}`)) {
+      // Actions (or this token) may not open PRs here. The work is pushed; hand it over through
+      // an issue with a one-click link to open the PR, rather than failing.
+      const web = repoWebUrl(deps.env ?? process.env, (await run(gitCmd('remote get-url origin'))).stdout.trim());
+      const compare = web ? `${web}/compare/${encodeURIComponent(base)}...${encodeURIComponent(branch)}?expand=1` : undefined;
+      const note = [
+        '> [!NOTE]',
+        `> GitHub Actions may not open pull requests in this repository, so the change is on branch \`${branch}\`.`,
+        compare
+          ? `> **[Open the pull request](${compare})**${draft ? ' (as a draft: grafts still need attention)' : ''}.`
+          : `> Open a pull request from \`${branch}\` into \`${base}\`${draft ? ' (as a draft: grafts still need attention)' : ''}.`,
+        '> To let the action open pull requests itself, allow it under Settings → Actions → General, or pass a GitHub App token or a fine-grained PAT as `github-token` (PRs opened with those also trigger CI).',
+        '',
+      ].join('\n');
+      const issue = await openIssue(title, `${note}\n${body}`, `pr-refused-${file}.md`);
+      result.issue = issue.url;
+      result.compareUrl = compare;
+      result.outcome = 'pr-refused-issue';
+      result.reasons.push(
+        `pull request not allowed from Actions; branch ${branch} pushed, ${issue.existing ? 'issue already open' : 'issue opened'}: ${issue.url}`,
+      );
+      return;
+    }
+    if (pr.code !== 0) {
+      throw new Error(`gh pr create failed: ${pr.stderr || pr.stdout}\nBranch ${branch} is pushed; the next run opens its pull request.`);
+    }
+    result.pullRequest = pr.stdout.trim().split('\n').pop();
+    result.outcome = draft ? 'draft-pr' : 'pr';
+  };
+  /** The URL of a pull request (any state) from `branch`, or of an open issue whose title starts with `titlePrefix`. Throws if gh fails. */
+  const findProposal = async (branch, titlePrefix) => {
+    const prs = await run(`gh pr list --head ${quote(branch)} --state all --json url --limit 1`);
+    if (prs.code !== 0) throw new Error(`gh pr list failed: ${prs.stderr || prs.stdout}`);
+    const pr = JSON.parse(prs.stdout || '[]')[0];
+    if (pr) return pr.url;
+    const issues = await run(`gh issue list --state open --search ${quote(`in:title "${titlePrefix}"`)} --json title,url`);
+    if (issues.code !== 0) throw new Error(`gh issue list failed: ${issues.stderr || issues.stdout}`);
+    const issue = JSON.parse(issues.stdout || '[]').find((i) => i.title === titlePrefix || i.title.startsWith(`${titlePrefix} (`));
+    return issue?.url;
   };
   const [authorName, authorEmail] = (() => {
     const m = /^(.*?)\s*<(.+)>$/.exec(options.author);
@@ -276,7 +343,7 @@ export async function runAction(options, deps) {
   // 2. Sync: look for newer upstream versions and propose them.
   const base = options.baseBranch || (await git('rev-parse', '--abbrev-ref', 'HEAD'));
   const skill = options.skillPath || path.resolve(deps.actionPath ?? '.', '../skill/SKILL.md');
-  await mkdir(deps.tmpDir, { recursive: true });
+  await mkdir(path.join(deps.tmpDir, 'no-hooks'), { recursive: true });
 
   const outdatedCmd = `${options.graftCommand} outdated --json${options.tags.length ? ` --tags ${quote(options.tags.join(','))}` : ''}`;
   const outdated = await run(outdatedCmd);
@@ -307,7 +374,7 @@ export async function runAction(options, deps) {
   if (candidates.length) {
     const tmpRel = path.relative(cwd, deps.tmpDir).split(path.sep).join('/');
     const tmpTop = tmpRel && !tmpRel.startsWith('..') ? tmpRel.split('/')[0] : undefined;
-    const status = await run('git status --porcelain --untracked-files=all');
+    const status = await run(gitCmd('status --porcelain --untracked-files=all'));
     if (status.code !== 0) throw new Error(`git status failed: ${status.stderr || status.stdout}`);
     const pending = status.stdout
       .split('\n')
@@ -344,10 +411,44 @@ export async function runAction(options, deps) {
     result.branch = branch;
     log(`graft: ${packageLabel(candidate)} ${candidate.verified} → ${candidate.version} (${candidate.tag}) on ${branch}`);
     try {
-      const remote = await run(`git ls-remote --exit-code --heads origin ${quote(branch)}`);
+      const remote = await run(gitCmd(`ls-remote --exit-code --heads origin ${quote(branch)}`));
       if (remote.code === 0) {
-        result.outcome = 'skipped-existing';
-        result.reasons.push(`branch ${branch} already exists on origin`);
+        // The branch alone doesn't mean it was handled: an earlier run may have pushed it and then
+        // failed to open its pull request (#33). Skip it only when it has a pull request (in any
+        // state) or an open issue for this package@version; otherwise resume by proposing it.
+        const handled = await findProposal(branch, `graft: sync ${packageLabel(candidate)} to ${candidate.version}`);
+        if (handled) {
+          result.outcome = 'skipped-existing';
+          result.reasons.push(`branch ${branch} already exists on origin: ${handled}`);
+          if (handled.includes('/pull/')) result.pullRequest = handled;
+          else result.issue = handled;
+          continue;
+        }
+        if (options.dryRun) {
+          result.outcome = 'would-resume';
+          result.reasons.push(`branch ${branch} exists on origin with no pull request or issue; would open its pull request`);
+          continue;
+        }
+        await git('fetch', '--quiet', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`);
+        const title =
+          (await git('log', '-1', '--format=%s', `refs/remotes/origin/${branch}`)) ||
+          `graft: sync ${packageLabel(candidate)} to ${candidate.version}`;
+        const body = [
+          `## Graft sync: ${packageLabel(candidate)} ${candidate.verified} → ${candidate.version}`,
+          '',
+          `An earlier run of the Graft action pushed \`${branch}\` but could not open its pull request, so this run opens it. ` +
+            'The sync report from that run is in its job log; run `graft sync` on this branch to see it again.',
+          '',
+        ].join('\n');
+        result.resumed = true;
+        await proposeBranch(result, {
+          branch,
+          base,
+          title,
+          body,
+          draft: title.endsWith('(needs attention)'),
+          file: slug(candidate.package),
+        });
         continue;
       }
 
@@ -376,7 +477,7 @@ export async function runAction(options, deps) {
       const adopt = async (ref) => {
         await git('fetch', '--quiet', ref.repo, ref.ref);
         if (ref.upstream) {
-          const merging = (await run('git rev-parse -q --verify MERGE_HEAD')).stdout.trim();
+          const merging = (await run(gitCmd('rev-parse -q --verify MERGE_HEAD'))).stdout.trim();
           if (!merging)
             await git(
               '-c',
@@ -508,57 +609,19 @@ export async function runAction(options, deps) {
         continue;
       }
       await git('add', '-A');
-      if (tmpRel && !tmpRel.startsWith('..')) await run(`git reset -q -- ${quote(tmpRel.split('/')[0])}`);
+      if (tmpRel && !tmpRel.startsWith('..')) await run(gitCmd(`reset -q -- ${quote(tmpRel.split('/')[0])}`));
       await deps
         .sh(
-          `git -c user.name=${quote(authorName)} -c user.email=${quote(authorEmail)} commit -q -m ${quote(title)} -m ${quote(`Upstream ${packageLabel(candidate)}@${candidate.version} (${candidate.tag}). Generated by graft sync.`)}`,
+          gitCmd(
+            `-c user.name=${quote(authorName)} -c user.email=${quote(authorEmail)} commit -q -m ${quote(title)} -m ${quote(`Upstream ${packageLabel(candidate)}@${candidate.version} (${candidate.tag}). Generated by graft sync.`)}`,
+          ),
           { cwd },
         )
         .then((r) => {
           if (r.code !== 0) throw new Error(`git commit failed: ${r.stderr}`);
         });
       await git('push', '-u', 'origin', branch);
-      const bodyFile = path.join(deps.tmpDir, `body-${slug(candidate.package)}.md`);
-      await writeFile(bodyFile, body);
-      const pr = await run(
-        [
-          'gh pr create',
-          `--base ${quote(base)}`,
-          `--head ${quote(branch)}`,
-          `--title ${quote(title)}`,
-          `--body-file ${quote(bodyFile)}`,
-          outcome === 'needs-agent' ? '--draft' : '',
-          ...options.labels.map((l) => `--label ${quote(l)}`),
-        ]
-          .filter(Boolean)
-          .join(' '),
-      );
-      if (pr.code !== 0 && isPrRefusal(`${pr.stderr}\n${pr.stdout}`)) {
-        // Actions (or this token) may not open PRs here. The work is pushed; hand it over through
-        // an issue with a one-click link to open the PR, rather than failing.
-        const web = repoWebUrl(deps.env ?? process.env, (await run('git remote get-url origin')).stdout.trim());
-        const compare = web ? `${web}/compare/${encodeURIComponent(base)}...${encodeURIComponent(branch)}?expand=1` : undefined;
-        const note = [
-          '> [!NOTE]',
-          `> GitHub Actions may not open pull requests in this repository, so the change is on branch \`${branch}\`.`,
-          compare
-            ? `> **[Open the pull request](${compare})**${outcome === 'needs-agent' ? ' (as a draft: grafts still need attention)' : ''}.`
-            : `> Open a pull request from \`${branch}\` into \`${base}\`${outcome === 'needs-agent' ? ' (as a draft: grafts still need attention)' : ''}.`,
-          '> To let the action open pull requests itself, allow it under Settings → Actions → General, or pass a GitHub App token or a fine-grained PAT as `github-token` (PRs opened with those also trigger CI).',
-          '',
-        ].join('\n');
-        const issue = await openIssue(title, `${note}\n${body}`, `pr-refused-${slug(candidate.package)}.md`);
-        result.issue = issue.url;
-        result.compareUrl = compare;
-        result.outcome = 'pr-refused-issue';
-        result.reasons.push(
-          `pull request not allowed from Actions; branch ${branch} pushed, ${issue.existing ? 'issue already open' : 'issue opened'}: ${issue.url}`,
-        );
-        continue;
-      }
-      if (pr.code !== 0) throw new Error(`gh pr create failed: ${pr.stderr || pr.stdout}`);
-      result.pullRequest = pr.stdout.trim().split('\n').pop();
-      result.outcome = outcome === 'green' ? 'pr' : 'draft-pr';
+      await proposeBranch(result, { branch, base, title, body, draft: outcome === 'needs-agent', file: slug(candidate.package) });
     } catch (err) {
       result.outcome = 'error';
       result.reasons.push(err.message);
@@ -568,8 +631,8 @@ export async function runAction(options, deps) {
 
   if (dirty) {
     // Leave the workspace on the base branch with no files left over from sync runs.
-    await run(`git checkout -f ${quote(base)}`);
-    await run('git clean -fd');
+    await run(gitCmd(`checkout -f ${quote(base)}`));
+    await run(gitCmd('clean -fd'));
   }
   await deps.writeOutput('check', JSON.stringify(check ?? null));
   await deps.writeOutput('results', JSON.stringify(results));
@@ -647,6 +710,7 @@ const ICON = {
   'no-changes': '➖',
   'would-open-pr': '✅ (dry run)',
   'would-open-draft-pr': '🛠️ (dry run)',
+  'would-resume': '🔁 (dry run)',
   error: '❌',
 };
 

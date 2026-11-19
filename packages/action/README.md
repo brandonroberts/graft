@@ -11,9 +11,11 @@ Graft's deterministic first pass and then does one of the following:
 | 📝 a PR to open, but Actions may not open PRs here | Pushes the branch anyway and opens an **issue** with the report and a one-click "Open the pull request" link (see [Tokens](#tokens-and-pull-requests)). Not an error |
 | ❌ tooling error | Fails the job for that package and still processes the others |
 
-Each package@version gets its own branch (`graft/sync-<package>-<version>`; outside npm, `graft/sync-<ecosystem>-<package>-<version>`). A branch or issue that already exists is skipped, so the action is safe to run on a schedule.
+Each package@version gets its own branch (`graft/sync-<package>-<version>`; outside npm, `graft/sync-<ecosystem>-<package>-<version>`). A package@version whose branch already has a pull request (open or closed) or an open issue is skipped, so the action is safe to run on a schedule. A branch with neither (an earlier run pushed it but couldn't open its pull request) is **resumed**: the action opens its pull request as pushed, without syncing again.
 
 Syncing switches branches and resets the working tree, so when there is something to sync the action **requires a clean working tree**. That's what CI gives it. If the tree has uncommitted changes or untracked files that aren't gitignored, it stops before touching any branch and lists them. This includes `dry-run`. Without the check it would discard them, or commit them into a sync PR. Check-only runs (`sync: false`) and runs with nothing to sync don't need a clean tree.
+
+The action's own git operations (switching branches, the sync commit, the push) run **without the repository's git hooks**. A commitlint `commit-msg` hook would reject the `graft: sync …` commit, and `pre-push` or `post-checkout` hooks aren't meant for a bot. The action re-runs `graft sync` itself, and your CI checks the PR. The repository's hook configuration isn't changed, and an `agent-command` runs with your hooks as usual.
 
 ## `graft check`
 
@@ -163,7 +165,7 @@ The agent must not commit, push or open PRs. The action does that after re-verif
 ## Outputs
 
 - `check`: the JSON check result (`ok`, per-graft reports, failures), or `null` when the check is off.
-- `results`: a JSON array with one entry per package: `outcome` (`pr`, `draft-pr`, `issue`, `skipped-existing`, `up-to-date`, `no-changes`, `needs-agent`, or `error`), versions, the link, and reasons.
+- `results`: a JSON array with one entry per package: `outcome` (`pr`, `draft-pr`, `issue`, `pr-refused-issue`, `skipped-existing`, `up-to-date`, `no-changes`, `needs-agent`, `would-resume` in a dry run, or `error`; `resumed: true` marks a PR opened for a branch an earlier run pushed), versions, the link, and reasons.
 - `pull-requests`: a JSON array of the PR URLs that were opened.
 
 A summary table is also written to the job summary.

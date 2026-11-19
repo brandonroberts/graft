@@ -15,6 +15,7 @@ type Scenario = {
   check?: 'ok' | 'fail' | 'error';
   refusePr?: 'actions' | 'other';
   noUpstream?: boolean;
+  prs?: { head: string; url: string }[];
   changeUpstream?: boolean;
 };
 
@@ -40,7 +41,14 @@ fs.appendFileSync(process.env.FAKE_LOG, 'gh ' + JSON.stringify(args) + '\\n');
 if (bodyIdx !== -1) fs.appendFileSync(process.env.FAKE_LOG, 'BODY ' + JSON.stringify(fs.readFileSync(args[bodyIdx + 1], 'utf8')) + '\\n');
 if (args[0] === 'pr' && args[1] === 'create' && s.refusePr === 'actions') { console.error('pull request create failed: GraphQL: GitHub Actions is not permitted to create or approve pull requests (createPullRequest)'); process.exit(1); }
 if (args[0] === 'pr' && args[1] === 'create' && s.refusePr === 'other') { console.error('pull request create failed: GraphQL: Head sha cannot be blank'); process.exit(1); }
-if (args[0] === 'pr' && args[1] === 'create') console.log('https://github.com/o/r/pull/' + (fs.readFileSync(process.env.FAKE_LOG, 'utf8').split('pr\\",\\"create').length - 1));
+const prsFile = process.env.FAKE_SCENARIO + '.prs';
+const prs = fs.existsSync(prsFile) ? JSON.parse(fs.readFileSync(prsFile, 'utf8')) : s.prs || [];
+if (args[0] === 'pr' && args[1] === 'list') console.log(JSON.stringify(prs.filter((p) => p.head === args[args.indexOf('--head') + 1]).map((p) => ({ url: p.url }))));
+if (args[0] === 'pr' && args[1] === 'create') {
+  const url = 'https://github.com/o/r/pull/' + (fs.readFileSync(process.env.FAKE_LOG, 'utf8').split('pr\\",\\"create').length - 1);
+  fs.writeFileSync(prsFile, JSON.stringify([...prs, { head: args[args.indexOf('--head') + 1], url }]));
+  console.log(url);
+}
 if (args[0] === 'issue' && args[1] === 'list') console.log(JSON.stringify(s.issues || []));
 if (args[0] === 'issue' && args[1] === 'create') console.log('https://github.com/o/r/issues/7');
 `,
@@ -71,7 +79,8 @@ if (args[0] === 'issue' && args[1] === 'create') console.log('https://github.com
     });
   const calls = () => readFileSync(log, 'utf8');
   const remoteBranches = () => git(work, 'ls-remote', '--heads', 'origin').trim();
-  return { work, run, calls, outputs, summary: () => summary, remoteBranches, git: (...a: string[]) => git(work, ...a) };
+  const setScenario = (next: Scenario) => writeFileSync(scenarioFile, JSON.stringify(next));
+  return { work, run, calls, outputs, summary: () => summary, remoteBranches, setScenario, git: (...a: string[]) => git(work, ...a) };
 }
 
 const entry = (pkg: string, version: string) => ({
@@ -266,15 +275,76 @@ describe('graft GitHub Action', () => {
     expect(o.results[0].reasons.join('\n')).toContain('Head sha cannot be blank');
   });
 
-  it('skips packages whose sync branch already exists, and isolates tooling errors', async () => {
-    const t = setup({ outdated: [entry('bad', '3.0.0'), entry('lib', '1.1.0')], sync: { bad: 'error', lib: 'green' } });
+  it('skips packages whose sync branch already has a PR or issue, and isolates tooling errors', async () => {
+    const t = setup({
+      outdated: [entry('bad', '3.0.0'), entry('lib', '1.1.0'), entry('dep', '2.0.0')],
+      sync: { bad: 'error', lib: 'green', dep: 'green' },
+      prs: [{ head: 'graft/sync-lib-1.1.0', url: 'https://github.com/o/r/pull/9' }],
+      issues: [{ title: 'graft: sync dep to 2.0.0 (needs attention)', url: 'https://github.com/o/r/issues/8' }],
+    });
     t.git('push', '-q', 'origin', 'main:graft/sync-lib-1.1.0');
+    t.git('push', '-q', 'origin', 'main:graft/sync-dep-2.0.0');
     const { results, failed } = await t.run();
     expect(failed).toBe(true);
     expect(results.find((r: any) => r.package === 'bad')).toMatchObject({ outcome: 'error' });
     expect(results.find((r: any) => r.package === 'bad').reasons.join('\n')).toContain('registry unreachable');
-    expect(results.find((r: any) => r.package === 'lib')).toMatchObject({ outcome: 'skipped-existing' });
+    expect(results.find((r: any) => r.package === 'lib')).toMatchObject({
+      outcome: 'skipped-existing',
+      pullRequest: 'https://github.com/o/r/pull/9',
+    });
+    expect(results.find((r: any) => r.package === 'dep')).toMatchObject({
+      outcome: 'skipped-existing',
+      issue: 'https://github.com/o/r/issues/8',
+    });
     expect(t.calls()).not.toContain('"pr","create"');
+  });
+
+  it('a branch pushed by a run whose PR failed to open is resumed on the next run, not skipped (#33)', async () => {
+    const t = setup({ outdated: [entry('lib', '1.1.0')], sync: { lib: 'green' }, refusePr: 'other' });
+    const first = await t.run();
+    expect(first.failed).toBe(true);
+    expect(first.results[0]).toMatchObject({ outcome: 'error' });
+    expect(first.results[0].reasons.join('\n')).toContain('the next run opens its pull request');
+    expect(t.remoteBranches()).toContain('refs/heads/graft/sync-lib-1.1.0');
+
+    t.setScenario({ outdated: [entry('lib', '1.1.0')], sync: { lib: 'green' } });
+    const dry = await t.run({ 'dry-run': 'true' });
+    expect(dry.results[0]).toMatchObject({ outcome: 'would-resume' });
+
+    const second = await t.run();
+    expect(second.failed).toBe(false);
+    expect(second.results[0]).toMatchObject({ outcome: 'pr', resumed: true, branch: 'graft/sync-lib-1.1.0' });
+    const creates = t
+      .calls()
+      .split('\n')
+      .filter((l) => l.includes('"pr","create"'));
+    expect(creates).toHaveLength(2);
+    expect(creates[1]).toContain('"--title","graft: sync lib to 1.1.0"');
+    expect(t.calls().match(/graft sync --json/g)).toHaveLength(1); // the pushed work is proposed as is, not redone
+
+    const third = await t.run();
+    expect(third.results[0]).toMatchObject({ outcome: 'skipped-existing', pullRequest: second.results[0].pullRequest });
+  });
+
+  it("commits and pushes without the repository's git hooks, and leaves its hook config alone (#32)", async () => {
+    const t = setup({ outdated: [entry('lib', '1.1.0')], sync: { lib: 'green' } });
+    // Like husky + commitlint: hooks that reject the action's `graft: sync …` commit, its push and its checkouts.
+    const hooks = path.join(t.work, '.githooks');
+    mkdirSync(hooks);
+    for (const hook of ['commit-msg', 'pre-commit', 'pre-push', 'post-checkout']) {
+      writeFileSync(path.join(hooks, hook), `#!/bin/sh\necho "${hook} hook rejected" >&2\nexit 1\n`);
+      chmodSync(path.join(hooks, hook), 0o755);
+    }
+    t.git('config', 'core.hooksPath', '.githooks');
+    writeFileSync(path.join(t.work, '.gitignore'), '.grafts/.report/\n.githooks/\n');
+    t.git('-c', 'core.hooksPath=/nonexistent', '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-am', 'ignore hooks');
+    t.git('-c', 'core.hooksPath=/nonexistent', 'push', '-q', 'origin', 'main');
+
+    const { results, failed } = await t.run();
+    expect(failed).toBe(false);
+    expect(results[0]).toMatchObject({ outcome: 'pr', branch: 'graft/sync-lib-1.1.0' });
+    expect(t.git('log', '-1', '--format=%s', 'origin/graft/sync-lib-1.1.0').trim()).toBe('graft: sync lib to 1.1.0');
+    expect(t.git('config', 'core.hooksPath').trim()).toBe('.githooks');
   });
 
   it('dry run pushes nothing', async () => {
