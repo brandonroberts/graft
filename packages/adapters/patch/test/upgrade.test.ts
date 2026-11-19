@@ -33,7 +33,7 @@ class CommandInstalledSource extends DirectoryUpstreamSource {
   }
 }
 
-async function fixture(upgrade: Record<string, string>) {
+async function fixture(config: Record<string, unknown>) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'graft-upgrade-'));
   const dirs: Record<string, string> = {};
   for (const v of ['1.0.0', '1.0.5', '1.1.0']) {
@@ -50,7 +50,7 @@ async function fixture(upgrade: Record<string, string>) {
     path.join(g, 'graft.md'),
     `---\nid: add-c\nrootstock: { package: lib, verified: 1.0.0 }\nmechanism: patch\nvariants:\n  - range: ">=1.0.0"\n    module: ./variants/v1.patch\n---\n## Why\nw\n## Invariants\ni\n## Where to look\nl\n## Anchors\na\n## History\n- created\n`,
   );
-  await writeFile(path.join(root, '.grafts', 'config.json'), JSON.stringify({ upgrade }));
+  await writeFile(path.join(root, '.grafts', 'config.json'), JSON.stringify(config));
   await writeFile(
     path.join(root, 'pnpm-workspace.yaml'),
     `packages: []\nignorePatchFailures: false\npatchedDependencies:\n  lib: .grafts/add-c/variants/v1.patch\n`,
@@ -64,7 +64,7 @@ const write = (content: string) => `node -e "require('fs').writeFileSync('instal
 
 describe("sync --install with the project's upgrade command", () => {
   it('runs it, with {package} and {version} filled in, instead of the single-package install', async () => {
-    const { project, root, verified } = await fixture({ lib: write('{package}@{version}') });
+    const { project, root, verified } = await fixture({ upgrade: { lib: write('{package}@{version}') } });
     const report = await sync(project, { version: '1.1.0', install: true, writeReport: false });
     expect(report.exitCode, JSON.stringify(report.grafts)).toBe(0);
     expect(report.targets[0]?.installCommand).toBe(write('lib@1.1.0'));
@@ -74,21 +74,43 @@ describe("sync --install with the project's upgrade command", () => {
   });
 
   it('prefers an <ecosystem>:<name> key over a bare name', async () => {
-    const { project } = await fixture({ lib: 'exit 9 {version}', 'npm:lib': write('{version}') });
+    const { project } = await fixture({ upgrade: { lib: 'exit 9 {version}', 'npm:lib': write('{version}') } });
     const report = await sync(project, { version: '1.1.0', install: true, writeReport: false });
     expect(report.exitCode).toBe(0);
     expect(report.targets[0]?.installCommand).toBe(write('1.1.0'));
   });
 
+  it('lets ecosystems.<name>.upgrade win over the top-level map, and rejects a malformed one', async () => {
+    const { project } = await fixture({
+      upgrade: { 'npm:lib': 'exit 9 {version}' },
+      ecosystems: { npm: { upgrade: { lib: write('{version}') } } },
+    });
+    const report = await sync(project, { version: '1.1.0', install: true, writeReport: false });
+    expect(report.exitCode, JSON.stringify(report.grafts)).toBe(0);
+    expect(report.targets[0]?.installCommand).toBe(write('1.1.0'));
+
+    const other = await fixture({ upgrade: { lib: write('{version}') }, ecosystems: { cargo: { upgrade: { lib: 'exit 9 {version}' } } } });
+    expect((await sync(other.project, { version: '1.1.0', install: true, writeReport: false })).exitCode).toBe(0); // another ecosystem's map
+
+    const malformed = await fixture({ ecosystems: { npm: { upgrade: 'pnpm up' } } });
+    const bad = await sync(malformed.project, { version: '1.1.0', install: true, writeReport: false });
+    expect(bad.exitCode).toBe(2);
+    expect(bad.grafts[0]!.reasons.join('\n')).toMatch(/ecosystems\.npm\.upgrade must be an object of commands/);
+
+    const noVersion = await fixture({ ecosystems: { npm: { upgrade: { lib: write('1.1.0') } } } });
+    const nv = await sync(noVersion.project, { version: '1.1.0', install: true, writeReport: false });
+    expect(nv.grafts[0]!.reasons.join('\n')).toMatch(/ecosystems\.npm\.upgrade\["lib"\] must be a command containing \{version\}/);
+  });
+
   it('fails loudly, recording nothing, when the command fails or installs another version', async () => {
-    const failing = await fixture({ lib: `node -e "console.error('migration blew up'); process.exit(4)" {version}` });
+    const failing = await fixture({ upgrade: { lib: `node -e "console.error('migration blew up'); process.exit(4)" {version}` } });
     const report = await sync(failing.project, { version: '1.1.0', install: true, writeReport: false });
     expect(report.exitCode).toBe(2);
     expect(report.grafts[0]).toMatchObject({ outcome: 'error' });
     expect(report.grafts[0]!.reasons.join('\n')).toMatch(/upgrade command .* failed \(exit 4\):[\s\S]*migration blew up/);
     expect(await failing.verified()).toBe('1.0.0');
 
-    const wrong = await fixture({ lib: `${write('1.0.5')} # {version}` });
+    const wrong = await fixture({ upgrade: { lib: `${write('1.0.5')} # {version}` } });
     const off = await sync(wrong.project, { version: '1.1.0', install: true, writeReport: false });
     expect(off.exitCode).toBe(2);
     expect(off.grafts[0]!.reasons.join('\n')).toMatch(/found version 1\.0\.5, expected 1\.1\.0/);
@@ -96,7 +118,7 @@ describe("sync --install with the project's upgrade command", () => {
   });
 
   it('rejects a command without {version}, before running it', async () => {
-    const { project, root } = await fixture({ lib: write('1.1.0') });
+    const { project, root } = await fixture({ upgrade: { lib: write('1.1.0') } });
     const report = await sync(project, { version: '1.1.0', install: true, writeReport: false });
     expect(report.exitCode).toBe(2);
     expect(report.grafts[0]!.reasons.join('\n')).toMatch(/upgrade\["lib"\] must be a command containing \{version\}/);
