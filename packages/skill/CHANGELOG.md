@@ -1,5 +1,12 @@
 # @graftsync/skill
 
+## 0.2.6
+
+### Patch Changes
+
+- 76609ec: The README and skill now recommend a plain `graft check` step in CI (no third-party action needed), pinning the GitHub Action to a release tag with the CLI at the same version, and `tags: latest` when only stable upstream releases should get sync PRs.
+- a35120e: The setup prompt and the skill's "Adding a new graft" steps now ask the developer whether to automate re-verification with the Graft GitHub Action, and say how to set up the workflow, the CI check and the GitHub-side settings.
+
 ## 0.2.5
 
 No changes in this release.
