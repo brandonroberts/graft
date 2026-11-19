@@ -36,6 +36,7 @@ export interface ProjectConfig {
    * The project's own upgrade command per rootstock package, run by `sync --install` instead of
    * Graft's single-package install. Keys are package names, or `<ecosystem>:<name>`; `{version}`
    * (required) and `{package}` are substituted. E.g. `{ "nx": "pnpm nx migrate {version} && …" }`.
+   * `ecosystems.<name>.upgrade` (same shape, bare names) wins over this map.
    */
   upgrade?: Record<string, string>;
   /** Per-ecosystem options, e.g. `{ "cargo": { "manifest": "crates/app/Cargo.toml" } }`. */

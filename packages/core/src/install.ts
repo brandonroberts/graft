@@ -166,12 +166,36 @@ export function upgradeCommand(
   version: string,
 ): string | undefined {
   const key = upgrade && `${ecosystem}:${pkg}` in upgrade ? `${ecosystem}:${pkg}` : pkg;
-  const template = upgrade?.[key];
+  return fillUpgrade(upgrade?.[key], `upgrade["${key}"]`, pkg, version);
+}
+
+/** An upgrade command template with `{package}` and `{version}` filled in; `config/invalid` without `{version}`. */
+function fillUpgrade(template: unknown, where: string, pkg: string, version: string): string | undefined {
   if (template === undefined) return undefined;
   if (typeof template !== 'string' || !template.includes('{version}')) {
-    throw new GraftError(`.grafts/config.json: upgrade["${key}"] must be a command containing {version}`, 'config/invalid');
+    throw new GraftError(`.grafts/config.json: ${where} must be a command containing {version}`, 'config/invalid');
   }
   return template.replaceAll('{package}', pkg).replaceAll('{version}', version);
+}
+
+/**
+ * The project's upgrade command for `pkg` in `ecosystem`: `ecosystems.<ecosystem>.upgrade[pkg]`
+ * wins, as `ecosystems.npm.upstream` wins over `upstream`; then the top-level `upgrade` map
+ * (see {@link upgradeCommand}).
+ */
+export function resolveUpgradeCommand(
+  config: { upgrade?: Record<string, unknown>; ecosystems?: Partial<Record<string, Record<string, unknown>>> },
+  ecosystem: string,
+  pkg: string,
+  version: string,
+): string | undefined {
+  const own = config.ecosystems?.[ecosystem]?.upgrade;
+  if (own !== undefined && (typeof own !== 'object' || own === null || Array.isArray(own))) {
+    throw new GraftError(`.grafts/config.json: ecosystems.${ecosystem}.upgrade must be an object of commands`, 'config/invalid');
+  }
+  const scoped = own as Record<string, unknown> | undefined;
+  if (scoped && pkg in scoped) return fillUpgrade(scoped[pkg], `ecosystems.${ecosystem}.upgrade["${pkg}"]`, pkg, version);
+  return upgradeCommand(config.upgrade, ecosystem, pkg, version);
 }
 
 /** Run a project's upgrade command from the project root. Throws `install/failed` with its output on failure. */
