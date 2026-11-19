@@ -165,44 +165,70 @@ export function upgradeCommand(
   pkg: string,
   version: string,
 ): string | undefined {
+  return topLevelUpgrade(upgrade, ecosystem, pkg, version)?.command;
+}
+
+/** A project's upgrade for one package: the command to run, and how long it may take. */
+export interface Upgrade {
+  command: string;
+  timeoutMinutes: number;
+}
+
+/** How long an upgrade command may run when its entry doesn't say. */
+export const DEFAULT_UPGRADE_TIMEOUT_MINUTES = 30;
+
+function topLevelUpgrade(upgrade: Record<string, unknown> | undefined, ecosystem: string, pkg: string, version: string) {
   const key = upgrade && `${ecosystem}:${pkg}` in upgrade ? `${ecosystem}:${pkg}` : pkg;
   return fillUpgrade(upgrade?.[key], `upgrade["${key}"]`, pkg, version);
 }
 
-/** An upgrade command template with `{package}` and `{version}` filled in; `config/invalid` without `{version}`. */
-function fillUpgrade(template: unknown, where: string, pkg: string, version: string): string | undefined {
-  if (template === undefined) return undefined;
+/**
+ * An upgrade entry, either a command string or `{ command, timeoutMinutes? }`, with `{package}`
+ * and `{version}` filled in. `config/invalid` for a command without `{version}` or a timeout
+ * that isn't a positive number of minutes.
+ */
+function fillUpgrade(entry: unknown, where: string, pkg: string, version: string): Upgrade | undefined {
+  if (entry === undefined) return undefined;
+  const object = typeof entry === 'object' && entry !== null && !Array.isArray(entry) ? (entry as Record<string, unknown>) : undefined;
+  const template = object ? object.command : entry;
   if (typeof template !== 'string' || !template.includes('{version}')) {
-    throw new GraftError(`.grafts/config.json: ${where} must be a command containing {version}`, 'config/invalid');
+    throw new GraftError(
+      `.grafts/config.json: ${where} must be a command containing {version}, or { "command": …, "timeoutMinutes": … }`,
+      'config/invalid',
+    );
   }
-  return template.replaceAll('{package}', pkg).replaceAll('{version}', version);
+  const timeoutMinutes = object?.timeoutMinutes ?? DEFAULT_UPGRADE_TIMEOUT_MINUTES;
+  if (typeof timeoutMinutes !== 'number' || !(timeoutMinutes > 0)) {
+    throw new GraftError(`.grafts/config.json: ${where}.timeoutMinutes must be a positive number of minutes`, 'config/invalid');
+  }
+  return { command: template.replaceAll('{package}', pkg).replaceAll('{version}', version), timeoutMinutes };
 }
 
 /**
  * The project's upgrade command for `pkg` in `ecosystem`: `ecosystems.<ecosystem>.upgrade[pkg]`
  * wins, as `ecosystems.npm.upstream` wins over `upstream`; then the top-level `upgrade` map
- * (see {@link upgradeCommand}).
+ * (see {@link upgradeCommand}). An entry is a command string or `{ command, timeoutMinutes? }`.
  */
-export function resolveUpgradeCommand(
+export function resolveUpgrade(
   config: { upgrade?: Record<string, unknown>; ecosystems?: Partial<Record<string, Record<string, unknown>>> },
   ecosystem: string,
   pkg: string,
   version: string,
-): string | undefined {
+): Upgrade | undefined {
   const own = config.ecosystems?.[ecosystem]?.upgrade;
   if (own !== undefined && (typeof own !== 'object' || own === null || Array.isArray(own))) {
     throw new GraftError(`.grafts/config.json: ecosystems.${ecosystem}.upgrade must be an object of commands`, 'config/invalid');
   }
   const scoped = own as Record<string, unknown> | undefined;
   if (scoped && pkg in scoped) return fillUpgrade(scoped[pkg], `ecosystems.${ecosystem}.upgrade["${pkg}"]`, pkg, version);
-  return upgradeCommand(config.upgrade, ecosystem, pkg, version);
+  return topLevelUpgrade(config.upgrade, ecosystem, pkg, version);
 }
 
-/** Run a project's upgrade command from the project root. Throws `install/failed` with its output on failure. */
-export async function runUpgrade(root: string, command: string): Promise<string> {
-  const result = await runCommand(command, { cwd: root, timeoutMs: 30 * 60_000 });
+/** Run a project's upgrade command from the project root. Throws `install/failed` with its output on failure or timeout. */
+export async function runUpgrade(root: string, command: string, timeoutMinutes: number = DEFAULT_UPGRADE_TIMEOUT_MINUTES): Promise<string> {
+  const result = await runCommand(command, { cwd: root, timeoutMs: timeoutMinutes * 60_000 });
   if (!result.passed) {
-    const why = result.timedOut ? 'timed out after 30 minutes' : `exit ${result.exitCode}`;
+    const why = result.timedOut ? `timed out after ${timeoutMinutes} minutes` : `exit ${result.exitCode}`;
     throw new GraftError(`upgrade command \`${command}\` failed (${why}):\n${result.output}`, 'install/failed');
   }
   return command;

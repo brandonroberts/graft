@@ -117,6 +117,25 @@ describe("sync --install with the project's upgrade command", () => {
     expect(await wrong.verified()).toBe('1.0.0');
   });
 
+  it('takes { command, timeoutMinutes }, stops a command that runs past it, and rejects a bad timeout', async () => {
+    const ok = await fixture({ ecosystems: { npm: { upgrade: { lib: { command: write('{version}'), timeoutMinutes: 90 } } } } });
+    const report = await sync(ok.project, { version: '1.1.0', install: true, writeReport: false });
+    expect(report.exitCode, JSON.stringify(report.grafts)).toBe(0);
+    expect(report.targets[0]?.installCommand).toBe(write('1.1.0'));
+
+    const slow = await fixture({ upgrade: { lib: { command: `node -e "setTimeout(() => {}, 60000)" {version}`, timeoutMinutes: 0.02 } } });
+    const timedOut = await sync(slow.project, { version: '1.1.0', install: true, writeReport: false });
+    expect(timedOut.exitCode).toBe(2);
+    expect(timedOut.grafts[0]!.reasons.join('\n')).toMatch(/upgrade command .* failed \(timed out after 0\.02 minutes\)/);
+    expect(await slow.verified()).toBe('1.0.0');
+
+    for (const timeoutMinutes of [0, -5, '90']) {
+      const bad = await fixture({ upgrade: { lib: { command: write('{version}'), timeoutMinutes } } });
+      const r = await sync(bad.project, { version: '1.1.0', install: true, writeReport: false });
+      expect(r.grafts[0]!.reasons.join('\n')).toMatch(/upgrade\["lib"\]\.timeoutMinutes must be a positive number of minutes/);
+    }
+  });
+
   it('rejects a command without {version}, before running it', async () => {
     const { project, root } = await fixture({ upgrade: { lib: write('1.1.0') } });
     const report = await sync(project, { version: '1.1.0', install: true, writeReport: false });
