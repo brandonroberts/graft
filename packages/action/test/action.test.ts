@@ -277,6 +277,27 @@ describe('graft GitHub Action', () => {
     expect(t.calls()).not.toContain('"pr","create"');
   });
 
+  it("commits and pushes without the repository's git hooks, and leaves its hook config alone (#32)", async () => {
+    const t = setup({ outdated: [entry('lib', '1.1.0')], sync: { lib: 'green' } });
+    // Like husky + commitlint: hooks that reject the action's `graft: sync …` commit, its push and its checkouts.
+    const hooks = path.join(t.work, '.githooks');
+    mkdirSync(hooks);
+    for (const hook of ['commit-msg', 'pre-commit', 'pre-push', 'post-checkout']) {
+      writeFileSync(path.join(hooks, hook), `#!/bin/sh\necho "${hook} hook rejected" >&2\nexit 1\n`);
+      chmodSync(path.join(hooks, hook), 0o755);
+    }
+    t.git('config', 'core.hooksPath', '.githooks');
+    writeFileSync(path.join(t.work, '.gitignore'), '.grafts/.report/\n.githooks/\n');
+    t.git('-c', 'core.hooksPath=/nonexistent', '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-am', 'ignore hooks');
+    t.git('-c', 'core.hooksPath=/nonexistent', 'push', '-q', 'origin', 'main');
+
+    const { results, failed } = await t.run();
+    expect(failed).toBe(false);
+    expect(results[0]).toMatchObject({ outcome: 'pr', branch: 'graft/sync-lib-1.1.0' });
+    expect(t.git('log', '-1', '--format=%s', 'origin/graft/sync-lib-1.1.0').trim()).toBe('graft: sync lib to 1.1.0');
+    expect(t.git('config', 'core.hooksPath').trim()).toBe('.githooks');
+  });
+
   it('dry run pushes nothing', async () => {
     const t = setup({ outdated: [entry('lib', '1.1.0')], sync: { lib: 'green' } });
     const { results } = await t.run({ 'dry-run': 'true' });
