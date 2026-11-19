@@ -1,5 +1,14 @@
 # @graftsync/core
 
+## 0.2.9
+
+### Patch Changes
+
+- b0c2b99: `graft sync --dry-run` against a version that isn't installed (and without `--install`) now runs the static checks (variant, anchors, apply) and reports their result, as its error message promised, instead of failing every graft with "rerun with --install … (or --dry-run)".
+- c701de8: The sync report keeps the end of an `upgrade` command's output (`installOutput` in `sync.json`, a section of `sync.md`), and the skill tells agents to read it even when sync is green: a tool can exit 0 and leave work for an agent, as `nx migrate --agentic` does when it runs inside one.
+- Updated dependencies
+  - @graftsync/spec@0.2.9
+
 ## 0.2.8
 
 ### Patch Changes

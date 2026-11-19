@@ -1,5 +1,11 @@
 # @graftsync/skill
 
+## 0.2.9
+
+### Patch Changes
+
+- c701de8: The sync report keeps the end of an `upgrade` command's output (`installOutput` in `sync.json`, a section of `sync.md`), and the skill tells agents to read it even when sync is green: a tool can exit 0 and leave work for an agent, as `nx migrate --agentic` does when it runs inside one.
+
 ## 0.2.8
 
 No changes in this release.
