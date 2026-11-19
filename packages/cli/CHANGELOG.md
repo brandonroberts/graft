@@ -1,5 +1,19 @@
 # @graftsync/cli
 
+## 0.2.7
+
+### Patch Changes
+
+- fe5bad8: `graft sync --install` moves an npm package's siblings with it: the project's dependencies from the same repository at the same installed version (e.g. the `@nx/*` packages with `nx`). A sibling not published at the target version is an error (`install/sibling-unpublished`) instead of being left behind. With pnpm catalogs, sync updates the catalog entries in `pnpm-workspace.yaml` instead of running `pnpm update`, which replaced the manifests' `catalog:` references with literal versions.
+- 072ebd8: `.grafts/config.json` takes an `upgrade` command per rootstock package (`{version}` and `{package}` substituted). `graft sync --install` runs it instead of its single-package install, for upgrades that move companion packages or run migrations (`nx migrate`, `ng update`). A failing command, or one that leaves another version installed, is an error. The skill and the setup prompt now ask how the package is upgraded by hand.
+- Updated dependencies [fe5bad8]
+- Updated dependencies [072ebd8]
+  - @graftsync/core@0.2.7
+  - @graftsync/skill@0.2.7
+  - @graftsync/adapter-fork@0.2.7
+  - @graftsync/adapter-patch@0.2.7
+  - @graftsync/spec@0.2.7
+
 ## 0.2.6
 
 ### Patch Changes

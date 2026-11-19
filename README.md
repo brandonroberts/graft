@@ -250,9 +250,9 @@ This repo uses it on itself: [`.claude/skills/graft-sync`](.claude/skills/graft-
 4. If a graft needs an agent, run your `agent-command` (with the prompt, skill and report; the agent uses the `graft` CLI), then re-run `sync` on the agent's work. Green opens a PR; still failing opens a draft PR. With no agent, or nothing to commit, it opens an issue with the report.
 
 ```yaml
-      - uses: brandonroberts/graft/packages/action@v0.2.6   # a release tag, matching the CLI
+      - uses: brandonroberts/graft/packages/action@v0.2.7   # a release tag, matching the CLI
         with:
-          graft-command: npx -y @graftsync/cli@0.2.6          # omit if the project depends on @graftsync/cli
+          graft-command: npx -y @graftsync/cli@0.2.7          # omit if the project depends on @graftsync/cli
           tags: latest                                        # stable releases only; the default also proposes prereleases
           agent-command: ''   # optional: any agent CLI; see packages/action/README.md
 ```
@@ -260,7 +260,7 @@ This repo uses it on itself: [`.claude/skills/graft-sync`](.claude/skills/graft-
 In ordinary CI, check the grafts right after installing. It needs no action:
 
 ```yaml
-      - run: npx -y @graftsync/cli@0.2.6 check   # or: npx graft check, if the project depends on it
+      - run: npx -y @graftsync/cli@0.2.7 check   # or: npx graft check, if the project depends on it
 ```
 
 This repo runs it on itself, triggered manually ([`.github/workflows/graft-sync.yml`](.github/workflows/graft-sync.yml)). Its first real (dry) run found yaml **3.0.0-2** on `next`. That release is native ESM, so the `yaml-esm` patch correctly no longer applies, because upstream has absorbed the graft. The action routes that to a human through an issue.
