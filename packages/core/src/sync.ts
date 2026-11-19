@@ -56,6 +56,8 @@ export interface SyncTarget {
   version: string;
   installedBefore?: string;
   installCommand?: string;
+  /** Packages released together with this one (same repository and version), installed at `version` with it. */
+  siblings?: string[];
   /** True for a standalone graft's target: nothing is installed; the result is materialized instead. */
   standalone?: boolean;
 }
@@ -220,7 +222,7 @@ export async function sync(project: Project, options: SyncOptions = {}): Promise
             if (r && r.install === 'reinstall') bare = true;
           }
           // The project's own upgrade command (e.g. one that also moves companion packages and
-          // runs migrations) replaces Graft's single-package install.
+          // runs migrations) replaces Graft's install, sibling handling included.
           const upgrade = upgradeCommand(project.config.upgrade, ecosystem, pkg, version);
           if (upgrade && bare) {
             throw new GraftError(
@@ -228,11 +230,41 @@ export async function sync(project: Project, options: SyncOptions = {}): Promise
               'config/upgrade-unsupported',
             );
           }
-          log(upgrade ? `upgrading ${pkg} to ${version}: ${upgrade}` : `installing ${pkg}@${version}`);
-          if (upgrade) target.installCommand = await runUpgrade(project.root, upgrade);
-          else target.installCommand = bare ? await eco.reinstall(project) : await eco.install(project, pkg, version);
+          // Otherwise packages released together with this one move with it, or the project ends up
+          // with mismatched versions (e.g. `nx` upgraded, `@nx/angular` left behind).
+          const siblings = upgrade ? [] : ((await eco.siblings?.(project, pkg)) ?? []);
+          if (siblings.length) {
+            target.siblings = siblings;
+            const upstream = project.upstreamFor(ecosystem);
+            const unpublished: string[] = [];
+            for (const s of siblings) if (!(await upstream.versions(s)).versions.includes(version)) unpublished.push(s);
+            if (unpublished.length) {
+              throw new GraftError(
+                `${unpublished.join(', ')} ${unpublished.length === 1 ? 'is' : 'are'} released with ${pkg} (same repository, installed at ${installedBefore}) but not published at ${version}; upgrading ${pkg} alone would leave ${unpublished.length === 1 ? 'it' : 'them'} behind`,
+                'install/sibling-unpublished',
+              );
+            }
+          }
+          if (upgrade) {
+            log(`upgrading ${pkg} to ${version}: ${upgrade}`);
+            target.installCommand = await runUpgrade(project.root, upgrade);
+          } else {
+            log(`installing ${pkg}@${version}${siblings.length ? ` with ${siblings.join(', ')}` : ''}`);
+            const commands: string[] = [];
+            // A bare reinstall (the adapter pins the package itself) still needs the siblings moved first.
+            if (bare && siblings.length) commands.push(await eco.install(project, siblings[0]!, version, siblings.slice(1)));
+            commands.push(bare ? await eco.reinstall(project) : await eco.install(project, pkg, version, siblings));
+            target.installCommand = commands.join(' && ');
+          }
           const now = await project.installedVersion(pkg, ecosystem);
+          const behind: string[] = [];
+          for (const s of siblings) {
+            const v = await project.installedVersion(s, ecosystem);
+            if (v !== version) behind.push(`${s}@${v ?? 'none'}`);
+          }
           if (now !== version) installError = `installed ${pkg} but found version ${now ?? 'none'}, expected ${version}`;
+          else if (behind.length)
+            installError = `installed ${pkg}@${version} but its siblings are at ${behind.join(', ')}, expected ${version}`;
           else for (const s of ready) await project.adapterFor(s.graft).afterInstall?.(project.context(s.graft), version);
         } catch (err) {
           installError = (err as Error).message;
@@ -569,6 +601,8 @@ export function renderSyncMarkdown(report: SyncReport, root: string = report.roo
     for (const t of report.targets)
       lines.push(`| ${t.package} | ${t.version} | ${t.standalone ? 'n/a (standalone)' : (t.installedBefore ?? '—')} |`);
     lines.push('');
+    for (const t of report.targets.filter((t) => t.siblings?.length))
+      lines.push(`Released with ${t.package}, so moved with it: ${t.siblings!.map((n) => `\`${n}\``).join(', ')}.`, '');
   }
   lines.push('| Graft | Package | Verified → Target | Outcome |', '|---|---|---|---|');
   for (const g of report.grafts) {

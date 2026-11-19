@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { parseDocument } from 'yaml';
 import { GraftError } from './errors.js';
 import { runCommand } from './command.js';
 
@@ -64,24 +65,35 @@ export function detectPackageManager(root: string): PackageManager {
   }
 }
 
-/** Install `spec` (e.g. `lib@1.2.3`), keeping it in the manifest(s) and dependency field that already declare it. */
-export async function installPackage(root: string, pkg: string, spec: string): Promise<string> {
+/**
+ * Install `spec` (e.g. `lib@1.2.3`), and any `also` packages with it in the same install, each
+ * kept in the manifest(s) and dependency field that already declare it.
+ */
+export async function installPackage(root: string, pkg: string, spec: string, also: { pkg: string; spec: string }[] = []): Promise<string> {
   const manifest = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8')) as {
     devDependencies?: Record<string, string>;
   };
-  const dev = !!manifest.devDependencies?.[pkg];
   const pm = detectPackageManager(root);
-  const quoted = `'${spec.replaceAll("'", "'\\''")}'`;
+  const quote = (s: string) => `'${s.replaceAll("'", "'\\''")}'`;
+  const all = [{ pkg, spec }, ...also];
+  const specs = (entries: typeof all) => entries.map((e) => quote(e.spec)).join(' ');
+  // npm, yarn classic, bun and upm add to one dependency field per command.
+  const byField = (add: (dev: boolean, list: string) => string) =>
+    [false, true]
+      .map((dev) => all.filter((e) => !!manifest.devDependencies?.[e.pkg] === dev))
+      .filter((entries) => entries.length)
+      .map((entries) => add(!!manifest.devDependencies?.[entries[0]!.pkg], specs(entries)))
+      .join(' && ');
   const command = {
     // `update -r` bumps the package wherever it is already declared (workspace-aware)
     // instead of adding it to the root manifest.
-    pnpm: `pnpm update -r ${quoted}`,
-    yarn: `yarn add ${dev ? '-D ' : ''}${quoted}`,
+    pnpm: `pnpm update -r ${specs(all)}`,
+    yarn: byField((dev, list) => `yarn add ${dev ? '-D ' : ''}${list}`),
     // berry: `up` bumps the package in every workspace that declares it, keeping its field.
-    'yarn-berry': `yarn up ${quoted}`,
-    bun: `bun add ${dev ? '-d ' : ''}${quoted}`,
-    upm: `upm add ${dev ? '--dev ' : ''}${quoted}`,
-    npm: `npm install ${dev ? '--save-dev ' : ''}${quoted}`,
+    'yarn-berry': `yarn up ${specs(all)}`,
+    bun: byField((dev, list) => `bun add ${dev ? '-d ' : ''}${list}`),
+    upm: byField((dev, list) => `upm add ${dev ? '--dev ' : ''}${list}`),
+    npm: byField((dev, list) => `npm install ${dev ? '--save-dev ' : ''}${list}`),
   }[pm];
   const result = await runCommand(command, { cwd: root, timeoutMs: 10 * 60_000 });
   if (!result.passed) throw new GraftError(`\`${command}\` failed:\n${result.output}`, 'install/failed');
@@ -104,6 +116,41 @@ export async function reinstall(root: string): Promise<string> {
   const result = await runCommand(command, { cwd: root, timeoutMs: 10 * 60_000 });
   if (!result.passed) throw new GraftError(`\`${command}\` failed:\n${result.output}`, 'install/failed');
   return command;
+}
+
+/**
+ * pnpm catalogs: point the entries (default `catalog` and named `catalogs`) that pin a package's
+ * previously installed version at its new one, keeping the range prefix (`^24.0.0` → `^24.0.6`)
+ * and the file's comments. Entries pinning something else (e.g. a peer range) are left alone.
+ * Returns the packages whose catalog entries moved. `pnpm update` can't be used for these: it
+ * replaces the `catalog:` references in the manifests with the literal version.
+ */
+export async function updatePnpmCatalogs(root: string, updates: { pkg: string; from: string; to: string }[]): Promise<string[]> {
+  let dir = path.resolve(root);
+  while (!existsSync(path.join(dir, 'pnpm-workspace.yaml'))) {
+    const parent = path.dirname(dir);
+    if (parent === dir) return [];
+    dir = parent;
+  }
+  const file = path.join(dir, 'pnpm-workspace.yaml');
+  const before = await readFile(file, 'utf8');
+  const doc = parseDocument(before);
+  const catalogs: (string | number)[][] = [['catalog']];
+  const named = doc.getIn(['catalogs']) as { items?: { key: unknown }[] } | undefined;
+  for (const item of named?.items ?? []) catalogs.push(['catalogs', String((item.key as { value?: unknown })?.value ?? item.key)]);
+  const moved = new Set<string>();
+  for (const { pkg, from, to } of updates) {
+    for (const at of catalogs) {
+      const value = doc.getIn([...at, pkg]);
+      const m = typeof value === 'string' ? /^([~^=]?)(.*)$/.exec(value) : null;
+      if (!m || m[2] !== from) continue;
+      doc.setIn([...at, pkg], `${m[1]}${to}`);
+      moved.add(pkg);
+    }
+  }
+  const after = doc.toString();
+  if (after !== before) await writeFile(file, after);
+  return [...moved];
 }
 
 /**

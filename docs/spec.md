@@ -220,6 +220,13 @@ Grafts are grouped by `(rootstock.ecosystem, rootstock.package)`, so an npm `ms`
    `error`. An `upgrade` command for a package whose adapter asks for a bare reinstall (the `fork`
    mechanism's package mode) is an error (`config/upgrade-unsupported`). If some grafts on the package need an
    agent, nothing is installed and the passing ones are `skipped`.
+   **Siblings** (npm): the project's declared dependencies installed at the package's installed
+   version with the same `repository` (compared as `host/owner/repo`, so `github:o/r` and
+   `git+https://github.com/o/r.git` match) are released with it and MUST be installed at `T` in
+   the same install, e.g. `@nx/angular` with `nx`. A sibling not published at `T` is an error
+   before anything is installed (`install/sibling-unpublished`), and after the install every
+   sibling MUST be at `T`. The target lists them as `siblings`. An `upgrade` command replaces all
+   of this: the project's command is then responsible for the siblings.
 3. **Record.** For a standalone graft, the adapter's `workspace` materializes the upstream at `T`
    with the graft applied (§9.2); if that fails, the graft needs an agent. Then, unless it's a dry
    run, `rootstock.verified` becomes `T`, `status` becomes `applied`, and a History entry is
@@ -444,7 +451,12 @@ it.
 - **Versions:** `npm view <pkg> versions dist-tags`.
 - **Installed copy:** `node_modules/<pkg>` walking up from the project root (or
   `ecosystems.npm.resolveFrom`), or through Plug'n'Play.
-- **Install and appliers:** §8 and §9.1.
+- **Install and appliers:** §8 and §9.1. pnpm installs with `pnpm update -r <pkg>@<T> …`, except
+  for packages in a pnpm catalog: their entries in `pnpm-workspace.yaml`'s `catalog` and
+  `catalogs` that pin the installed version (with an optional `^`, `~` or `=` prefix, which is
+  kept) are set to `T`, and the workspace reinstalls with `pnpm install --no-frozen-lockfile`.
+  `pnpm update` would replace the manifests' `catalog:` references with the literal version.
+  Entries pinning anything else (such as a peer range) are left alone.
 
 ### 10.2 cargo
 

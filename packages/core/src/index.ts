@@ -6,6 +6,7 @@ export * from './command.js';
 export * from './diff.js';
 export * from './operations.js';
 export * from './install.js';
+export * from './siblings.js';
 export * from './sync.js';
 export * from './scaffold.js';
 export * from './outdated.js';

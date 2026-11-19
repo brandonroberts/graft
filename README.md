@@ -320,13 +320,15 @@ yarn 4.18 was verified the same way, under both Plug'n'Play and `nodeLinker: nod
 
 **Installs that skip scripts.** `--ignore-scripts` skips `postinstall`, and with it the built-in and patch-package appliers. The native and vendored appliers don't depend on scripts. Run `graft check` in CI after installing (the GitHub Action also does this before syncing). It compares installed files with pristine upstream + the selected variant, so it fails the build however the patch was skipped.
 
+**Packages released together.** `sync --install` also moves the project's dependencies that come from the upstream package's repository at its installed version, so upgrading `nx` moves `@nx/angular` and `@nx/vite` with it. If one isn't published at the new version, sync fails instead of leaving it behind. An `upgrade` command (below) replaces this. With pnpm catalogs, Graft updates the catalog entries in `pnpm-workspace.yaml` rather than the manifests.
+
 In a monorepo where the upstream package is declared by a workspace package rather than the root, tell Graft where to resolve it from in `.grafts/config.json`:
 
 ```json
 { "resolveFrom": { "semver": "packages/spec", "yaml": "packages/spec" } }
 ```
 
-**Upgrades that are more than a version bump.** `sync --install` installs the new version of the one upstream package. If upgrading it by hand means more (moving companion packages with it, running migrations), give Graft the command you'd run, with `{version}` filled in at sync time:
+**Upgrades that are more than a version bump.** If upgrading the package by hand means more than installing the new versions (running migrations, say), give Graft the command you'd run, with `{version}` filled in at sync time:
 
 ```json
 { "upgrade": { "nx": "pnpm nx migrate {version} && pnpm install --no-frozen-lockfile && pnpm nx migrate --run-migrations --if-exists" } }

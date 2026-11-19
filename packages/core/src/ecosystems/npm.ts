@@ -1,7 +1,10 @@
 import path from 'node:path';
 import { semverScheme } from '@graftsync/spec';
 import type { Ecosystem } from '../ecosystem.js';
-import { detectPackageManager, installPackage, reinstall } from '../install.js';
+import { runCommand } from '../command.js';
+import { GraftError } from '../errors.js';
+import { detectPackageManager, installPackage, reinstall, updatePnpmCatalogs } from '../install.js';
+import { findSiblings } from '../siblings.js';
 import { NpmUpstreamSource } from '../upstream.js';
 
 /** npm packages, installed by pnpm, npm, yarn, bun or upm (spec §8). */
@@ -22,6 +25,32 @@ export const npmEcosystem: Ecosystem = {
     });
   },
   detect: (root) => detectPackageManager(root),
-  install: (project, pkg, version) => installPackage(project.root, pkg, project.upstreamFor('npm').installSpec(pkg, version)),
+  async install(project, pkg, version, siblings = []) {
+    const upstream = project.upstreamFor('npm');
+    let names = [pkg, ...siblings];
+    const steps: string[] = [];
+    if (detectPackageManager(project.root) === 'pnpm') {
+      const updates: { pkg: string; from: string; to: string }[] = [];
+      for (const name of names) {
+        const from = (await upstream.installed(name))?.version;
+        if (from) updates.push({ pkg: name, from, to: version });
+      }
+      const moved = await updatePnpmCatalogs(project.root, updates);
+      if (moved.length) {
+        steps.push(`set ${moved.map((n) => `${n}@${version}`).join(', ')} in pnpm-workspace.yaml's catalog`);
+        names = names.filter((n) => !moved.includes(n));
+        if (!names.length) {
+          const command = 'pnpm install --no-frozen-lockfile';
+          const result = await runCommand(command, { cwd: project.root, timeoutMs: 10 * 60_000 });
+          if (!result.passed) throw new GraftError(`\`${command}\` failed:\n${result.output}`, 'install/failed');
+          return [...steps, command].join(' && ');
+        }
+      }
+    }
+    const [first, ...rest] = names.map((n) => ({ pkg: n, spec: upstream.installSpec(n, version) }));
+    steps.push(await installPackage(project.root, first!.pkg, first!.spec, rest));
+    return steps.join(' && ');
+  },
+  siblings: (project, pkg) => findSiblings(project, pkg),
   reinstall: (project) => reinstall(project.root),
 };

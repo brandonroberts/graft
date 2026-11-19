@@ -133,6 +133,9 @@ importers:
       tar:
         specifier: ^7.5.22
         version: 7.5.22
+      yaml:
+        specifier: ^2.9.1
+        version: 2.9.1(patch_hash=48f10651313b364525b85ecf86c3c6106702743517271dea8307f8fb4a437edf)
 
   packages/skill: {}
 
