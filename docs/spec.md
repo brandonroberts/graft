@@ -218,7 +218,9 @@ Grafts are grouped by `(rootstock.ecosystem, rootstock.package)`, so an npm `ms`
    `upgrade` command for the package (§7), the tooling runs that command from the project root
    instead of its own install. It MUST fail (`install/failed`, with the command's output) when the
    command fails, and either way the package MUST then be installed at `T`, or the grafts get
-   `error`. An `upgrade` command for a package whose adapter asks for a bare reinstall (the `fork`
+   `error`. The tooling keeps the end of the command's output (its last lines, without terminal
+   escapes) in the report as the target's `installOutput`, and in `sync.md`: a command can exit 0
+   and still leave work for an agent. An `upgrade` command for a package whose adapter asks for a bare reinstall (the `fork`
    mechanism's package mode) is an error (`config/upgrade-unsupported`). If some grafts on the package need an
    agent, nothing is installed and the passing ones are `skipped`.
    **Siblings** (npm): the project's declared dependencies installed at the package's installed

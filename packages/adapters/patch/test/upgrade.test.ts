@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { DirectoryUpstreamSource, Project, sync, type InstalledPackage } from '@graftsync/core';
+import { DirectoryUpstreamSource, Project, renderSyncMarkdown, sync, type InstalledPackage } from '@graftsync/core';
 import { patchAdapter } from '../src/index.js';
 
 const V1 = `const a = 1\nconst b = 2\nmodule.exports = { a, b }\n`;
@@ -134,6 +134,22 @@ describe("sync --install with the project's upgrade command", () => {
       const r = await sync(bad.project, { version: '1.1.0', install: true, writeReport: false });
       expect(r.grafts[0]!.reasons.join('\n')).toMatch(/upgrade\["lib"\]\.timeoutMinutes must be a positive number of minutes/);
     }
+  });
+
+  it("keeps the end of the command's output in the report, where a tool may leave work for an agent (#53)", async () => {
+    const say = `node -e "console.log('\\x1b[1m NX \\x1b[0m AI migration prompt written to tools/ai-migrations/'); require('fs').writeFileSync('installed.txt', process.argv[1])" {version}`;
+    const { project, root } = await fixture({ upgrade: { lib: say } });
+    const report = await sync(project, { version: '1.1.0', install: true, writeReport: false });
+    expect(report.exitCode, JSON.stringify(report.grafts)).toBe(0);
+    expect(report.targets[0]?.installOutput).toBe(' NX  AI migration prompt written to tools/ai-migrations/');
+    const md = renderSyncMarkdown(report, root);
+    expect(md).toContain('### Output of `' + say.replace('{version}', '1.1.0') + '` (last lines)');
+    expect(md).toContain(' NX  AI migration prompt written to tools/ai-migrations/');
+
+    const failing = await fixture({ upgrade: { lib: `node -e "console.log('step 1 ok'); process.exit(3)" {version}` } });
+    const failed = await sync(failing.project, { version: '1.1.0', install: true, writeReport: false });
+    expect(failed.exitCode).toBe(2);
+    expect(failed.targets[0]?.installOutput).toBe('step 1 ok');
   });
 
   it('rejects a command without {version}, before running it', async () => {
