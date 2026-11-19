@@ -324,6 +324,7 @@ describe('graft GitHub Action', () => {
 
     const third = await t.run();
     expect(third.results[0]).toMatchObject({ outcome: 'skipped-existing', pullRequest: second.results[0].pullRequest });
+  });
 
   it("commits and pushes without the repository's git hooks, and leaves its hook config alone (#32)", async () => {
     const t = setup({ outdated: [entry('lib', '1.1.0')], sync: { lib: 'green' } });
