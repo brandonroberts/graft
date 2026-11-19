@@ -199,7 +199,7 @@ describe('graft sync: output of the commands it runs', () => {
     expect(r.code, r.err).toBe(0);
     expect(r.json().targets[0].installCommand).toBe('node upgrade.js 1.1.0');
     expect(r.err).toContain('migrating lib to 1.1.0');
-    expect(r.out).not.toContain('migrating');
+    expect(r.json().targets[0].installOutput).toBe('migrating lib to 1.1.0'); // and its tail is in the report
 
     await writeFile(path.join(root, 'node_modules/lib/package.json'), JSON.stringify({ name: 'lib', version: '1.0.0' }));
     const quiet = graft('sync', '--version', '1.1.0', '--install', '--json', '--quiet');

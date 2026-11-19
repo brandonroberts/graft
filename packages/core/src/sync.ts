@@ -58,6 +58,8 @@ export interface SyncTarget {
   installCommand?: string;
   /** Packages released together with this one (same repository and version), installed at `version` with it. */
   siblings?: string[];
+  /** The last lines of the project's `upgrade` command's output, when one ran (§6). */
+  installOutput?: string;
   /** True for a standalone graft's target: nothing is installed; the result is materialized instead. */
   standalone?: boolean;
 }
@@ -248,7 +250,18 @@ export async function sync(project: Project, options: SyncOptions = {}): Promise
           }
           if (upgrade) {
             log(`upgrading ${pkg} to ${version} (up to ${upgrade.timeoutMinutes} min): ${upgrade.command}`);
-            target.installCommand = await runUpgrade(project.root, upgrade.command, upgrade.timeoutMinutes, options.onOutput);
+            // Keep the end of the output in the report: the command may have left work for an agent
+            // (nx's agentic mode run from inside one prints a runbook and exits 0).
+            let output = '';
+            const capture = (chunk: string) => {
+              output = (output + chunk).slice(-64_000);
+              options.onOutput?.(chunk);
+            };
+            try {
+              target.installCommand = await runUpgrade(project.root, upgrade.command, upgrade.timeoutMinutes, capture);
+            } finally {
+              target.installOutput = outputTail(output);
+            }
           } else {
             log(`installing ${pkg}@${version}${siblings.length ? ` with ${siblings.join(', ')}` : ''}`);
             const commands: string[] = [];
@@ -360,6 +373,19 @@ async function staticCheck(project: Project, graft: Graft, version: string, mark
  * graft as likely upstreamed. Also exported to generators as GRAFT_EXIT_UPSTREAMED.
  */
 export const GENERATOR_EXIT_UPSTREAMED = 3;
+
+/** Terminal escape sequences (colors, cursor movement), to strip from captured output. */
+const TERMINAL_ESCAPES = new RegExp(String.raw`\u001b\[[0-9;?]*[ -/]*[@-~]`, 'g');
+
+/** The last 80 lines (at most 8,000 characters) of a command's output, without terminal escapes. */
+export function outputTail(output: string): string | undefined {
+  const plain = output
+    .replace(TERMINAL_ESCAPES, '')
+    .replace(/\r(?!\n)/g, '\n')
+    .trimEnd();
+  if (!plain) return undefined;
+  return plain.split('\n').slice(-80).join('\n').slice(-8_000);
+}
 
 /**
  * The part of a failed command's output worth one line in a report: the last error message
@@ -604,6 +630,17 @@ export function renderSyncMarkdown(report: SyncReport, root: string = report.roo
     lines.push('');
     for (const t of report.targets.filter((t) => t.siblings?.length))
       lines.push(`Released with ${t.package}, so moved with it: ${t.siblings!.map((n) => `\`${n}\``).join(', ')}.`, '');
+    for (const t of report.targets.filter((t) => t.installOutput))
+      lines.push(
+        `### Output of \`${t.installCommand ?? 'the upgrade command'}\` (last lines)`,
+        '',
+        'Read it: a tool may have left work for an agent here (e.g. migrations to apply).',
+        '',
+        '````text',
+        t.installOutput!,
+        '````',
+        '',
+      );
   }
   lines.push('| Graft | Package | Verified → Target | Outcome |', '|---|---|---|---|');
   for (const g of report.grafts) {
