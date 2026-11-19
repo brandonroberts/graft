@@ -173,3 +173,37 @@ describe('graft init --agent', () => {
     expect(existsSync(path.join(root, '.codex/skills/graft-sync/SKILL.md'))).toBe(true);
   });
 });
+
+describe('graft sync: output of the commands it runs', () => {
+  it("streams an upgrade command's output to stderr, also with --json, and --quiet silences it", async () => {
+    const { root, graft } = await fixture();
+    const v11 = path.join(root, 'upstream', '1.1.0');
+    await mkdir(v11, { recursive: true });
+    await writeFile(path.join(v11, 'index.js'), PRISTINE);
+    await writeFile(path.join(v11, 'package.json'), JSON.stringify({ name: 'lib', version: '1.1.0' }));
+    // "Installs" upstream/<version> into node_modules/lib, saying so.
+    await writeFile(
+      path.join(root, 'upgrade.js'),
+      [
+        "const fs = require('fs');",
+        'const v = process.argv[2];',
+        "console.log('migrating lib to ' + v);",
+        "for (const f of ['index.js', 'package.json']) fs.copyFileSync('upstream/' + v + '/' + f, 'node_modules/lib/' + f);",
+      ].join('\n'),
+    );
+    await writeFile(
+      path.join(root, '.grafts/config.json'),
+      JSON.stringify({ upstream: { lib: 'file:../upstream/{version}' }, upgrade: { lib: 'node upgrade.js {version}' } }),
+    );
+    const r = graft('sync', '--version', '1.1.0', '--install', '--json');
+    expect(r.code, r.err).toBe(0);
+    expect(r.json().targets[0].installCommand).toBe('node upgrade.js 1.1.0');
+    expect(r.err).toContain('migrating lib to 1.1.0');
+    expect(r.out).not.toContain('migrating');
+
+    await writeFile(path.join(root, 'node_modules/lib/package.json'), JSON.stringify({ name: 'lib', version: '1.0.0' }));
+    const quiet = graft('sync', '--version', '1.1.0', '--install', '--json', '--quiet');
+    expect(quiet.code, quiet.err).toBe(0);
+    expect(quiet.err).not.toContain('migrating');
+  });
+});

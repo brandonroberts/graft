@@ -66,8 +66,10 @@ if (args[0] === 'issue' && args[1] === 'create') console.log('https://github.com
   const outputs: Record<string, string> = {};
   let summary = '';
   const env = { PATH: `${bin}:${process.env.PATH}`, FAKE_SCENARIO: scenarioFile, FAKE_LOG: log };
+  let streamed = '';
   const run = (inputs: Record<string, string> = {}) =>
     runAction(parseInputs({ 'graft-command': `node ${FAKE_GRAFT}`, 'install-command': 'true', ...inputs }), {
+      streamSync: (chunk: string) => (streamed += chunk),
       cwd: work,
       sh: (cmd: string, opts: { env?: Record<string, string> } = {}) => sh(cmd, { ...opts, env: { ...env, ...opts.env } }),
       log: () => {},
@@ -80,7 +82,17 @@ if (args[0] === 'issue' && args[1] === 'create') console.log('https://github.com
   const calls = () => readFileSync(log, 'utf8');
   const remoteBranches = () => git(work, 'ls-remote', '--heads', 'origin').trim();
   const setScenario = (next: Scenario) => writeFileSync(scenarioFile, JSON.stringify(next));
-  return { work, run, calls, outputs, summary: () => summary, remoteBranches, setScenario, git: (...a: string[]) => git(work, ...a) };
+  return {
+    work,
+    run,
+    calls,
+    outputs,
+    summary: () => summary,
+    streamed: () => streamed,
+    remoteBranches,
+    setScenario,
+    git: (...a: string[]) => git(work, ...a),
+  };
 }
 
 const entry = (pkg: string, version: string) => ({
@@ -117,6 +129,10 @@ describe('graft GitHub Action', () => {
     expect(t.git('rev-parse', '--abbrev-ref', 'HEAD').trim()).toBe('main');
     expect(JSON.parse(t.outputs['pull-requests']!)).toEqual(['https://github.com/o/r/pull/1']);
     expect(t.summary()).toContain('| lib | 1.0.0 → 1.1.0 | ✅ pr |');
+    // graft sync's stderr (progress, an upgrade command's output) is shown in a log group; stdout stays the report.
+    expect(t.streamed()).toMatch(
+      /^::group::node .* sync --json --version '1\.1\.0' --package 'lib' --install\ngraft: upgrading lib to 1\.1\.0\n::endgroup::\n$/,
+    );
   });
 
   it('opens an issue (once) when grafts need an agent and none is configured', async () => {
