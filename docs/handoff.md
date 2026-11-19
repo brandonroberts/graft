@@ -235,7 +235,7 @@ All commands take `--json` and `--root`. Exit codes: `0` ok, `1` needs attention
 
 1. **Check:** `graft check` on the installed tree (`check: fail | warn | off`). With `sync: false`, it only checks, for ordinary CI.
 2. **Poll:** dist-tags, one branch per package@version.
-3. **Sync:** `graft sync --install`.
+3. **Sync:** `graft sync --install`, which runs the project's `upgrade` command for the package when `.grafts/config.json` sets one (#39: analogjs/analog's nx upgrade moves eleven `@nx/*` packages with `nx` and runs migrations).
    - **Green:** a PR.
    - **Needs an agent, with `agent-command` set:** run the agent with `GRAFT_PROMPT_FILE`, `GRAFT_SKILL_PATH`, `GRAFT_COMMAND`, the report paths and `GRAFT_PR_BODY_FILE`. Then **re-run sync** rather than trusting the agent. Green opens a PR; still failing opens a draft PR.
    - **Nothing to commit:** an issue, created only once.

@@ -58,6 +58,8 @@ keeps working, and keeps being re-verified, when upstream releases new versions.
      `graft add <id> --package <name> --mechanism fork --in-place --version <upstream version it is based on>`.
 4. Write graft.md's body: Why, Invariants (observable behaviors, one per bullet), Where to look
    (described by behavior, not file paths), Anchors, History.
+   Ask me how I upgrade the package by hand. If it's more than a version bump (companion
+   packages, a migration tool), record that command as `upgrade` in `.grafts/config.json`.
 5. Make sure the project's own tests cover each Invariant (add tests where they don't), and
    note under Invariants which tests those are. Show they fail without the modification and
    pass with it.
@@ -106,7 +108,7 @@ The full, normative description of this layout and of `graft.md` is in [`docs/sp
 
 ```
 .grafts/
-  config.json            # optional: upstream source overrides and resolveFrom (see below)
+  config.json            # optional: upstream source overrides, resolveFrom, upgrade commands (see below)
   <graft-id>/
     graft.md             # intent file (frontmatter + body)
     variants/            # one mechanism implementation per upstream version range
@@ -323,6 +325,14 @@ In a monorepo where the upstream package is declared by a workspace package rath
 ```json
 { "resolveFrom": { "semver": "packages/spec", "yaml": "packages/spec" } }
 ```
+
+**Upgrades that are more than a version bump.** `sync --install` installs the new version of the one upstream package. If upgrading it by hand means more (moving companion packages with it, running migrations), give Graft the command you'd run, with `{version}` filled in at sync time:
+
+```json
+{ "upgrade": { "nx": "pnpm nx migrate {version} && pnpm install --no-frozen-lockfile && pnpm nx migrate --run-migrations --if-exists" } }
+```
+
+Graft runs it from the project root instead of its own install, fails with its output if it fails, then checks that the package really is at the new version. Whatever the command changes (lockfile, migrated files) goes into the sync PR. It works in every ecosystem; `"cargo:itoa"`-style keys name a package outside npm.
 
 ### Other ecosystems: Cargo, Go, PyPI
 

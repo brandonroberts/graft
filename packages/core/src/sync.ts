@@ -4,6 +4,7 @@ import path from 'node:path';
 import { ACTIVE_STATUSES } from '@graftsync/spec';
 import { GraftError } from './errors.js';
 import { runCommand } from './command.js';
+import { runUpgrade, upgradeCommand } from './install.js';
 import { recordVariant, summarizeMisses, updateGraft } from './operations.js';
 import type { Project } from './project.js';
 import type { AgentStart, AnchorReport, ApplyResult, FetchableRef, Graft, GraftUpdate, ResolvedVariant } from './types.js';
@@ -218,8 +219,18 @@ export async function sync(project: Project, options: SyncOptions = {}): Promise
             const r = await project.adapterFor(s.graft).beforeInstall?.(project.context(s.graft), version);
             if (r && r.install === 'reinstall') bare = true;
           }
-          log(`installing ${pkg}@${version}`);
-          target.installCommand = bare ? await eco.reinstall(project) : await eco.install(project, pkg, version);
+          // The project's own upgrade command (e.g. one that also moves companion packages and
+          // runs migrations) replaces Graft's single-package install.
+          const upgrade = upgradeCommand(project.config.upgrade, ecosystem, pkg, version);
+          if (upgrade && bare) {
+            throw new GraftError(
+              `.grafts/config.json sets an upgrade command for ${pkg}, but its graft installs ${pkg} from a vendored build (fork package mode); remove the upgrade command`,
+              'config/upgrade-unsupported',
+            );
+          }
+          log(upgrade ? `upgrading ${pkg} to ${version}: ${upgrade}` : `installing ${pkg}@${version}`);
+          if (upgrade) target.installCommand = await runUpgrade(project.root, upgrade);
+          else target.installCommand = bare ? await eco.reinstall(project) : await eco.install(project, pkg, version);
           const now = await project.installedVersion(pkg, ecosystem);
           if (now !== version) installError = `installed ${pkg} but found version ${now ?? 'none'}, expected ${version}`;
           else for (const s of ready) await project.adapterFor(s.graft).afterInstall?.(project.context(s.graft), version);

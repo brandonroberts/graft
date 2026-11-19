@@ -213,7 +213,12 @@ Grafts are grouped by `(rootstock.ecosystem, rootstock.package)`, so an npm `ms`
    `.grafts/.report/<id>/applied/`. Any failure marks the graft `needs-agent`.
 2. **Install.** If `T` isn't installed and every graft on the package passed step 1, install
    `T` (only when installing was requested; otherwise the grafts get `error`). The adapter's
-   `beforeInstall` runs first and `afterInstall` after. If some grafts on the package need an
+   `beforeInstall` runs first and `afterInstall` after. When `.grafts/config.json` sets an
+   `upgrade` command for the package (§7), the tooling runs that command from the project root
+   instead of its own install. It MUST fail (`install/failed`, with the command's output) when the
+   command fails, and either way the package MUST then be installed at `T`, or the grafts get
+   `error`. An `upgrade` command for a package whose adapter asks for a bare reinstall (the `fork`
+   mechanism's package mode) is an error (`config/upgrade-unsupported`). If some grafts on the package need an
    agent, nothing is installed and the passing ones are `skipped`.
 3. **Record.** For a standalone graft, the adapter's `workspace` materializes the upstream at `T`
    with the graft applied (§9.2); if that fails, the graft needs an agent. Then, unless it's a dry
@@ -275,6 +280,7 @@ Optional. MUST be valid JSON if present. All keys are optional.
 | `ecosystems` | `{ [ecosystem]: object }` | Ecosystem options (§10). `ecosystems.npm` takes `upstream` and `resolveFrom` (below), which win over the top-level keys. |
 | `upstream` | `{ [package]: string }` | npm: spec template used instead of the npm registry to fetch and install the package. `{version}` is substituted; relative `file:` paths resolve against `.grafts/`. Example: `{ "lib": "file:../mirror/lib-{version}" }`. |
 | `resolveFrom` | `{ [package]: string }` | npm: directory, relative to the project root, whose `node_modules` resolution determines the installed version (for monorepos where a workspace package declares the dependency). Example: `{ "semver": "packages/core" }`. |
+| `upgrade` | `{ [package]: string }` | The project's own upgrade command for a rootstock package, run by `sync --install` instead of the tooling's single-package install (§6), in any ecosystem. For upgrades that also move companion packages or run migrations (e.g. `nx migrate`, `ng update`). A key `<ecosystem>:<name>` wins over a bare name. `{version}` (required, else `config/invalid`) and `{package}` are substituted. Example: `{ "nx": "pnpm nx migrate {version} && pnpm install --no-frozen-lockfile && pnpm nx migrate --run-migrations --if-exists" }`. |
 | `mechanisms` | `{ [mechanism]: object }` | Mechanism-specific options. |
 | `mechanisms.patch.applier` | string, or `{ [ecosystem]: string }` | Forces the `patch` mechanism's applier instead of choosing one from the ecosystem's tooling. A string names npm's applier (`pnpm` \| `npm` \| `bun` \| `yarn` \| `graft` \| `patch-package` \| `vendor`); the object form names one per ecosystem (§10). A name that isn't one of the ecosystem's appliers is an error. |
 
