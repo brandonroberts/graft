@@ -63,7 +63,14 @@ keeps working, and keeps being re-verified, when upstream releases new versions.
    pass with it.
 6. Run `graft apply` (except for a fork that is the product), then `graft sync`, until it is
    green. `graft replay <id>` shows which published versions the variant already fits.
-7. Don't commit. Summarize what you set up, and show me the tests failing without the change
+7. Ask me whether to automate the re-verification with the Graft GitHub Action
+   (https://github.com/brandonroberts/graft/tree/main/packages/action). If I say yes, ask how
+   often it should run and whether failing grafts should go to a coding agent (`agent-command`)
+   or to an issue. Then add `.github/workflows/graft-sync.yml` as that README shows, and add
+   `graft check` (the action with `sync: false`) to my CI after install. Tell me what I must set
+   up on GitHub myself: "Allow GitHub Actions to create and approve pull requests" (or a GitHub
+   App token), and the agent's API key as a repository secret.
+8. Don't commit. Summarize what you set up, and show me the tests failing without the change
    and passing with it.
 ````
 
