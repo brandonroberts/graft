@@ -132,8 +132,8 @@ Variants are git-style patches with package-relative paths. Each hunk must fit e
 
 | Package manager | Default applier | How | Silent failure Graft guards against |
 |---|---|---|---|
-| pnpm | `pnpm` | `pnpm-workspace.yaml` `patchedDependencies[pkg]` (or `pkg@installed` when other versions exist in `.pnpm`) + `ignorePatchFailures: false` on pnpm < 11 | on pnpm < 11 a failed patch is only a warning; pnpm 11+ removed `ignorePatchFailures` and fails by default; name-only keys break multi-version workspaces |
-| npm ≥ 12 | `npm` | root `patchedDependencies[pkg]` (native) | npm < 12 ignores the field silently, so the version is checked |
+| pnpm | `pnpm` | `pnpm-workspace.yaml` `patchedDependencies[pkg]` (or `pkg@installed` when `mechanisms.patch.pinKeys: true` or other versions exist in `.pnpm`) + `ignorePatchFailures: false` on pnpm < 11 | on pnpm < 11 a failed patch is only a warning; pnpm 11+ removed `ignorePatchFailures` and fails by default; name-only keys break multi-version workspaces; `allowUnusedPatches: true` is rejected when keys are pinned |
+| npm ≥ 12 | `npm` | root `patchedDependencies[pkg]` (or `pkg@installed` when `mechanisms.patch.pinKeys: true`) | npm < 12 ignores the field silently, so the version is checked |
 | npm < 12, yarn classic | `graft` (built-in) | `graft apply --installed` in `postinstall`: offline, idempotent (reverse-patch check), hardlink-safe (new inode), every installed copy | targeted installs skip `postinstall`, so `sync` applies the patch itself after installing |
 | yarn 2+ | `yarn` | root `resolutions` → `patch:` protocol | built-in and patch-package appliers are refused under PnP |
 | bun | `bun` | `patchedDependencies["pkg@installed"]` | bun ignores other keys, so the key is rewritten on every upgrade |
@@ -145,7 +145,7 @@ Variants are git-style patches with package-relative paths. Each hunk must fit e
 - otherwise lockfiles, in the order pnpm, npm, upm, then yarn (classic or berry) and bun;
 - with no signal, npm.
 
-`mechanisms.patch.applier` in `.grafts/config.json` overrides the choice.
+`mechanisms.patch.applier` in `.grafts/config.json` overrides the choice, and `mechanisms.patch.pinKeys: true` keeps exact `<pkg>@<version>` keys in `pnpm` and `npm` ≥ 12 `patchedDependencies`.
 
 **Checks that apply whatever the applier:** at the installed version, `graft check` compares installed files with *pristine + variant*, reading through PnP's zip cache where needed. It catches dropped patches, including installs with `--ignore-scripts`.
 

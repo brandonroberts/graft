@@ -142,10 +142,41 @@ describe('npm applier (npm >= 12 native patches)', () => {
       { name: 'app', packageManager: 'npm@12.2.1', patchedDependencies: { 'lib@1.0.0': 'patches/lib@1.0.0.patch' } },
       'package-lock.json',
     );
-    expect((await npmApplier.problems(p.root, 'lib', '1.0.0', p.variant)).join('\n')).toMatch(/\["lib@1\.0\.0"\] is version-specific/);
+    const problems = (await npmApplier.problems(p.root, 'lib', '1.0.0', p.variant)).join('\n');
+    expect(problems).toMatch(/\["lib@1\.0\.0"\] is version-specific/);
+    expect(problems).toMatch(/mechanisms\.patch\.pinKeys: true/);
     await npmApplier.configure(p.root, 'lib', '1.0.0', p.variant);
     expect((await p.manifest()).patchedDependencies).toEqual({ lib: '.grafts/g/variants/v1.patch' });
     expect(await npmApplier.problems(p.root, 'lib', '1.0.0', p.variant)).toEqual([]);
+  });
+
+  it('pins package.json patchedDependencies keys to pkg@version when mechanisms.patch.pinKeys is true (#83)', async () => {
+    const p = await project(
+      { name: 'app', packageManager: 'npm@12.2.1', patchedDependencies: { lib: '.grafts/g/variants/v1.patch', 'other@1.0.0': 'o.patch' } },
+      'package-lock.json',
+    );
+    const fakeProject = { config: { mechanisms: { patch: { pinKeys: true } } } } as never;
+
+    expect((await npmApplier.problems(p.root, 'lib', '1.0.0', p.variant, { project: fakeProject })).join('\n')).toMatch(
+      /name-only key.*mechanisms\.patch\.pinKeys.*lib@1\.0\.0/,
+    );
+    await npmApplier.configure(p.root, 'lib', '1.0.0', p.variant, { project: fakeProject });
+    expect((await p.manifest()).patchedDependencies).toEqual({
+      'other@1.0.0': 'o.patch',
+      'lib@1.0.0': '.grafts/g/variants/v1.patch',
+    });
+    expect(await npmApplier.problems(p.root, 'lib', '1.0.0', p.variant, { project: fakeProject })).toEqual([]);
+
+    // Upgrading to 1.1.0 flags the old pinned key and rewrites it to lib@1.1.0.
+    expect((await npmApplier.problems(p.root, 'lib', '1.1.0', p.variant, { project: fakeProject })).join('\n')).toMatch(
+      /does not match lib@1\.1\.0/,
+    );
+    await npmApplier.configure(p.root, 'lib', '1.1.0', p.variant, { project: fakeProject });
+    expect((await p.manifest()).patchedDependencies).toEqual({
+      'other@1.0.0': 'o.patch',
+      'lib@1.1.0': '.grafts/g/variants/v1.patch',
+    });
+    expect(await npmApplier.problems(p.root, 'lib', '1.1.0', p.variant, { project: fakeProject })).toEqual([]);
   });
 
   it('refuses npm < 12, which ignores patchedDependencies silently', async () => {

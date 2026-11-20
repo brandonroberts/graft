@@ -193,7 +193,8 @@ When asked to capture a modification as a graft (new, or migrating an existing p
   modified copy, using package-relative paths.
 - Don't hand-edit the package manager's patch configuration. `graft apply`
   wires the selected variant: pnpm `patchedDependencies`, npm 12+ `patchedDependencies` (name-only
-  key), bun's version-pinned key, or (npm < 12, yarn and others) Graft's built-in applier,
+  keys by default, or `<pkg>@<version>` when `mechanisms.patch.pinKeys: true` is set in
+  `.grafts/config.json`), bun's version-pinned key, or (npm < 12, yarn and others) Graft's built-in applier,
   `graft apply --installed` in `postinstall`. The
   built-in applier is offline, idempotent, and never edits store-shared files in place.
   With upm (or the `vendor` applier forced in `.grafts/config.json`), Graft builds a patched
