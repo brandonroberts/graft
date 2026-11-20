@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
   distinctiveText,
@@ -14,6 +14,7 @@ import {
   type ApplyResult,
   type Graft,
   type GraftContext,
+  type InstalledPackage,
   type MechanismAdapter,
   type ResolvedVariant,
   type ScopedDiff,
@@ -154,6 +155,81 @@ async function upstreamedEvidence(dir: string, patches: FilePatch[]): Promise<st
   return evidence.length ? evidence : undefined;
 }
 
+async function verifyInstalledCopy(params: {
+  pkg: string;
+  version: string;
+  variant: ResolvedVariant;
+  patches: FilePatch[];
+  pristineDir?: string;
+  installed: InstalledPackage;
+  label?: string;
+  remediation: string;
+  failOnUnapplicable?: boolean;
+}): Promise<{ errors: string[]; warnings: string[] }> {
+  const { pkg, version, variant, patches, pristineDir, installed, label = '', remediation, failOnUnapplicable = false } = params;
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  const targets = [...new Set(patches.map((p) => p.newFile ?? p.oldFile!).filter(Boolean))];
+  let actual: Record<string, string | undefined> | undefined;
+  try {
+    actual = await readInstalledFiles(installed, targets);
+  } catch (err) {
+    warnings.push(
+      `cannot verify installed files of ${pkg}@${version}${label}${installed.pnp ? " under Plug'n'Play" : ''} (${(err as Error).message}); the package-manager configuration was checked, the installed contents were not`,
+    );
+    return { errors, warnings };
+  }
+  for (const p of patches) {
+    if (!p.newFile) {
+      if (p.oldFile && actual[p.oldFile] !== undefined) {
+        errors.push(`installed ${pkg}@${version}${label} ${p.oldFile} was not deleted by ${variant.module}; ${remediation}`);
+      }
+      continue;
+    }
+    const got = actual[p.newFile];
+    if (p.oldFile === null) {
+      if (pristineDir !== undefined && (await readIn(pristineDir, p.newFile)) !== undefined) {
+        if (failOnUnapplicable) {
+          errors.push(`installed ${pkg}@${version}${label} ${p.newFile}: file already exists upstream (${variant.module} does not apply)`);
+        }
+        continue;
+      }
+      const expected = applyFilePatch('', p);
+      if (expected === false) continue;
+      if (got !== expected) {
+        errors.push(`installed ${pkg}@${version}${label} ${p.newFile} is not patched with ${variant.module}; ${remediation}`);
+      }
+      continue;
+    }
+    if (pristineDir !== undefined) {
+      const pristine = await readIn(pristineDir, p.oldFile);
+      const expected = pristine === undefined ? false : applyFilePatch(pristine, p);
+      if (expected === false) {
+        if (failOnUnapplicable) {
+          errors.push(`installed ${pkg}@${version}${label} ${p.newFile}: ${variant.module} does not apply to ${pkg}@${version}`);
+        }
+        continue;
+      }
+      const crlfTolerant = Boolean(pristine?.includes('\r\n') && !patchHasCr(p));
+      const same = got === expected || (crlfTolerant && got !== undefined && normalizeLf(got) === normalizeLf(expected));
+      if (!same) {
+        errors.push(`installed ${pkg}@${version}${label} ${p.newFile} is not patched with ${variant.module}; ${remediation}`);
+      }
+      continue;
+    }
+    // Fallback when pristine upstream for a nested version is unavailable: check offline with reverse patch.
+    if (got === undefined) {
+      errors.push(`installed ${pkg}@${version}${label} ${p.newFile} is missing; ${remediation}`);
+      continue;
+    }
+    const crlfGot = got.includes('\r\n') && !patchHasCr(p) ? normalizeLf(got) : got;
+    if (reverseFilePatch(crlfGot, p) === false) {
+      errors.push(`installed ${pkg}@${version}${label} ${p.newFile} is not patched with ${variant.module}; ${remediation}`);
+    }
+  }
+  return { errors, warnings };
+}
+
 export function createPatchAdapter(): MechanismAdapter {
   return {
     name: MECHANISM,
@@ -224,35 +300,57 @@ export function createPatchAdapter(): MechanismAdapter {
         return { errors };
       }
       if (installed.dir !== dir) {
-        const targets = [...new Set(patches.map((p) => p.newFile ?? p.oldFile!).filter(Boolean))];
-        let actual: Record<string, string | undefined> | undefined;
-        try {
-          actual = await readInstalledFiles(installed, targets);
-        } catch (err) {
-          warnings.push(
-            `cannot verify installed files of ${pkg}@${version}${installed.pnp ? " under Plug'n'Play" : ''} (${(err as Error).message}); the package-manager configuration was checked, the installed contents were not`,
-          );
-        }
-        for (const p of actual ? patches : []) {
-          if (!p.newFile) {
-            if (p.oldFile && actual![p.oldFile] !== undefined) {
-              errors.push(
-                `installed ${pkg}@${version} ${p.oldFile} was not deleted by ${variant.module}; run \`graft apply\` (or reinstall)`,
-              );
-            }
+        const primaryCheck = await verifyInstalledCopy({
+          pkg,
+          version,
+          variant,
+          patches,
+          pristineDir: dir,
+          installed,
+          remediation: 'run `graft apply` (or reinstall)',
+        });
+        errors.push(...primaryCheck.errors);
+        warnings.push(...primaryCheck.warnings);
+      }
+      // Graft's built-in applier patches every copy under node_modules (including nested copies
+      // at other versions, e.g. jest-environment-jsdom/node_modules/jsdom), so verify them too (#87).
+      if (applier.name === 'graft' && graft.frontmatter.rootstock.ecosystem === 'npm' && !installed.pnp) {
+        const primaryReal = await realpath(installed.dir).catch(() => path.resolve(installed.dir));
+        const copies = await findInstalledCopies(project.root, pkg);
+        for (const copy of copies) {
+          const copyReal = await realpath(copy.dir).catch(() => path.resolve(copy.dir));
+          if (copyReal === primaryReal) continue;
+          const rel = path.relative(project.root, copy.dir).split(path.sep).join('/');
+          const nestedVariant = project.selectVariant(graft, copy.version);
+          if (!nestedVariant) {
+            warnings.push(`no variant of graft "${graft.id}" covers ${pkg}@${copy.version} (nested copy at ${rel} is left unmodified)`);
             continue;
           }
-          const pristine = p.oldFile ? await readIn(dir, p.oldFile) : '';
-          const expected = pristine === undefined ? false : applyFilePatch(pristine, p);
-          if (expected === false) continue;
-          const got = actual![p.newFile];
-          const crlfTolerant = Boolean(pristine?.includes('\r\n') && !patchHasCr(p));
-          const same = got === expected || (crlfTolerant && got !== undefined && normalizeLf(got) === normalizeLf(expected));
-          if (!same) {
-            errors.push(
-              `installed ${pkg}@${version} ${p.newFile} is not patched with ${variant.module}; run \`graft apply\` (or reinstall)`,
-            );
+          let nestedPatches: FilePatch[];
+          try {
+            nestedPatches = await loadPatch(graft, nestedVariant);
+          } catch (err) {
+            errors.push(`nested ${pkg}@${copy.version} (${rel}): ${(err as Error).message}`);
+            continue;
           }
+          const nestedPristineDir = await upstream.resolve(pkg, copy.version).catch(() => undefined);
+          const nestedPristineReal = nestedPristineDir
+            ? await realpath(nestedPristineDir).catch(() => path.resolve(nestedPristineDir))
+            : undefined;
+          if (nestedPristineReal === copyReal) continue;
+          const nestedCheck = await verifyInstalledCopy({
+            pkg,
+            version: copy.version,
+            variant: nestedVariant,
+            patches: nestedPatches,
+            pristineDir: nestedPristineDir,
+            installed: { version: copy.version, dir: copy.dir },
+            label: ` (nested: ${rel})`,
+            remediation: 'run `graft apply --installed`',
+            failOnUnapplicable: true,
+          });
+          errors.push(...nestedCheck.errors);
+          warnings.push(...nestedCheck.warnings);
         }
       }
       return { errors, ...(warnings.length ? { warnings } : {}) };
@@ -404,10 +502,11 @@ export function createPatchAdapter(): MechanismAdapter {
         );
         return report;
       }
+      const primaryReal = await realpath(primary.dir).catch(() => path.resolve(primary.dir));
       const copies = await findInstalledCopies(project.root, pkg);
-      if (!copies.some((c) => c.dir === primary.dir)) copies.unshift({ dir: primary.dir, version: primary.version });
+      if (!copies.some((c) => c.dir === primaryReal)) copies.unshift({ dir: primary.dir, version: primary.version });
       for (const copy of copies) {
-        const isPrimary = copy.dir === primary.dir;
+        const isPrimary = copy.dir === primary.dir || copy.dir === primaryReal;
         const variant = project.selectVariant(graft, copy.version);
         const base = { dir: copy.dir, version: copy.version, primary: isPrimary, files: [] as string[] };
         if (!variant) {

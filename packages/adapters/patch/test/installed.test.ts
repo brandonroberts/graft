@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { applyInstalled, DirectoryUpstreamSource, Project } from '@graftsync/core';
+import { applyInstalled, checkAnchors, DirectoryUpstreamSource, Project, sync } from '@graftsync/core';
 import { applyToInstalledCopy, findInstalledCopies, graftApplier, parsePatchFile, patchAdapter, selectApplier } from '../src/index.js';
 
 const PRISTINE = 'const a = 1\nconst b = 2\nmodule.exports = { a, b }\n';
@@ -143,5 +143,120 @@ describe('built-in applier: the whole project', () => {
       'node a.js && graft apply --installed',
     );
     expect(await readFile(path.join(root, '.grafts/.patch-package/lib+1.0.0.patch'), 'utf8').catch(() => 'gone')).toBe('gone');
+  });
+
+  it('verifies covered nested copies (including other major versions) in check and sync, and warns on uncovered ones (#87)', async () => {
+    const V26 = 'const a = 26\nconst b = 2\nmodule.exports = { a, b }\n';
+    const V27 = 'const a = 27\nconst b = 2\nmodule.exports = { a, b }\n';
+    const V26_BROKEN = 'const a = 26\nmodule.exports = { a }\n';
+    const PATCH_V26 = `diff --git a/index.js b/index.js
+--- a/index.js
++++ b/index.js
+@@ -1,3 +1,4 @@
+ const a = 26
+ const b = 2
++const c = 26
+ module.exports = { a, b }
+`;
+    const PATCH_V27 = `diff --git a/index.js b/index.js
+--- a/index.js
++++ b/index.js
+@@ -1,3 +1,4 @@
+ const a = 27
+ const b = 2
++const c = 27
+ module.exports = { a, b }
+`;
+
+    const root = await installTree({
+      'node_modules/lib': { version: '27.4.0', code: V27 },
+      'node_modules/jest-env/node_modules/lib': { version: '26.1.0', code: V26 },
+      'node_modules/legacy/node_modules/lib': { version: '25.0.0', code: 'module.exports = {}\n' },
+    });
+    const pristine27 = path.join(root, 'pristine/27.4.0');
+    const pristine26 = path.join(root, 'pristine/26.1.0');
+    const pristine265 = path.join(root, 'pristine/26.5.0');
+    await mkdir(pristine27, { recursive: true });
+    await mkdir(pristine26, { recursive: true });
+    await mkdir(pristine265, { recursive: true });
+    await writeFile(path.join(pristine27, 'index.js'), V27);
+    await writeFile(path.join(pristine26, 'index.js'), V26);
+    await writeFile(path.join(pristine265, 'index.js'), V26_BROKEN);
+
+    const g = path.join(root, '.grafts/globals');
+    await mkdir(path.join(g, 'variants'), { recursive: true });
+    await writeFile(path.join(g, 'variants/v26.patch'), PATCH_V26);
+    await writeFile(path.join(g, 'variants/v27.patch'), PATCH_V27);
+    await writeFile(
+      path.join(g, 'graft.md'),
+      `---\nid: globals\nrootstock: { package: lib, verified: 27.4.0 }\nmechanism: patch\nvariants:\n  - range: ">=26.0.0 <27.0.0"\n    module: ./variants/v26.patch\n  - range: ">=27.0.0"\n    module: ./variants/v27.patch\n---\n## Why\nw\n## Invariants\ni\n## Where to look\nl\n## Anchors\na\n## History\n- h\n`,
+    );
+    await writeFile(
+      path.join(root, 'package.json'),
+      JSON.stringify({
+        name: 'app',
+        scripts: { postinstall: 'graft apply --installed' },
+        devDependencies: { '@graftsync/cli': '0.3.2' },
+      }),
+    );
+    await writeFile(path.join(root, 'package-lock.json'), '{}');
+
+    // Pristine upstream resolves to separate pristine dirs; installed() points at top-level node_modules/lib.
+    const upstream = new DirectoryUpstreamSource(
+      { lib: { '27.4.0': pristine27, '26.1.0': pristine26, '26.5.0': pristine265 } },
+      { lib: '27.4.0' },
+    );
+    upstream.installed = async () => ({ version: '27.4.0', dir: path.join(root, 'node_modules/lib') });
+    const project = await Project.open({ root, adapters: [patchAdapter], upstream });
+
+    // Before applyInstalled: both top-level and nested copies fail check.
+    const before = await checkAnchors(project, 'globals');
+    expect(before.ok).toBe(false);
+    expect(before.errors.join('\n')).toMatch(/installed lib@27\.4\.0 index\.js is not patched with \.\/variants\/v27\.patch/);
+    expect(before.errors.join('\n')).toMatch(
+      /installed lib@26\.1\.0 \(nested: node_modules\/jest-env\/node_modules\/lib\) index\.js is not patched with \.\/variants\/v26\.patch/,
+    );
+    expect(before.warnings?.join('\n')).toMatch(
+      /lib@25\.0\.0 \(nested copy at node_modules\/legacy\/node_modules\/lib is left unmodified\)/,
+    );
+
+    // After applyInstalled: check and sync both pass (still warning on uncovered 25.0.0).
+    expect((await applyInstalled(project)).ok).toBe(true);
+    const after = await checkAnchors(project, 'globals');
+    expect(after.ok, JSON.stringify(after.errors)).toBe(true);
+    expect(after.warnings?.join('\n')).toMatch(/lib@25\.0\.0/);
+    expect((await sync(project, { writeReport: false })).exitCode).toBe(0);
+
+    // Reverting ONLY the nested copy causes check and sync to fail loudly.
+    await writeFile(path.join(root, 'node_modules/jest-env/node_modules/lib/index.js'), V26);
+    const reverted = await checkAnchors(project, 'globals');
+    expect(reverted.ok).toBe(false);
+    expect(reverted.errors).toHaveLength(1);
+    expect(reverted.errors[0]).toMatch(
+      /installed lib@26\.1\.0 \(nested: node_modules\/jest-env\/node_modules\/lib\) index\.js is not patched with \.\/variants\/v26\.patch/,
+    );
+    const revertedSync = await sync(project, { writeReport: false });
+    expect(revertedSync.exitCode).toBe(1);
+    expect(revertedSync.grafts[0]?.outcome).toBe('needs-agent');
+
+    // Offline fallback (pristine unavailable for nested version) still catches an unpatched nested copy and passes once re-patched.
+    const offlineUpstream = new DirectoryUpstreamSource({ lib: { '27.4.0': pristine27 } }, { lib: '27.4.0' });
+    offlineUpstream.installed = async () => ({ version: '27.4.0', dir: path.join(root, 'node_modules/lib') });
+    const offlineProject = await Project.open({ root, adapters: [patchAdapter], upstream: offlineUpstream });
+    const offlineFail = await checkAnchors(offlineProject, 'globals');
+    expect(offlineFail.ok).toBe(false);
+    expect(offlineFail.errors[0]).toMatch(/nested: node_modules\/jest-env\/node_modules\/lib/);
+    expect((await applyInstalled(offlineProject)).ok).toBe(true);
+    expect((await checkAnchors(offlineProject, 'globals')).ok).toBe(true);
+
+    // If the nested copy upgrades to a covered version where the variant no longer fits upstream, check fails loudly.
+    await writeFile(
+      path.join(root, 'node_modules/jest-env/node_modules/lib/package.json'),
+      JSON.stringify({ name: 'lib', version: '26.5.0' }),
+    );
+    await writeFile(path.join(root, 'node_modules/jest-env/node_modules/lib/index.js'), V26_BROKEN);
+    const brokenNested = await checkAnchors(project, 'globals');
+    expect(brokenNested.ok).toBe(false);
+    expect(brokenNested.errors.join('\n')).toMatch(/\.\/variants\/v26\.patch does not apply to lib@26\.5\.0/);
   });
 });
