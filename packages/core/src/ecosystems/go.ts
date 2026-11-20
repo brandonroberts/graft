@@ -28,6 +28,8 @@ export interface GoListModule {
   Path: string;
   Version?: string;
   Dir?: string;
+  Main?: boolean;
+  Indirect?: boolean;
   Replace?: { Path: string; Version?: string; Dir?: string };
 }
 
@@ -38,6 +40,62 @@ export function goModuleDir(project: Project): string {
 
 /** Go versions carry a `v` prefix; accept them without it. */
 export const goVersion = (v: string) => (v.startsWith('v') ? v : `v${v}`);
+
+const THREE_SEGMENT_GO_HOSTS = new Set(['github.com', 'gitlab.com', 'bitbucket.org', 'codeberg.org', 'git.sr.ht', 'gitea.com']);
+
+/**
+ * Repository prefix of a Go module path so sibling modules from one repository match
+ * (`github.com/o/r` and `github.com/o/r/sub`, `go.opentelemetry.io/otel` and
+ * `go.opentelemetry.io/otel/sdk`). Trailing major-version segments (`/v2`) are stripped.
+ */
+export function goRepoKey(modPath: string): string | undefined {
+  const parts = modPath.trim().split('/').filter(Boolean);
+  if (parts.length < 2) return undefined;
+  if (/^v\d+$/.test(parts.at(-1)!)) parts.pop();
+  if (parts.length < 2) return undefined;
+  const host = parts[0]!.toLowerCase();
+  if (THREE_SEGMENT_GO_HOSTS.has(host) || (host === 'golang.org' && parts[1] === 'x')) {
+    return parts.length >= 3 ? parts.slice(0, 3).join('/').toLowerCase() : undefined;
+  }
+  if (host === 'gopkg.in') {
+    const cleaned = parts.map((p) => p.replace(/\.v\d+$/, ''));
+    return cleaned.join('/').toLowerCase();
+  }
+  return parts.slice(0, 2).join('/').toLowerCase();
+}
+
+/** Parse the concatenated JSON objects emitted by `go list -m -json all`. */
+export function parseGoListJsonStream(stdout: string): GoListModule[] {
+  const modules: GoListModule[] = [];
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  let start = -1;
+  for (let i = 0; i < stdout.length; i++) {
+    const ch = stdout[i]!;
+    if (inString) {
+      if (escape) escape = false;
+      else if (ch === '\\') escape = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === '{') {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (ch === '}') {
+      depth--;
+      if (depth === 0 && start >= 0) {
+        modules.push(JSON.parse(stdout.slice(start, i + 1)) as GoListModule);
+        start = -1;
+      }
+    }
+  }
+  return modules;
+}
 
 /** Run the go command outside any module (for downloads and version lists). */
 async function goOutsideModule(args: string[], code: string) {
@@ -60,6 +118,25 @@ export async function goListModule(moduleDir: string, mod: string): Promise<GoLi
       return undefined;
     throw err;
   }
+}
+
+/**
+ * Go modules released together with `mod`: directly required in go.mod (`!Indirect`), at `mod`'s
+ * installed version, under the same repository module prefix (#56).
+ */
+export async function findGoSiblings(project: Project, mod: string): Promise<string[]> {
+  const dir = goModuleDir(project);
+  if (!existsSync(path.join(dir, 'go.mod'))) return [];
+  const key = goRepoKey(mod);
+  if (!key) return [];
+  const { stdout } = await tool('go', ['list', '-m', '-json', 'all'], { cwd: dir, code: 'go/list' });
+  const mods = parseGoListJsonStream(stdout);
+  const root = mods.find((m) => m.Path === mod);
+  if (!root?.Version) return [];
+  return mods
+    .filter((m) => !m.Main && !m.Indirect && m.Path !== mod && m.Version === root.Version && goRepoKey(m.Path) === key)
+    .map((m) => m.Path)
+    .sort();
 }
 
 export class GoUpstreamSource implements UpstreamSource {
@@ -106,9 +183,11 @@ export const goEcosystem: Ecosystem = {
   normalizeVersion: goVersion,
   createUpstream: (project) => new GoUpstreamSource(project),
   detect: () => 'go',
-  async install(project, pkg, version) {
+  siblings: (project, pkg) => findGoSiblings(project, pkg),
+  async install(project, pkg, version, siblings = []) {
     const dir = goModuleDir(project);
-    const args = ['get', `${pkg}@${goVersion(version)}`];
+    const targets = [pkg, ...siblings].map((m) => `${m}@${goVersion(version)}`);
+    const args = ['get', ...targets];
     await tool('go', args, { cwd: dir, code: 'install/failed' });
     return `go ${args.join(' ')}${await vendorAgain(dir)}`;
   },

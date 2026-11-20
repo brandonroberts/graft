@@ -320,7 +320,7 @@ yarn 4.18 was verified the same way, under both Plug'n'Play and `nodeLinker: nod
 
 **Installs that skip scripts.** `--ignore-scripts` skips `postinstall`, and with it the built-in and patch-package appliers. The native and vendored appliers don't depend on scripts. Run `graft check` in CI after installing (the GitHub Action also does this before syncing). It compares installed files with pristine upstream + the selected variant, so it fails the build however the patch was skipped.
 
-**Packages released together.** `sync --install` also moves the project's dependencies that come from the upstream package's repository at its installed version, so upgrading `nx` moves `@nx/angular` and `@nx/vite` with it. If one isn't published at the new version, sync fails instead of leaving it behind. An `upgrade` command (below) replaces this. With pnpm catalogs, Graft updates the catalog entries in `pnpm-workspace.yaml` rather than the manifests.
+**Packages released together.** `sync --install` also moves the project's declared dependencies from the upstream package's repository at its installed version — across npm (`repository`, e.g. `@nx/angular` with `nx`), Cargo (`cargo metadata` `repository`, e.g. `serde_derive` with `serde`), Go (module repository prefix, e.g. `go.opentelemetry.io/otel/sdk` with `go.opentelemetry.io/otel`), and PyPI (`Project-URL` / `Home-page`, e.g. `opentelemetry-*`). If a sibling isn't published at the new version, sync fails instead of leaving it behind. An `upgrade` command (below) replaces this. With pnpm catalogs, Graft updates catalog entries pinning the installed version in `pnpm-workspace.yaml` rather than the manifests, and fails loudly (`install/catalog`) if a `catalog:`-referenced package uses a complex range it cannot safely rewrite rather than letting `pnpm update` overwrite `catalog:` with a literal version.
 
 In a monorepo where the upstream package is declared by a workspace package rather than the root, tell Graft where to resolve it from in `.grafts/config.json`:
 
@@ -336,7 +336,19 @@ In a monorepo where the upstream package is declared by a workspace package rath
 
 It may run for 30 minutes; for a longer one (an upgrade that runs an agent, say) write `{ "command": "…", "timeoutMinutes": 90 }`. Graft runs it from the project root instead of its own install, fails with its output if it fails, then checks that the package really is at the new version. Whatever the command changes (lockfile, migrated files) goes into the sync PR. It works in every ecosystem. To scope a command to one ecosystem, put it under `ecosystems`, like the other per-ecosystem options (`{ "ecosystems": { "cargo": { "upgrade": { "itoa": "…" } } } }`), or use a `"cargo:itoa"`-style key. The `ecosystems` entry wins.
 
-The end of the command's output is kept in the sync report (`sync.md`, and `installOutput` in `sync.json`): read it. A tool can exit 0 and still leave work behind. For example, `nx migrate --run-migrations --agentic` run from inside an AI agent session doesn't start its own agent; it prints steps for the calling agent and leaves the migrations unapplied. In CI, where no agent is detected, nx runs the agent itself.
+The end of the command's output is kept in the sync report (`sync.md`, and `installOutput` in `sync.json`): read it. A tool can exit 0 and still leave work behind. For example, `nx migrate --run-migrations --agentic` run from inside an AI agent session doesn't start its own agent; it prints steps for the calling agent and leaves the migrations unapplied. Add `needsAgentIf` (`exists`, `output`, and/or `command`) to turn that into a `needs-agent` hand-off (exit code 1, `verified` not bumped) instead of a false green:
+
+```json
+{
+  "upgrade": {
+    "nx": {
+      "command": "pnpm nx migrate {version} && pnpm nx migrate --run-migrations --agentic",
+      "timeoutMinutes": 60,
+      "needsAgentIf": { "exists": [".nx/migrate-runs/*/run.json", "migrations.json"] }
+    }
+  }
+}
+```
 
 ### Other ecosystems: Cargo, Go, PyPI
 

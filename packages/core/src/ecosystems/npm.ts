@@ -5,8 +5,10 @@ import { runCommand } from '../command.js';
 import { GraftError } from '../errors.js';
 import {
   detectPackageManager,
+  findPnpmCatalogReferences,
   installPackage,
   isDeclaredNpmDependency,
+  readPnpmCatalogValue,
   reinstall,
   updatePackageOverrides,
   updatePnpmCatalogs,
@@ -47,11 +49,38 @@ export const npmEcosystem: Ecosystem = {
     }
     const updates = names.filter((n) => installedVersions.has(n)).map((n) => ({ pkg: n, from: installedVersions.get(n)!, to: version }));
 
-    if (pm === 'pnpm' && updates.length) {
-      const moved = await updatePnpmCatalogs(project.root, updates);
-      if (moved.length) {
-        steps.push(`set ${moved.map((n) => `${n}@${version}`).join(', ')} in pnpm-workspace.yaml's catalog`);
-        names = names.filter((n) => !moved.includes(n));
+    if (pm === 'pnpm' && names.length) {
+      // Check unmoved `catalog:` references before writing pnpm-workspace.yaml or running
+      // `pnpm update -r`, which would silently overwrite `catalog:` with literal versions (#55).
+      const wouldMove = updates.length ? await updatePnpmCatalogs(project.root, updates, { dryRun: true }) : [];
+      const unmovedCatalog: string[] = [];
+      for (const name of names) {
+        if (wouldMove.includes(name)) continue;
+        const extra = resolveFrom[name] ? [path.resolve(project.root, resolveFrom[name])] : [];
+        const refs = await findPnpmCatalogReferences(project.root, name, extra);
+        if (!refs.length) continue;
+        const detail = await Promise.all(
+          refs.map(async (r) => {
+            const entry = await readPnpmCatalogValue(project.root, name, r.catalog);
+            const label = r.catalog ? `catalogs.${r.catalog}` : 'catalog';
+            return `${r.file} (${r.field}: "catalog:${r.catalog}", ${label}[${JSON.stringify(name)}] = ${entry === undefined ? 'missing' : JSON.stringify(entry)})`;
+          }),
+        );
+        unmovedCatalog.push(`${name}: ${detail.join(', ')}`);
+      }
+      if (unmovedCatalog.length) {
+        const plural = unmovedCatalog.length > 1;
+        throw new GraftError(
+          `cannot update pnpm catalog ${plural ? 'entries' : 'entry'} automatically (${unmovedCatalog.join('; ')}): ${plural ? 'they do' : 'it does'} not pin the installed version, and running \`pnpm update\` would replace the \`catalog:\` references with literal versions. Update the catalog entry in pnpm-workspace.yaml manually or configure an \`upgrade\` command in .grafts/config.json`,
+          'install/catalog',
+        );
+      }
+      if (wouldMove.length) {
+        const moved = await updatePnpmCatalogs(project.root, updates);
+        if (moved.length) {
+          steps.push(`set ${moved.map((n) => `${n}@${version}`).join(', ')} in pnpm-workspace.yaml's catalog`);
+          names = names.filter((n) => !moved.includes(n));
+        }
       }
     }
 

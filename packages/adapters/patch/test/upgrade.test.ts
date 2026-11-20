@@ -159,4 +159,81 @@ describe("sync --install with the project's upgrade command", () => {
     expect(report.grafts[0]!.reasons.join('\n')).toMatch(/upgrade\["lib"\] must be a command containing \{version\}/);
     expect(existsSync(path.join(root, 'installed.txt'))).toBe(false);
   });
+
+  it('marks grafts needs-agent instead of green when needsAgentIf detects unfinished work (#57)', async () => {
+    // 1. exists: matches a file left behind (e.g. .nx/migrate-runs/<id>/run.json)
+    const createRun = `node -e "const fs=require('fs'); fs.writeFileSync('installed.txt', process.argv[1]); fs.mkdirSync('.nx/migrate-runs/r1', {recursive:true}); fs.writeFileSync('.nx/migrate-runs/r1/run.json', '{}'); console.log('runbook ready')" {version}`;
+    const fxExists = await fixture({
+      upgrade: { lib: { command: createRun, needsAgentIf: { exists: ['.nx/migrate-runs/*/run.json', 'migrations.json'] } } },
+    });
+    const rExists = await sync(fxExists.project, { version: '1.1.0', install: true, writeReport: false });
+    expect(rExists.exitCode).toBe(1);
+    expect(rExists.grafts[0]).toMatchObject({ outcome: 'needs-agent' });
+    expect(rExists.grafts[0]!.reasons.join('\n')).toMatch(/left unfinished work.*\.nx\/migrate-runs\/r1\/run\.json/);
+    expect(await fxExists.verified()).toBe('1.0.0'); // not bumped while work remains
+    const md = renderSyncMarkdown(rExists, fxExists.root);
+    expect(md).toContain('Next: finish the remaining steps left by');
+    expect(md).toContain('runbook ready');
+
+    // When the path does NOT exist, sync succeeds green as usual.
+    const fxClean = await fixture({
+      upgrade: { lib: { command: write('{version}'), needsAgentIf: { exists: '.nx/migrate-runs/*/run.json' } } },
+    });
+    const rClean = await sync(fxClean.project, { version: '1.1.0', install: true, writeReport: false });
+    expect(rClean.exitCode).toBe(0);
+    expect(await fxClean.verified()).toBe('1.1.0');
+
+    // 2. output: matches ANSI-stripped command output
+    const say = `node -e "console.log('\\x1b[1mNX\\x1b[0m AI migration prompt written'); require('fs').writeFileSync('installed.txt', process.argv[1])" {version}`;
+    const fxOut = await fixture({
+      upgrade: { lib: { command: say, needsAgentIf: { output: 'NX AI migration prompt' } } },
+    });
+    const rOut = await sync(fxOut.project, { version: '1.1.0', install: true, writeReport: false });
+    expect(rOut.exitCode).toBe(1);
+    expect(rOut.grafts[0]!.reasons.join('\n')).toMatch(/output matched \/NX AI migration prompt\//);
+    expect(await fxOut.verified()).toBe('1.0.0');
+
+    // 3. command: exit 0 means unfinished; exit 1 means clean; exit 127 (broken command) fails loudly as error.
+    const fxCmdMatch = await fixture({
+      upgrade: {
+        lib: {
+          command: write('{version}'),
+          needsAgentIf: { command: `node -e "console.log('active run for {package}@{version}'); process.exit(0)"` },
+        },
+      },
+    });
+    const rCmdMatch = await sync(fxCmdMatch.project, { version: '1.1.0', install: true, writeReport: false });
+    expect(rCmdMatch.exitCode).toBe(1);
+    expect(rCmdMatch.grafts[0]!.reasons.join('\n')).toMatch(/active run for lib@1\.1\.0/);
+    expect(await fxCmdMatch.verified()).toBe('1.0.0');
+
+    const fxCmdClean = await fixture({
+      upgrade: { lib: { command: write('{version}'), needsAgentIf: { command: 'node -e "process.exit(1)"' } } },
+    });
+    expect((await sync(fxCmdClean.project, { version: '1.1.0', install: true, writeReport: false })).exitCode).toBe(0);
+
+    const fxCmdMissing = await fixture({
+      upgrade: { lib: { command: write('{version}'), needsAgentIf: { command: 'graft-nonexistent-check-cmd-xyz' } } },
+    });
+    const rMissing = await sync(fxCmdMissing.project, { version: '1.1.0', install: true, writeReport: false });
+    expect(rMissing.exitCode).toBe(2);
+    expect(rMissing.grafts[0]).toMatchObject({ outcome: 'error' });
+    expect(rMissing.grafts[0]!.reasons.join('\n')).toMatch(/needsAgentIf command .* failed to run \(exit 127\)/);
+  });
+
+  it('rejects malformed needsAgentIf configs before running the upgrade command (#57)', async () => {
+    for (const [needsAgentIf, pattern] of [
+      [{}, /must specify at least one/],
+      [{ bogus: true }, /unknown key "bogus"/],
+      [{ exists: [] }, /needsAgentIf\.exists/],
+      [{ output: '[unclosed' }, /not a valid regular expression/],
+      [{ command: '   ' }, /needsAgentIf\.command/],
+    ] as const) {
+      const { project, root } = await fixture({ upgrade: { lib: { command: write('{version}'), needsAgentIf } } });
+      const r = await sync(project, { version: '1.1.0', install: true, writeReport: false });
+      expect(r.exitCode).toBe(2);
+      expect(r.grafts[0]!.reasons.join('\n')).toMatch(pattern);
+      expect(existsSync(path.join(root, 'installed.txt'))).toBe(false);
+    }
+  });
 });

@@ -4,7 +4,7 @@ import path from 'node:path';
 import { ACTIVE_STATUSES } from '@graftsync/spec';
 import { GraftError } from './errors.js';
 import { runCommand } from './command.js';
-import { resolveUpgrade, runUpgrade } from './install.js';
+import { checkUpgradeNeedsAgent, resolveUpgrade, runUpgrade } from './install.js';
 import { recordVariant, summarizeMisses, updateGraft } from './operations.js';
 import type { Project } from './project.js';
 import type { AgentStart, AnchorReport, ApplyResult, FetchableRef, Graft, GraftUpdate, ResolvedVariant } from './types.js';
@@ -256,19 +256,19 @@ export async function sync(project: Project, options: SyncOptions = {}): Promise
               );
             }
           }
+          let upgradeOutput = '';
           if (upgrade) {
             log(`upgrading ${pkg} to ${version} (up to ${upgrade.timeoutMinutes} min): ${upgrade.command}`);
             // Keep the end of the output in the report: the command may have left work for an agent
             // (nx's agentic mode run from inside one prints a runbook and exits 0).
-            let output = '';
             const capture = (chunk: string) => {
-              output = (output + chunk).slice(-64_000);
+              upgradeOutput = (upgradeOutput + chunk).slice(-64_000);
               options.onOutput?.(chunk);
             };
             try {
               target.installCommand = await runUpgrade(project.root, upgrade.command, upgrade.timeoutMinutes, capture);
             } finally {
-              target.installOutput = outputTail(output);
+              target.installOutput = outputTail(upgradeOutput);
             }
           } else {
             log(`installing ${pkg}@${version}${siblings.length ? ` with ${siblings.join(', ')}` : ''}`);
@@ -287,7 +287,25 @@ export async function sync(project: Project, options: SyncOptions = {}): Promise
           if (now !== version) installError = `installed ${pkg} but found version ${now ?? 'none'}, expected ${version}`;
           else if (behind.length)
             installError = `installed ${pkg}@${version} but its siblings are at ${behind.join(', ')}, expected ${version}`;
-          else for (const s of ready) await project.adapterFor(s.graft).afterInstall?.(project.context(s.graft), version);
+          else {
+            for (const s of ready) await project.adapterFor(s.graft).afterInstall?.(project.context(s.graft), version);
+            if (upgrade?.needsAgentIf) {
+              const check = await checkUpgradeNeedsAgent(project.root, upgrade.needsAgentIf, upgradeOutput);
+              if (check.matched) {
+                const detail = check.reasons.join('; ');
+                for (const s of ready) {
+                  s.result.outcome = 'needs-agent';
+                  s.result.reasons.push(
+                    `upgrade command \`${upgrade.command}\` left unfinished work for an agent (${detail}); finish the remaining steps before recording the graft`,
+                  );
+                  s.result.agentStart = {
+                    description: `upgrade command \`${upgrade.command}\` installed ${pkg}@${version} but left work unfinished (${detail})`,
+                    next: `finish the remaining steps left by \`${upgrade.command}\` (see its output above), verify the project's tests, and rerun \`graft sync\` to record the graft.`,
+                  };
+                }
+              }
+            }
+          }
         } catch (err) {
           installError = (err as Error).message;
         }

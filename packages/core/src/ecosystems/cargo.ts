@@ -15,6 +15,7 @@ import { semverScheme } from '@graftsync/spec';
 import { ecosystemOptions, type Ecosystem } from '../ecosystem.js';
 import { GraftError } from '../errors.js';
 import type { Project } from '../project.js';
+import { repositoryKey } from '../siblings.js';
 import type { InstalledPackage, PackageVersions, UpstreamSource } from '../upstream.js';
 import { cacheDir, channelTags, fetchText, tool } from './util.js';
 
@@ -28,11 +29,20 @@ export interface CargoOptions extends Record<string, unknown> {
 }
 
 export interface CargoPackage {
+  id?: string;
   name: string;
   version: string;
   /** `registry+…`, `git+…`, or null for a path dependency (e.g. a vendored, patched crate). */
   source: string | null;
   manifest_path: string;
+  repository?: string | null;
+  dependencies?: { name: string }[];
+}
+
+export interface CargoMetadata {
+  packages: CargoPackage[];
+  workspace_members?: string[];
+  workspace_root: string;
 }
 
 /** The project's Cargo manifest (absolute). */
@@ -41,12 +51,66 @@ export function cargoManifest(project: Project): string {
 }
 
 /** `cargo metadata` for a manifest: every package in the resolved graph. */
-export async function cargoMetadata(manifest: string): Promise<{ packages: CargoPackage[]; workspace_root: string }> {
+export async function cargoMetadata(manifest: string): Promise<CargoMetadata> {
   const { stdout } = await tool('cargo', ['metadata', '--format-version', '1', '--manifest-path', manifest], {
     cwd: path.dirname(manifest),
     code: 'cargo/metadata',
   });
   return JSON.parse(stdout);
+}
+
+function pickCargoPackage(packages: CargoPackage[], pkg: string): CargoPackage | undefined {
+  const copies = packages.filter((p) => p.name === pkg);
+  if (!copies.length) return undefined;
+  // A patched (path) copy is the one the graft applies to; otherwise the newest.
+  return copies.find((p) => p.source === null) ?? copies.sort((a, b) => semverScheme.compare(b.version, a.version))[0];
+}
+
+/**
+ * Cargo crates released together with `pkg`: declared as dependencies of a workspace member,
+ * installed at `pkg`'s installed version, with the same normalized `repository` (#56).
+ */
+export async function findCargoSiblings(project: Project, pkg: string): Promise<string[]> {
+  const manifest = cargoManifest(project);
+  if (!existsSync(manifest)) return [];
+  const meta = await cargoMetadata(manifest);
+  const root = pickCargoPackage(meta.packages, pkg);
+  if (!root) return [];
+  const key = repositoryKey(root.repository ?? undefined);
+  if (!key) return [];
+  const wsIds = new Set(meta.workspace_members ?? []);
+  const members = wsIds.size ? meta.packages.filter((p) => p.id && wsIds.has(p.id)) : meta.packages.filter((p) => p.source === null);
+  const declared = new Set<string>();
+  for (const m of members) for (const d of m.dependencies ?? []) declared.add(d.name);
+  declared.delete(pkg);
+  const siblings: string[] = [];
+  for (const name of [...declared].sort()) {
+    const other = pickCargoPackage(meta.packages, name);
+    if (other?.version !== root.version) continue;
+    if (repositoryKey(other.repository ?? undefined) === key) siblings.push(name);
+  }
+  return siblings;
+}
+
+/** Order `names` so dependents come before dependencies (updating a dependent can pull exact-version deps along). */
+function orderCargoUpdates(names: string[], packages: CargoPackage[]): string[] {
+  if (names.length <= 1) return names;
+  const set = new Set(names);
+  const depsOf = new Map<string, Set<string>>();
+  for (const name of names) {
+    const p = pickCargoPackage(packages, name);
+    depsOf.set(name, new Set((p?.dependencies ?? []).map((d) => d.name).filter((d) => d !== name && set.has(d))));
+  }
+  const ordered: string[] = [];
+  const remaining = new Set(names);
+  while (remaining.size) {
+    // Pick a crate that no remaining crate depends on (a top-level dependent).
+    const next = [...remaining].find((cand) => ![...remaining].some((other) => other !== cand && depsOf.get(other)?.has(cand)));
+    const pick = next ?? [...remaining][0]!;
+    ordered.push(pick);
+    remaining.delete(pick);
+  }
+  return ordered;
 }
 
 /** The sparse-index path of a crate (`it/oa/itoa`, `3/s/syn`, `1/a`). */
@@ -79,11 +143,8 @@ export class CargoUpstreamSource implements UpstreamSource {
   async installed(pkg: string): Promise<InstalledPackage | undefined> {
     const manifest = cargoManifest(this.project);
     if (!existsSync(manifest)) return undefined;
-    const copies = (await cargoMetadata(manifest)).packages.filter((p) => p.name === pkg);
-    if (!copies.length) return undefined;
-    // A patched (path) copy is the one the graft applies to; otherwise the newest.
-    const pick = copies.find((p) => p.source === null) ?? copies.sort((a, b) => semverScheme.compare(b.version, a.version))[0]!;
-    return { version: pick.version, dir: path.dirname(pick.manifest_path) };
+    const pick = pickCargoPackage((await cargoMetadata(manifest)).packages, pkg);
+    return pick ? { version: pick.version, dir: path.dirname(pick.manifest_path) } : undefined;
   }
 
   async resolve(pkg: string, version: string): Promise<string> {
@@ -133,13 +194,22 @@ export const cargoEcosystem: Ecosystem = {
   scheme: semverScheme,
   createUpstream: (project) => new CargoUpstreamSource(project),
   detect: () => 'cargo',
-  async install(project, pkg, version) {
+  siblings: (project, pkg) => findCargoSiblings(project, pkg),
+  async install(project, pkg, version, siblings = []) {
     const manifest = cargoManifest(project);
-    const installed = await project.upstreamFor('cargo').installed(pkg);
-    if (!installed) throw new GraftError(`${pkg} is not a dependency of ${manifest}`, 'install/failed');
-    const args = ['update', '--manifest-path', manifest, '-p', `${pkg}@${installed.version}`, '--precise', version];
-    await tool('cargo', args, { cwd: path.dirname(manifest), code: 'install/failed' });
-    return `cargo ${args.join(' ')}`;
+    const names = [pkg, ...siblings];
+    const meta = names.length > 1 ? await cargoMetadata(manifest) : undefined;
+    const ordered = meta ? orderCargoUpdates(names, meta.packages) : names;
+    const commands: string[] = [];
+    for (const name of ordered) {
+      const installed = await project.upstreamFor('cargo').installed(name);
+      if (!installed) throw new GraftError(`${name} is not a dependency of ${manifest}`, 'install/failed');
+      if (installed.version === version) continue;
+      const args = ['update', '--manifest-path', manifest, '-p', `${name}@${installed.version}`, '--precise', version];
+      await tool('cargo', args, { cwd: path.dirname(manifest), code: 'install/failed' });
+      commands.push(`cargo ${args.join(' ')}`);
+    }
+    return commands.join(' && ') || `cargo update --manifest-path ${manifest} -p ${pkg} --precise ${version}`;
   },
   async reinstall(project) {
     const manifest = cargoManifest(project);

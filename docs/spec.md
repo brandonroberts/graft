@@ -220,16 +220,25 @@ Grafts are grouped by `(rootstock.ecosystem, rootstock.package)`, so an npm `ms`
    command fails, and either way the package MUST then be installed at `T`, or the grafts get
    `error`. The tooling keeps the end of the command's output (its last lines, without terminal
    escapes) in the report as the target's `installOutput`, and in `sync.md`: a command can exit 0
-   and still leave work for an agent. An `upgrade` command for a package whose adapter asks for a bare reinstall (the `fork`
-   mechanism's package mode) is an error (`config/upgrade-unsupported`). If some grafts on the package need an
+   and still leave work for an agent. When the upgrade entry declares `needsAgentIf` (§7) and any
+   configured check matches after the command succeeds, the grafts become `needs-agent` (exit code
+   1, `verified` not updated) instead of `green`, pointing the agent at the remaining work. An
+   `upgrade` command for a package whose adapter asks for a bare reinstall (the `fork` mechanism's
+   package mode) is an error (`config/upgrade-unsupported`). If some grafts on the package need an
    agent, nothing is installed and the passing ones are `skipped`.
-   **Siblings** (npm): the project's declared dependencies installed at the package's installed
-   version with the same `repository` (compared as `host/owner/repo`, so `github:o/r` and
-   `git+https://github.com/o/r.git` match) are released with it and MUST be installed at `T` in
-   the same install, e.g. `@nx/angular` with `nx`. A sibling not published at `T` is an error
-   before anything is installed (`install/sibling-unpublished`), and after the install every
-   sibling MUST be at `T`. The target lists them as `siblings`. An `upgrade` command replaces all
-   of this: the project's command is then responsible for the siblings.
+   **Siblings:** the project's declared dependencies installed at the package's installed version
+   from the same repository are released with it and MUST be installed at `T` in the same install:
+   - npm: same `repository` (`host/owner/repo`), e.g. `@nx/angular` with `nx`.
+   - cargo: workspace member dependencies with the same `repository` in `cargo metadata`, e.g.
+     `serde_derive` with `serde`.
+   - go: direct `go.mod` requirements under the same module repository prefix, e.g.
+     `go.opentelemetry.io/otel/sdk` with `go.opentelemetry.io/otel`.
+   - pypi: dependencies declared in `pyproject.toml` or requirements with the same `Project-URL`
+     / `Home-page` repository key, e.g. `opentelemetry-*`.
+   A sibling not published at `T` is an error before anything is installed
+   (`install/sibling-unpublished`), and after the install every sibling MUST be at `T`. The target
+   lists them as `siblings`. An `upgrade` command replaces all of this: the project's command is
+   then responsible for the siblings.
 3. **Record.** For a standalone graft, the adapter's `workspace` materializes the upstream at `T`
    with the graft applied (§9.2); if that fails, the graft needs an agent. Then, unless it's a dry
    run, `rootstock.verified` becomes `T`, `status` becomes `applied`, and a History entry is
@@ -294,7 +303,7 @@ Optional. MUST be valid JSON if present. All keys are optional.
 | `ecosystems` | `{ [ecosystem]: object }` | Ecosystem options (§10). `ecosystems.npm` takes `upstream` and `resolveFrom` (below), which win over the top-level keys. Every `ecosystems.<name>` takes `upgrade` (below, keyed by bare package name), which wins over the top-level map for that ecosystem; a value that isn't an object is `config/invalid`. |
 | `upstream` | `{ [package]: string }` | npm: spec template used instead of the npm registry to fetch and install the package. `{version}` is substituted; relative `file:` paths resolve against `.grafts/`. Example: `{ "lib": "file:../mirror/lib-{version}" }`. |
 | `resolveFrom` | `{ [package]: string }` | npm: directory, relative to the project root, whose `node_modules` resolution determines the installed version (for monorepos where a workspace package declares the dependency). Example: `{ "semver": "packages/core" }`. |
-| `upgrade` | `{ [package]: string \| { command: string, timeoutMinutes?: number } }` | The project's own upgrade command for a rootstock package, run by `sync --install` instead of the tooling's single-package install (§6), in any ecosystem. For upgrades that also move companion packages or run migrations (e.g. `nx migrate`, `ng update`). Lookup order: `ecosystems.<ecosystem>.upgrade[<name>]`, then `upgrade["<ecosystem>:<name>"]`, then `upgrade[<name>]`. `{version}` (required, else `config/invalid`) and `{package}` are substituted. The object form sets how long the command may run (`timeoutMinutes`, a positive number, else `config/invalid`; default 30). A command that runs past it is stopped, with everything it started, and is `install/failed`. Example: `{ "nx": "pnpm nx migrate {version} && pnpm install --no-frozen-lockfile && pnpm nx migrate --run-migrations --if-exists" }`. |
+| `upgrade` | `{ [package]: string \| { command: string, timeoutMinutes?: number, needsAgentIf?: { exists?: string \| string[], output?: string, command?: string } } }` | The project's own upgrade command for a rootstock package, run by `sync --install` instead of the tooling's single-package install (§6), in any ecosystem. For upgrades that also move companion packages or run migrations (e.g. `nx migrate`, `ng update`). Lookup order: `ecosystems.<ecosystem>.upgrade[<name>]`, then `upgrade["<ecosystem>:<name>"]`, then `upgrade[<name>]`. `{version}` (required, else `config/invalid`) and `{package}` are substituted. The object form sets how long the command may run (`timeoutMinutes`, a positive number, else `config/invalid`; default 30; a command that runs past it is stopped with everything it started and is `install/failed`) and optional `needsAgentIf` checks run after the command succeeds: `exists` (glob(s) relative to the project root), `output` (RegExp tested against ANSI-stripped output), and/or `command` (shell command with `{package}`/`{version}` substituted; exit `0` triggers hand-off; timeout or exit 126/127 fails with `install/failed`). Any match marks the grafts `needs-agent` (exit code 1, `verified` unchanged) instead of `green`. Example: `{ "nx": { "command": "pnpm nx migrate {version} && pnpm nx migrate --run-migrations --agentic", "timeoutMinutes": 60, "needsAgentIf": { "exists": [".nx/migrate-runs/*/run.json", "migrations.json"] } } }`. |
 | `mechanisms` | `{ [mechanism]: object }` | Mechanism-specific options. |
 | `mechanisms.patch.applier` | string, or `{ [ecosystem]: string }` | Forces the `patch` mechanism's applier instead of choosing one from the ecosystem's tooling. A string names npm's applier (`pnpm` \| `npm` \| `bun` \| `yarn` \| `graft` \| `patch-package` \| `vendor`); the object form names one per ecosystem (§10). A name that isn't one of the ecosystem's appliers is an error. |
 
@@ -464,8 +473,10 @@ it.
   `catalogs` that pin the installed version (with an optional `^`, `~` or `=` prefix, which is
   kept) are set to `T`, and the workspace reinstalls with `pnpm install --no-frozen-lockfile`.
   `pnpm update` would replace the manifests' `catalog:` references with the literal version.
-  Entries pinning anything else (such as a peer range) are left alone. Before invoking the package
-  manager, Graft also updates any existing top-level override/resolution (`overrides` in
+  Entries pinning anything else (such as a peer range) are left alone; if a package declared via
+  `catalog:` / `catalog:<name>` in any workspace manifest has no catalog entry moved, Graft fails
+  loudly with `install/catalog` instead of falling back to `pnpm update`. Before invoking the
+  package manager, Graft also updates any existing top-level override/resolution (`overrides` in
   `pnpm-workspace.yaml` or `package.json`, `pnpm.overrides`, or `resolutions`) that pins the
   installed version (keeping its prefix and formatting): for a direct dependency this keeps the
   override from holding the package back while the package manager updates the manifest specifier;
