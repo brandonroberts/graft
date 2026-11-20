@@ -264,6 +264,52 @@ function bumpPinnedVersion(value: unknown, from: string, to: string): string | u
 }
 
 /**
+ * Update declared dependency entries (`dependencies`, `devDependencies`, `optionalDependencies`)
+ * across workspace manifests that pin `from` (`1.0.0`, `^1.0.0`, `~1.0.0`, `=1.0.0`) to `to`,
+ * keeping prefixes and JSON indentation. Complex ranges and `catalog:` references are left alone (#74).
+ */
+export async function updateDeclaredNpmSpecs(
+  root: string,
+  updates: { pkg: string; from: string; to: string }[],
+  extraDirs: string[] = [],
+): Promise<{ moved: string[]; files: string[] }> {
+  const moved = new Set<string>();
+  const files = new Set<string>();
+  if (!updates.length) return { moved: [], files: [] };
+  const wsRoot = workspaceRoot(root);
+  for (const dir of await workspaceManifestDirs(root, extraDirs)) {
+    const file = path.join(dir, 'package.json');
+    if (!existsSync(file)) continue;
+    let before: string;
+    let json: Record<string, Record<string, unknown> | undefined>;
+    try {
+      before = await readFile(file, 'utf8');
+      json = JSON.parse(before) as Record<string, Record<string, unknown> | undefined>;
+    } catch {
+      continue;
+    }
+    let changed = false;
+    for (const field of DECLARED_FIELDS) {
+      const map = json[field];
+      if (!map || typeof map !== 'object' || Array.isArray(map)) continue;
+      for (const { pkg, from, to } of updates) {
+        const next = bumpPinnedVersion(map[pkg], from, to);
+        if (!next) continue;
+        map[pkg] = next;
+        moved.add(pkg);
+        changed = true;
+      }
+    }
+    if (changed) {
+      const indent = /^[ \t]+/m.exec(before)?.[0] ?? '  ';
+      await writeFile(file, `${JSON.stringify(json, null, indent)}\n`);
+      files.add(path.relative(wsRoot, file).split(path.sep).join('/') || 'package.json');
+    }
+  }
+  return { moved: [...moved], files: [...files] };
+}
+
+/**
  * Update existing top-level override/resolution entries that pin a package's previously
  * installed version (`1.0.0`, `^1.0.0`, `~1.0.0`, `=1.0.0`) to its new version, keeping prefixes,
  * comments and formatting. Complex ranges or nested selectors are left alone.

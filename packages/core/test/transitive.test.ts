@@ -133,13 +133,55 @@ describe('transitive npm dependencies (#63)', () => {
     try {
       const cmd = await npmEcosystem.install(project, 'acorn', '8.12.0');
       expect(cmd).toContain("set acorn@8.12.0 in pnpm-workspace.yaml's overrides");
+      expect(cmd).toContain('set acorn@8.12.0 in packages/vitest/package.json');
       expect(cmd).toContain("pnpm update -r 'acorn@8.12.0'");
     } finally {
       process.env.PATH = prevPath;
     }
 
-    // Override was bumped BEFORE pnpm ran, and pnpm update -r was still invoked for the direct manifest entry.
+    // Both override and exact-pinned workspace manifest were bumped BEFORE pnpm ran,
+    // and pnpm update -r was still invoked.
     expect(await readFile(`${logFile}.ws`, 'utf8')).toContain('acorn: 8.12.0');
+    expect(JSON.parse(await readFile(path.join(root, 'packages/vitest/package.json'), 'utf8')).dependencies.acorn).toBe('8.12.0');
     expect((await readFile(logFile, 'utf8')).trim()).toBe('update -r acorn@8.12.0');
+  });
+
+  it('updateDeclaredNpmSpecs updates matching pinned specs and leaves ranges/catalog:/workspace: intact (#74)', async () => {
+    const { updateDeclaredNpmSpecs } = await import('../src/index.js');
+    const root = await mkdtemp(path.join(os.tmpdir(), 'graft-decl-specs-'));
+    await mkdir(path.join(root, 'packages/a'), { recursive: true });
+    await mkdir(path.join(root, 'packages/b'), { recursive: true });
+    await writeFile(path.join(root, 'pnpm-workspace.yaml'), 'packages:\n  - packages/*\n');
+    await writeFile(
+      path.join(root, 'package.json'),
+      JSON.stringify({ name: 'root', devDependencies: { acorn: '^8.11.3' } }, null, 2) + '\n',
+    );
+    await writeFile(
+      path.join(root, 'packages/a/package.json'),
+      JSON.stringify(
+        { name: 'a', dependencies: { acorn: '8.11.3', other: 'catalog:' }, optionalDependencies: { foo: '~1.0.0' } },
+        null,
+        4,
+      ) + '\n',
+    );
+    await writeFile(
+      path.join(root, 'packages/b/package.json'),
+      JSON.stringify({ name: 'b', dependencies: { acorn: '>=8.0.0 <9', foo: '0.9.0' } }, null, 2) + '\n',
+    );
+
+    const res = await updateDeclaredNpmSpecs(root, [
+      { pkg: 'acorn', from: '8.11.3', to: '8.12.0' },
+      { pkg: 'foo', from: '1.0.0', to: '1.1.0' },
+    ]);
+    expect(res.moved.sort()).toEqual(['acorn', 'foo']);
+    expect(res.files.sort()).toEqual(['package.json', 'packages/a/package.json']);
+    expect(JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8')).devDependencies.acorn).toBe('^8.12.0');
+    const aText = await readFile(path.join(root, 'packages/a/package.json'), 'utf8');
+    expect(aText).toContain('    "acorn": "8.12.0"'); // preserves 4-space indent
+    expect(JSON.parse(aText).optionalDependencies.foo).toBe('~1.1.0');
+    expect(JSON.parse(await readFile(path.join(root, 'packages/b/package.json'), 'utf8')).dependencies).toEqual({
+      acorn: '>=8.0.0 <9',
+      foo: '0.9.0',
+    });
   });
 });
