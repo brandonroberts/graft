@@ -113,19 +113,23 @@ if (args[0] === 'sync') {
   const pkg = arg('--package');
   const version = arg('--version');
   const mode = scenario.sync[pkg];
-  const report = (outcome, reasons = []) => ({
-    exitCode: 0,
+  const dryRun = args.includes('--dry-run');
+  const report = (outcome, reasons = [], extra = {}) => ({
+    exitCode: outcome === 'green' ? 0 : outcome === 'needs-agent' ? 1 : 2,
     targets: [{ package: pkg, version }],
-    grafts: [{ id: `${pkg}-graft`, package: pkg, from: '1.0.0', to: version, outcome, reasons }],
+    grafts: [{ id: `${pkg}-graft`, package: pkg, from: '1.0.0', to: version, outcome, reasons, ...extra }],
   });
-  const green = () => {
-    mkdirSync(`.grafts/${pkg}-graft`, { recursive: true });
-    writeFileSync(`.grafts/${pkg}-graft/graft.md`, `verified: ${version}\n`);
-    writeFileSync('package.json', JSON.stringify({ name: 'app', dependencies: { [pkg]: version } }));
-    console.log(JSON.stringify(report('green')));
+  const green = (extra = {}) => {
+    if (!dryRun) {
+      mkdirSync(`.grafts/${pkg}-graft`, { recursive: true });
+      writeFileSync(`.grafts/${pkg}-graft/graft.md`, `verified: ${version}\n`);
+      writeFileSync('package.json', JSON.stringify({ name: 'app', dependencies: { [pkg]: version } }));
+    }
+    console.log(JSON.stringify(report('green', [], extra)));
     process.exit(0);
   };
   if (mode === 'green') green();
+  if (mode === 'regenerated') green({ regenerated: { module: './variants/v2.patch', command: 'node gen.mjs' } });
   if (mode === 'needs-agent') {
     if (existsSync('.agent-fixed')) green();
     console.log(JSON.stringify(report('needs-agent', ['anchors: lib/index.js#1 missed'])));

@@ -5,7 +5,7 @@ Graft's deterministic first pass and then does one of the following:
 
 | `graft sync` result | Action |
 |---|---|
-| ✅ every graft green (anchors match, the variant applies, the target installs) | Opens a **PR** with the dependency bump and the updated `graft.md` files. Graft doesn't test behavior: your CI on the PR does |
+| ✅ every graft green with existing variants unchanged | Skips the upgrade by default (`on-unchanged: skip`) — nothing in the graft needs work. Set `on-unchanged: pr` to upgrade and open a PR anyway (generator regenerations and repo-mode forks always open a **PR**) |
 | 🛠️ needs an agent, `agent-command` set | Runs your agent with the report and the skill (the agent drives Graft through its CLI). Then **re-runs `graft sync`** itself, never trusting the agent's word. Green → PR (with the agent's description). Still failing → **draft PR** |
 | 🛠️ needs an agent, no agent (or nothing to commit) | Opens an **issue** with the sync report, once per package@version |
 | 📝 a PR to open, but Actions may not open PRs here | Pushes the branch anyway and opens an **issue** with the report and a one-click "Open the pull request" link (see [Tokens](#tokens-and-pull-requests)). Not an error |
@@ -156,6 +156,7 @@ The agent must not commit, push or open PRs. The action does that after re-verif
 | `packages` | all | Restrict to these rootstock packages (`cargo:itoa` names one outside npm) |
 | `agent-command` | — | See above |
 | `on-needs-agent` | `report` | `report`: a draft PR if there are changes, otherwise an issue. `skip`: job summary only |
+| `on-unchanged` | `skip` | `skip`: skip the upgrade (without running install/upgrade commands) when existing variants already fit unchanged, and only act when a graft needs a new or regenerated variant, or looks upstreamed (repo-mode forks still open PRs). `pr`: also upgrade and open a PR when variants are unchanged |
 | `install-command` | from lockfile | Reinstall used between npm packages. Other ecosystems reset themselves between packages: nothing for Cargo and Go (their lockfiles and vendored copies are in git), `uv sync --locked`, `poetry install` or `pip install -r requirements.txt` for PyPI |
 | `base-branch` | checked-out branch | PR base |
 | `branch-prefix` | `graft/sync-` | |
@@ -170,7 +171,7 @@ The agent must not commit, push or open PRs. The action does that after re-verif
 ## Outputs
 
 - `check`: the JSON check result (`ok`, per-graft reports, failures), or `null` when the check is off.
-- `results`: a JSON array with one entry per package: `outcome` (`pr`, `draft-pr`, `issue`, `pr-refused-issue`, `skipped-existing`, `up-to-date`, `no-changes`, `needs-agent`, `would-resume` in a dry run, or `error`; `resumed: true` marks a PR opened for a branch an earlier run pushed), versions, the link, and reasons.
+- `results`: a JSON array with one entry per package: `outcome` (`pr`, `draft-pr`, `issue`, `pr-refused-issue`, `skipped-existing`, `skipped-unchanged`, `up-to-date`, `no-changes`, `needs-agent`, `would-resume` in a dry run, or `error`; `resumed: true` marks a PR opened for a branch an earlier run pushed), versions, the link, and reasons.
 - `pull-requests`: a JSON array of the PR URLs that were opened.
 
 A summary table is also written to the job summary.

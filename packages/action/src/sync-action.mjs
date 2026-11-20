@@ -34,6 +34,8 @@ export function parseInputs(raw = {}) {
   const bool = (k, d = false) => (raw[k] === undefined || raw[k] === '' ? d : /^(true|1|yes)$/i.test(String(raw[k])));
   const onNeedsAgent = str('on-needs-agent', 'report');
   if (!['report', 'skip'].includes(onNeedsAgent)) throw new Error(`on-needs-agent must be report or skip (got ${onNeedsAgent})`);
+  const onUnchanged = str('on-unchanged', 'skip');
+  if (!['pr', 'skip'].includes(onUnchanged)) throw new Error(`on-unchanged must be pr or skip (got ${onUnchanged})`);
   const check = str('check', 'fail');
   if (!['fail', 'warn', 'off'].includes(check)) throw new Error(`check must be fail, warn or off (got ${check})`);
   return {
@@ -49,6 +51,7 @@ export function parseInputs(raw = {}) {
     labels: list('labels'),
     issueTitle: str('issue-title'),
     onNeedsAgent,
+    onUnchanged,
     author: str('commit-author', DEFAULT_AUTHOR),
     dryRun: bool('dry-run'),
     skillPath: str('skill-path'),
@@ -500,6 +503,69 @@ export async function runAction(options, deps) {
         continue;
       }
 
+      const runSync = async (cmd) => {
+        // Graft's progress and the output of the commands it runs (an upgrade command such as
+        // `nx migrate`) go to stderr; stdout is the JSON report.
+        deps.streamSync?.(`::group::${cmd}\n`);
+        const r = await run(cmd, deps.streamSync ? { onStderr: deps.streamSync } : {});
+        deps.streamSync?.('::endgroup::\n');
+        let report;
+        try {
+          report = JSON.parse(r.stdout);
+        } catch {
+          throw new Error(`\`${cmd}\` did not print a JSON report (exit ${r.code}):\n${(r.stderr || r.stdout).slice(-4000)}`);
+        }
+        return { code: r.code, report };
+      };
+
+      let preNeedsAgent;
+      if (options.onUnchanged === 'skip' && !candidate.standalone) {
+        const dryRunCmd = `${options.graftCommand} sync --json --dry-run --version ${quote(candidate.version)} --package ${quote(candidate.package)}${ecosystemFlag(candidate)}`;
+        const pre = await runSync(dryRunCmd);
+        if (pre.code === 2) {
+          result.syncExitCode = 2;
+          result.reasons.push(...pre.report.grafts.filter((g) => g.outcome === 'error').flatMap((g) => g.reasons));
+          throw new Error(`graft sync reported a tooling error for ${packageLabel(candidate)}@${candidate.version}`);
+        }
+        const regenerated = pre.report.grafts.some((g) => g.regenerated && !g.regenerated.rolledBack);
+        if (pre.code === 0 && !regenerated) {
+          result.syncExitCode = 0;
+          result.grafts = pre.report.grafts.map((g) => ({ id: g.id, outcome: g.outcome }));
+          result.outcome = 'skipped-unchanged';
+          result.reasons.push(
+            `existing variant(s) already fit ${packageLabel(candidate)}@${candidate.version}; skipping upgrade (on-unchanged: skip)`,
+          );
+          continue;
+        }
+        if (pre.code === 1 && !options.agentCommand) {
+          result.syncExitCode = 1;
+          result.grafts = pre.report.grafts.map((g) => ({ id: g.id, outcome: g.outcome }));
+          result.reasons.push(
+            ...pre.report.grafts.filter((g) => g.outcome === 'needs-agent').map((g) => `${g.id}: ${g.reasons.join('; ')}`),
+          );
+          if (options.onNeedsAgent === 'skip') {
+            result.outcome = 'needs-agent';
+            continue;
+          }
+          const issueTitle = formatIssueTitle(options.issueTitle, { candidate, outcome: 'needs-agent' });
+          const legacyTitles = [formatIssueTitle(LEGACY_ISSUE_TITLE, { candidate, outcome: 'needs-agent' })];
+          const body = renderPrBody({ candidate, report: pre.report, outcome: 'needs-agent' });
+          if (options.dryRun) {
+            result.outcome = 'would-open-issue';
+            result.body = body;
+            continue;
+          }
+          const issue = await openIssue(issueTitle, body, `issue-${slug(candidate.package)}.md`, branch, legacyTitles);
+          result.issue = issue.url;
+          if (issue.existing) {
+            result.outcome = 'skipped-existing';
+            result.reasons.push(`issue already open: ${issue.url}`);
+          } else result.outcome = 'issue';
+          continue;
+        }
+        if (pre.code === 1) preNeedsAgent = pre;
+      }
+
       if (dirty) {
         await git('checkout', '-f', base);
         await git('clean', '-fd');
@@ -552,22 +618,9 @@ export async function runAction(options, deps) {
         if (code === 0 && g?.materialized?.fetch) await adopt(g.materialized.fetch);
         else if (code === 1 && g?.agentStart?.ref) await adopt(g.agentStart);
       };
-      const syncOnce = async () => {
-        // Graft's progress and the output of the commands it runs (an upgrade command such as
-        // `nx migrate`) go to stderr; stdout is the JSON report.
-        deps.streamSync?.(`::group::${syncCmd}\n`);
-        const r = await run(syncCmd, deps.streamSync ? { onStderr: deps.streamSync } : {});
-        deps.streamSync?.('::endgroup::\n');
-        let report;
-        try {
-          report = JSON.parse(r.stdout);
-        } catch {
-          throw new Error(`\`${syncCmd}\` did not print a JSON report (exit ${r.code}):\n${(r.stderr || r.stdout).slice(-4000)}`);
-        }
-        return { code: r.code, report };
-      };
+      const syncOnce = () => runSync(syncCmd);
 
-      let { code, report } = await syncOnce();
+      let { code, report } = preNeedsAgent ?? (await syncOnce());
       result.syncExitCode = code;
       if (code === 2) {
         result.reasons.push(...report.grafts.filter((g) => g.outcome === 'error').flatMap((g) => g.reasons));
@@ -769,6 +822,7 @@ const ICON = {
   'would-open-issue': '🛠️ (dry run)',
   'needs-agent': '🛠️',
   'skipped-existing': '⏭️',
+  'skipped-unchanged': '⏭️',
   'up-to-date': '✔️',
   'no-changes': '➖',
   'would-open-pr': '✅ (dry run)',
