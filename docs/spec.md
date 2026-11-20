@@ -464,13 +464,15 @@ it.
   `catalogs` that pin the installed version (with an optional `^`, `~` or `=` prefix, which is
   kept) are set to `T`, and the workspace reinstalls with `pnpm install --no-frozen-lockfile`.
   `pnpm update` would replace the manifests' `catalog:` references with the literal version.
-  Entries pinning anything else (such as a peer range) are left alone. For a transitive dependency
-  (not declared in `dependencies`, `devDependencies`, or `optionalDependencies` of any workspace
-  manifest, and not in a pnpm catalog), Graft updates an existing top-level override/resolution
-  (`overrides` in `pnpm-workspace.yaml` or `package.json`, `pnpm.overrides`, or `resolutions`)
-  that pins the installed version (keeping its prefix and formatting) and runs a bare reinstall;
-  otherwise it fails loudly with `install/transitive` rather than promoting the package into root
-  `dependencies`.
+  Entries pinning anything else (such as a peer range) are left alone. Before invoking the package
+  manager, Graft also updates any existing top-level override/resolution (`overrides` in
+  `pnpm-workspace.yaml` or `package.json`, `pnpm.overrides`, or `resolutions`) that pins the
+  installed version (keeping its prefix and formatting): for a direct dependency this keeps the
+  override from holding the package back while the package manager updates the manifest specifier;
+  for a transitive dependency (not declared in `dependencies`, `devDependencies`, or
+  `optionalDependencies` of any workspace manifest, and not in a pnpm catalog), Graft then runs a
+  bare reinstall, or fails loudly with `install/transitive` if no matching override pins the
+  installed version rather than promoting the package into root `dependencies`.
 
 ### 10.2 cargo
 

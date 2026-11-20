@@ -132,7 +132,7 @@ Variants are git-style patches with package-relative paths. Each hunk must fit e
 
 | Package manager | Default applier | How | Silent failure Graft guards against |
 |---|---|---|---|
-| pnpm | `pnpm` | `pnpm-workspace.yaml` `patchedDependencies[pkg]` + `ignorePatchFailures: false` | without that setting, a failed patch is only a warning |
+| pnpm | `pnpm` | `pnpm-workspace.yaml` `patchedDependencies[pkg]` (or `pkg@installed` when other versions exist in `.pnpm`) + `ignorePatchFailures: false` on pnpm < 11 | on pnpm < 11 a failed patch is only a warning; pnpm 11+ removed `ignorePatchFailures` and fails by default; name-only keys break multi-version workspaces |
 | npm ≥ 12 | `npm` | root `patchedDependencies[pkg]` (native) | npm < 12 ignores the field silently, so the version is checked |
 | npm < 12, yarn classic | `graft` (built-in) | `graft apply --installed` in `postinstall`: offline, idempotent (reverse-patch check), hardlink-safe (new inode), every installed copy | targeted installs skip `postinstall`, so `sync` applies the patch itself after installing |
 | yarn 2+ | `yarn` | root `resolutions` → `patch:` protocol | built-in and patch-package appliers are refused under PnP |

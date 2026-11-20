@@ -1,7 +1,6 @@
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { applyPatch, reversePatch } from 'diff';
 import {
   distinctiveText,
   GraftError,
@@ -19,7 +18,17 @@ import {
   type ScopedDiff,
   type ScopedFileDiff,
 } from '@graftsync/core';
-import { applyFilePatch, describeHunk, locateHunk, parsePatchFile, patchTarget, type FilePatch } from './patchfile.js';
+import {
+  applyFilePatch,
+  describeHunk,
+  locateHunk,
+  normalizeLf,
+  parsePatchFile,
+  patchHasCr,
+  patchTarget,
+  reverseFilePatch,
+  type FilePatch,
+} from './patchfile.js';
 import { selectApplier, type ApplierConfig } from './appliers.js';
 import { applyToInstalledCopy, findInstalledCopies } from './installed.js';
 import { captureInstalledChanges } from './capture.js';
@@ -46,7 +55,7 @@ async function loadPatch(graft: Graft, variant: ResolvedVariant): Promise<FilePa
   } catch (err) {
     throw new GraftError(`graft "${graft.id}": could not parse ${variant.module}: ${(err as Error).message}`, 'variant/invalid');
   }
-  if (!patches.length || patches.every((p) => p.hunks.length === 0)) {
+  if (!patches.length || patches.every((p) => p.hunks.length === 0 && p.oldFile !== null && p.newFile !== null)) {
     throw new GraftError(`graft "${graft.id}": ${variant.module} contains no hunks; a graft must never apply nothing`, 'variant/empty');
   }
   for (const p of patches) {
@@ -77,6 +86,17 @@ function hunkAnchors(patch: FilePatch, content: string | undefined): AnchorResul
       },
     ];
   }
+  if (patch.newFile === null && patch.hunks.length === 0) {
+    return [
+      {
+        name: `${file}#delete`,
+        file,
+        description: `deletes ${file}`,
+        matched: content !== undefined,
+        error: content === undefined ? 'file already absent upstream (the graft may have been upstreamed)' : undefined,
+      },
+    ];
+  }
   return patch.hunks.map((hunk, i) => {
     const base = { name: `${file}#${i + 1}`, file, description: describeHunk(hunk) };
     if (content === undefined) return { ...base, matched: false, error: 'file missing' };
@@ -101,15 +121,15 @@ async function upstreamedEvidence(dir: string, patches: FilePatch[]): Promise<st
   for (const p of patches) {
     if (p.oldFile === null) {
       const content = await readIn(dir, p.newFile!);
-      if (content === undefined || content !== applyPatch('', p.raw, { fuzzFactor: 0 })) return undefined;
+      const expected = applyFilePatch('', p);
+      if (content === undefined || expected === false || content !== expected) return undefined;
       evidence.push(`${p.newFile} already exists with the content this graft creates`);
     } else if (p.newFile === null) {
       if ((await readIn(dir, p.oldFile)) !== undefined) return undefined;
       evidence.push(`${p.oldFile}, which this graft deletes, is already gone`);
     } else {
       const content = await readIn(dir, p.newFile);
-      if (content === undefined || !p.hunks.length || applyPatch(content, reversePatch(p.raw), { fuzzFactor: 0 }) === false)
-        return undefined;
+      if (content === undefined || !p.hunks.length || reverseFilePatch(content, p) === false) return undefined;
       evidence.push(`${p.newFile}: all ${p.hunks.length} hunk(s) already present (the reverse patch applies with no fuzz)`);
     }
   }
@@ -143,9 +163,10 @@ export function createPatchAdapter(): MechanismAdapter {
       }
       for (const p of patches) {
         const content = await readIn(dir, patchTarget(p));
-        report.anchors.push(...hunkAnchors(p, content));
+        const anchors = hunkAnchors(p, content);
+        report.anchors.push(...anchors);
         // Hunks can each fit yet fail together (ordering); confirm the whole file applies.
-        if (content !== undefined && p.oldFile && hunkAnchors(p, content).every((a) => a.matched) && applyFilePatch(content, p) === false) {
+        if (content !== undefined && p.oldFile && anchors.every((a) => a.matched) && applyFilePatch(content, p) === false) {
           report.errors.push(`${patchTarget(p)}: hunks match individually but the patch does not apply as a whole`);
         }
       }
@@ -180,7 +201,7 @@ export function createPatchAdapter(): MechanismAdapter {
         return { errors };
       }
       if (installed.dir !== dir) {
-        const targets = patches.filter((p) => p.newFile).map((p) => p.newFile!);
+        const targets = [...new Set(patches.map((p) => p.newFile ?? p.oldFile!).filter(Boolean))];
         let actual: Record<string, string | undefined> | undefined;
         try {
           actual = await readInstalledFiles(installed, targets);
@@ -190,10 +211,21 @@ export function createPatchAdapter(): MechanismAdapter {
           );
         }
         for (const p of actual ? patches : []) {
-          if (!p.newFile) continue;
+          if (!p.newFile) {
+            if (p.oldFile && actual![p.oldFile] !== undefined) {
+              errors.push(
+                `installed ${pkg}@${version} ${p.oldFile} was not deleted by ${variant.module}; run \`graft apply\` (or reinstall)`,
+              );
+            }
+            continue;
+          }
           const pristine = p.oldFile ? await readIn(dir, p.oldFile) : '';
           const expected = pristine === undefined ? false : applyFilePatch(pristine, p);
-          if (expected !== false && actual![p.newFile] !== expected) {
+          if (expected === false) continue;
+          const got = actual![p.newFile];
+          const crlfTolerant = Boolean(pristine?.includes('\r\n') && !patchHasCr(p));
+          const same = got === expected || (crlfTolerant && got !== undefined && normalizeLf(got) === normalizeLf(expected));
+          if (!same) {
             errors.push(
               `installed ${pkg}@${version} ${p.newFile} is not patched with ${variant.module}; run \`graft apply\` (or reinstall)`,
             );
@@ -236,7 +268,12 @@ export function createPatchAdapter(): MechanismAdapter {
           result.files.push({ file, changed: false, error: content === undefined && p.oldFile ? 'file missing' : 'patch does not apply' });
           continue;
         }
-        const entry: ApplyResult['files'][number] = { file: p.newFile ?? file, changed: output !== content };
+        const changed = p.oldFile === null || p.newFile === null || output !== content;
+        const entry: ApplyResult['files'][number] = {
+          file: p.newFile ?? file,
+          changed,
+          ...(changed ? {} : { error: 'patch made no changes' }),
+        };
         if (options.outDir && p.newFile) {
           entry.outputPath = path.join(options.outDir, p.newFile);
           await mkdir(path.dirname(entry.outputPath), { recursive: true });

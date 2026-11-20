@@ -9,9 +9,8 @@
 import { existsSync } from 'node:fs';
 import { chmod, lstat, mkdir, readdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { reversePatch, applyPatch } from 'diff';
 import type { InstalledCopyResult } from '@graftsync/core';
-import { patchTarget, type FilePatch } from './patchfile.js';
+import { applyFilePatch, patchTarget, reverseFilePatch, type FilePatch } from './patchfile.js';
 
 export interface InstalledCopy {
   dir: string;
@@ -77,7 +76,7 @@ export async function applyToInstalledCopy(
     const content = exists ? await readFile(file, 'utf8') : undefined;
     if (p.oldFile === null) {
       // Creates a file.
-      const created = applyPatch('', p.raw, { fuzzFactor: 0 });
+      const created = applyFilePatch('', p);
       if (created === false) return { action: 'failed', files: [], reason: `${target}: cannot build the created file` };
       if (content === undefined) plan.push({ file, content: created });
       else if (content === created) plan.push({ file, already: true });
@@ -91,13 +90,13 @@ export async function applyToInstalledCopy(
       }
       return { action: 'failed', files: [], reason: `${target} is missing in the installed copy` };
     }
-    const forward = applyPatch(content, p.raw, { fuzzFactor: 0 });
+    const forward = applyFilePatch(content, p);
     if (forward !== false) {
       plan.push(p.newFile === null ? { file, remove: true } : { file: path.join(copy.dir, p.newFile), content: forward });
       if (p.newFile && p.newFile !== target) plan.push({ file, remove: true });
       continue;
     }
-    if (applyPatch(content, reversePatch(p.raw), { fuzzFactor: 0 }) !== false) {
+    if (reverseFilePatch(content, p) !== false) {
       plan.push({ file, already: true });
       continue;
     }
