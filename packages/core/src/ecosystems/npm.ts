@@ -10,6 +10,7 @@ import {
   isDeclaredNpmDependency,
   readPnpmCatalogValue,
   reinstall,
+  updateDeclaredNpmSpecs,
   updatePackageOverrides,
   updatePnpmCatalogs,
 } from '../install.js';
@@ -85,9 +86,9 @@ export const npmEcosystem: Ecosystem = {
     }
 
     // Update existing top-level overrides/resolutions for both direct and transitive packages:
-    // - For direct dependencies that are ALSO pinned in overrides/resolutions (#71), bumping the
-    //   override first prevents `<pm> update` / `install` from leaving the resolved version stuck,
-    //   while keeping the package in `names` so its declared manifest specifier updates too.
+    // - For direct dependencies that are ALSO pinned in overrides/resolutions (#71, #74), bumping
+    //   the override and any matching pinned workspace manifest spec first keeps pnpm/npm from
+    //   leaving the resolved version stuck or leaving exact-pinned manifest specs stale.
     // - For transitive dependencies (not declared in any workspace manifest, #63), remove moved
     //   packages from `names` so a bare reinstall runs instead of `<pm> add` (which promotes them
     //   to root dependencies), and fail loudly if no matching override pins the installed version.
@@ -103,6 +104,19 @@ export const npmEcosystem: Ecosystem = {
       const { moved, locations } = await updatePackageOverrides(project.root, pm, overrideUpdates);
       if (moved.length) {
         steps.push(`set ${moved.map((n) => `${n}@${version}`).join(', ')} in ${locations.join(' and ')}`);
+        const directMoved = moved.filter((n) => !transitive.has(n));
+        if (directMoved.length) {
+          const extraDirs = directMoved
+            .map((n) => (resolveFrom[n] ? path.resolve(project.root, resolveFrom[n]) : undefined))
+            .filter((d): d is string => Boolean(d));
+          const manifestUpdates = directMoved
+            .filter((n) => installedVersions.has(n))
+            .map((n) => ({ pkg: n, from: installedVersions.get(n)!, to: version }));
+          const bumped = await updateDeclaredNpmSpecs(project.root, manifestUpdates, extraDirs);
+          if (bumped.files.length) {
+            steps.push(`set ${bumped.moved.map((n) => `${n}@${version}`).join(', ')} in ${bumped.files.join(', ')}`);
+          }
+        }
         names = names.filter((n) => !(transitive.has(n) && moved.includes(n)));
       }
       const remaining = [...transitive].filter((n) => !moved.includes(n));

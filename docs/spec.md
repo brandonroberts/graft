@@ -465,7 +465,11 @@ it.
 
 - **Pristine:** `npm pack <pkg>@<version>`, run from the project root so its `.npmrc` applies,
   or `ecosystems.npm.upstream` (alias `upstream`).
-- **Versions:** `npm view <pkg> versions dist-tags`.
+- **Versions:** `npm view <pkg> versions dist-tags`. When the project configures a release-age
+  cooldown (`.npmrc` `min-release-age` in days or `pnpm-workspace.yaml` `minimumReleaseAge` in
+  minutes, honoring `minimumReleaseAgeExclude`), Graft also requests `time` and filters out
+  versions younger than the cooldown (falling back `latest` to the highest eligible stable version)
+  so `outdated` does not recommend releases `npm pack` / pnpm will refuse.
 - **Installed copy:** `node_modules/<pkg>` walking up from the project root (or
   `ecosystems.npm.resolveFrom`), or through Plug'n'Play.
 - **Install and appliers:** §8 and §9.1. pnpm installs with `pnpm update -r <pkg>@<T> …`, except
@@ -479,11 +483,12 @@ it.
   package manager, Graft also updates any existing top-level override/resolution (`overrides` in
   `pnpm-workspace.yaml` or `package.json`, `pnpm.overrides`, or `resolutions`) that pins the
   installed version (keeping its prefix and formatting): for a direct dependency this keeps the
-  override from holding the package back while the package manager updates the manifest specifier;
-  for a transitive dependency (not declared in `dependencies`, `devDependencies`, or
-  `optionalDependencies` of any workspace manifest, and not in a pnpm catalog), Graft then runs a
-  bare reinstall, or fails loudly with `install/transitive` if no matching override pins the
-  installed version rather than promoting the package into root `dependencies`.
+  override from holding the package back, and Graft also updates matching pinned dependency specs
+  in workspace manifests so exact pins do not drift behind the override; for a transitive
+  dependency (not declared in `dependencies`, `devDependencies`, or `optionalDependencies` of any
+  workspace manifest, and not in a pnpm catalog), Graft then runs a bare reinstall, or fails loudly
+  with `install/transitive` if no matching override pins the installed version rather than
+  promoting the package into root `dependencies`.
 
 ### 10.2 cargo
 

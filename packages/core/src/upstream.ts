@@ -3,7 +3,9 @@ import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, readdir, readFile, realpath, rename, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import { semverScheme } from '@graftsync/spec';
 import { extract as tarExtract } from 'tar';
+import { parseDocument } from 'yaml';
 import { GraftError } from './errors.js';
 
 export interface InstalledPackage {
@@ -332,16 +334,158 @@ export class NpmUpstreamSource implements UpstreamSource {
 
   async versions(pkg: string): Promise<PackageVersions> {
     try {
-      const info = npmJson(await npm(['view', pkg, 'versions', 'dist-tags', '--json'], this.options.root)) as {
+      const policy = readNpmReleaseAgePolicy(this.options.root);
+      const hasCooldown = (policy.npmMs ?? 0) > 0 || (policy.pnpmMs ?? 0) > 0;
+      const fields = hasCooldown ? ['versions', 'dist-tags', 'time'] : ['versions', 'dist-tags'];
+      const info = npmJson(await npm(['view', pkg, ...fields, '--json'], this.options.root)) as {
         versions?: string | string[];
         'dist-tags'?: Record<string, string>;
+        time?: Record<string, string>;
       };
       const versions = typeof info.versions === 'string' ? [info.versions] : (info.versions ?? []);
-      return { versions, distTags: { ...info['dist-tags'] } };
+      const distTags = { ...info['dist-tags'] };
+      return hasCooldown ? filterVersionsByReleaseAge(pkg, { versions, distTags, time: info.time }, policy) : { versions, distTags };
     } catch (err) {
       throw new GraftError(`could not read versions of ${pkg}: ${(err as Error).message}`, 'upstream/versions');
     }
   }
+}
+
+const DAY_MS = 24 * 60 * 60_000;
+const MINUTE_MS = 60_000;
+
+/** Project release-age cooldown settings from `.npmrc` and `pnpm-workspace.yaml` (#75). */
+export interface NpmReleaseAgePolicy {
+  /** Cooldown from `.npmrc` (`min-release-age`, days) or `npm_config_min_release_age`, in ms. */
+  npmMs?: number;
+  /** Cooldown from `pnpm-workspace.yaml` (`minimumReleaseAge`, minutes), in ms. */
+  pnpmMs?: number;
+  /** Exemption patterns from `pnpm-workspace.yaml` `minimumReleaseAgeExclude`. */
+  pnpmExclude?: string[];
+}
+
+function parseNpmrcMinReleaseAgeDays(text: string): number | undefined {
+  let days: number | undefined;
+  for (const raw of text.split('\n')) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#') || line.startsWith(';')) continue;
+    const m = /^min-release-age\s*=\s*(.+)$/.exec(line);
+    if (!m) continue;
+    const value = m[1]!
+      .replace(/\s+[#;].*$/, '')
+      .trim()
+      .replace(/^["']|["']$/g, '');
+    const n = Number(value);
+    if (Number.isFinite(n) && n > 0) days = n;
+    else if (value === '0' || value === 'false') days = 0;
+  }
+  return days;
+}
+
+const PROJECT_BOUNDARIES = ['pnpm-workspace.yaml', 'pnpm-lock.yaml', 'package-lock.json', 'yarn.lock', 'bun.lock', 'bun.lockb', '.git'];
+
+/**
+ * Read the project's npm/pnpm release-age cooldown settings walking up from `root` to the
+ * workspace/project root (stopping at the first `.git` or lockfile/workspace boundary).
+ */
+export function readNpmReleaseAgePolicy(root: string): NpmReleaseAgePolicy {
+  const policy: NpmReleaseAgePolicy = {};
+  const envRaw = process.env.npm_config_min_release_age;
+  if (envRaw !== undefined && envRaw.trim() !== '') {
+    const n = Number(envRaw.trim());
+    if (Number.isFinite(n) && n > 0) policy.npmMs = n * DAY_MS;
+  }
+
+  let dir = path.resolve(root);
+  for (;;) {
+    if (policy.npmMs === undefined) {
+      const npmrc = path.join(dir, '.npmrc');
+      if (existsSync(npmrc)) {
+        try {
+          const days = parseNpmrcMinReleaseAgeDays(readFileSync(npmrc, 'utf8'));
+          if (days !== undefined) policy.npmMs = days > 0 ? days * DAY_MS : 0;
+        } catch {
+          // ignore unreadable .npmrc
+        }
+      }
+    }
+    if (policy.pnpmMs === undefined) {
+      const ws = path.join(dir, 'pnpm-workspace.yaml');
+      if (existsSync(ws)) {
+        try {
+          const doc = parseDocument(readFileSync(ws, 'utf8'));
+          const mins = Number(doc.get('minimumReleaseAge'));
+          if (Number.isFinite(mins) && mins > 0) policy.pnpmMs = mins * MINUTE_MS;
+          const exclude = doc.get('minimumReleaseAgeExclude');
+          if (exclude && typeof exclude === 'object' && 'toJSON' in exclude) {
+            const list = (exclude as { toJSON: () => unknown }).toJSON();
+            if (Array.isArray(list)) policy.pnpmExclude = list.filter((s): s is string => typeof s === 'string');
+          }
+        } catch {
+          // ignore unreadable workspace file
+        }
+      }
+    }
+    const atBoundary = PROJECT_BOUNDARIES.some((f) => existsSync(path.join(dir, f)));
+    const parent = path.dirname(dir);
+    if (atBoundary || parent === dir) break;
+    dir = parent;
+  }
+  return policy;
+}
+
+/** True when a `minimumReleaseAgeExclude` pattern (`pkg`, `pkg@version`, `@scope/*`, `pkg@1.*`) matches `pkg@version`. */
+export function matchesReleaseAgeExclude(pattern: string, pkg: string, version: string): boolean {
+  const trimmed = pattern.trim();
+  if (!trimmed) return false;
+  const hasVersion = trimmed.indexOf('@', 1) > 0;
+  const target = hasVersion ? `${pkg}@${version}` : pkg;
+  if (!trimmed.includes('*')) return target === trimmed;
+  const re = new RegExp(`^${trimmed.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replaceAll('*', '.*')}$`);
+  return re.test(target);
+}
+
+/**
+ * Filter npm `versions` and `distTags` by a project's release-age cooldown policy (#75).
+ * When `latest` is blocked by the cooldown, falls back to the highest eligible stable version
+ * `<= latest` so `graft outdated` only recommends versions `npm pack` / pnpm will accept.
+ */
+export function filterVersionsByReleaseAge(
+  pkg: string,
+  data: { versions: string[]; distTags: Record<string, string>; time?: Record<string, string> },
+  policy: NpmReleaseAgePolicy,
+  nowMs: number = Date.now(),
+): PackageVersions {
+  const time = data.time ?? {};
+  const isEligible = (v: string): boolean => {
+    const npmMs = policy.npmMs ?? 0;
+    const pnpmExcluded = (policy.pnpmExclude ?? []).some((pat) => matchesReleaseAgeExclude(pat, pkg, v));
+    const pnpmMs = pnpmExcluded ? 0 : (policy.pnpmMs ?? 0);
+    const cooldownMs = Math.max(npmMs, pnpmMs);
+    if (cooldownMs <= 0) return true;
+    const raw = time[v];
+    if (!raw) return true;
+    const publishedMs = Date.parse(raw);
+    if (!Number.isFinite(publishedMs)) return true;
+    return nowMs - publishedMs >= cooldownMs;
+  };
+
+  const versions = data.versions.filter(isEligible);
+  const distTags: Record<string, string> = {};
+  for (const [tag, v] of Object.entries(data.distTags)) {
+    if (isEligible(v)) {
+      distTags[tag] = v;
+    } else if (tag === 'latest') {
+      const fallback = versions
+        .filter((cand) => {
+          if (!semverScheme.valid(cand) || cand.split('+', 1)[0]!.includes('-')) return false;
+          return !semverScheme.valid(v) || semverScheme.compare(cand, v) <= 0;
+        })
+        .sort((a, b) => semverScheme.compare(b, a))[0];
+      if (fallback) distTags.latest = fallback;
+    }
+  }
+  return { versions, distTags };
 }
 
 /** A source backed by local directories, one per version. Useful for tests and offline evals. */

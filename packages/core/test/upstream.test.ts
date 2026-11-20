@@ -118,3 +118,92 @@ describe('findInstalledPackage (pnpm virtual store fallback, #59)', () => {
     await expect(findInstalledPackage('acorn', root)).rejects.toThrow(/multiple versions of acorn .*8\.11\.3, 8\.12\.0/);
   });
 });
+
+describe('release-age cooldown filtering (.npmrc min-release-age / pnpm minimumReleaseAge, #75)', () => {
+  it('reads .npmrc min-release-age (days) and pnpm-workspace.yaml minimumReleaseAge (minutes) + excludes', async () => {
+    const { matchesReleaseAgeExclude, readNpmReleaseAgePolicy } = await import('../src/upstream.js');
+    const root = await mkdtemp(path.join(os.tmpdir(), 'graft-release-age-'));
+    const sub = path.join(root, 'packages/app');
+    await mkdir(sub, { recursive: true });
+    await writeFile(path.join(root, '.npmrc'), '# comment\nregistry=https://registry.npmjs.org/\nmin-release-age=7 # 7 days\n');
+    await writeFile(
+      path.join(root, 'pnpm-workspace.yaml'),
+      `minimumReleaseAge: 10080\nminimumReleaseAgeExclude:\n  - '@scope/*'\n  - 'foo@1.2.3'\npackages:\n  - packages/*\n`,
+    );
+
+    const policy = readNpmReleaseAgePolicy(sub);
+    expect(policy).toEqual({
+      npmMs: 7 * 24 * 60 * 60_000,
+      pnpmMs: 10080 * 60_000,
+      pnpmExclude: ['@scope/*', 'foo@1.2.3'],
+    });
+
+    expect(matchesReleaseAgeExclude('@scope/*', '@scope/pkg', '1.0.0')).toBe(true);
+    expect(matchesReleaseAgeExclude('@scope/*', '@other/pkg', '1.0.0')).toBe(false);
+    expect(matchesReleaseAgeExclude('foo@1.2.3', 'foo', '1.2.3')).toBe(true);
+    expect(matchesReleaseAgeExclude('foo@1.2.3', 'foo', '1.2.4')).toBe(false);
+    expect(matchesReleaseAgeExclude('bar', 'bar', '9.9.9')).toBe(true);
+  });
+
+  it('filters recent versions, falls back latest to newest eligible stable, and respects excludes', async () => {
+    const { filterVersionsByReleaseAge } = await import('../src/upstream.js');
+    const now = Date.parse('2026-11-20T00:00:00.000Z');
+    const data = {
+      versions: ['15.3.0', '15.4.0', '15.4.1', '15.5.0', '16.0.0-beta.1'],
+      distTags: { latest: '15.5.0', next: '16.0.0-beta.1' },
+      time: {
+        '15.3.0': '2026-01-01T00:00:00.000Z',
+        '15.4.0': '2026-10-01T00:00:00.000Z',
+        '15.4.1': '2026-11-10T00:00:00.000Z', // 10 days old (eligible)
+        '15.5.0': '2026-11-18T00:00:00.000Z', // 2 days old (blocked)
+        '16.0.0-beta.1': '2026-11-19T00:00:00.000Z', // 1 day old (blocked)
+      },
+    };
+
+    const filtered = filterVersionsByReleaseAge('@sinonjs/fake-timers', data, { npmMs: 7 * 24 * 60 * 60_000 }, now);
+    expect(filtered.versions).toEqual(['15.3.0', '15.4.0', '15.4.1']);
+    expect(filtered.distTags).toEqual({ latest: '15.4.1' });
+
+    // pnpm exclusion exempts the package when only pnpm minimumReleaseAge is set.
+    const exempted = filterVersionsByReleaseAge(
+      '@sinonjs/fake-timers',
+      data,
+      { pnpmMs: 10080 * 60_000, pnpmExclude: ['@sinonjs/fake-timers@15.5.0'] },
+      now,
+    );
+    expect(exempted.versions).toContain('15.5.0');
+    expect(exempted.distTags.latest).toBe('15.5.0');
+    expect(exempted.distTags.next).toBeUndefined();
+  });
+
+  it('NpmUpstreamSource.versions queries `time` only when a cooldown is configured and filters recent releases', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'graft-npm-age-'));
+    await writeFile(path.join(root, '.npmrc'), 'min-release-age=7\n');
+    await writeFile(path.join(root, 'package.json'), JSON.stringify({ name: 'app' }));
+    const binDir = path.join(root, 'fake-bin');
+    const logFile = path.join(root, 'npm.log');
+    await mkdir(binDir, { recursive: true });
+    const recentIso = new Date(Date.now() - 2 * 24 * 60 * 60_000).toISOString();
+    const oldIso = new Date(Date.now() - 20 * 24 * 60 * 60_000).toISOString();
+    const payload = JSON.stringify({
+      versions: ['1.0.0', '1.1.0'],
+      'dist-tags': { latest: '1.1.0' },
+      time: { '1.0.0': oldIso, '1.1.0': recentIso },
+    });
+    await writeFile(path.join(root, 'view.json'), payload);
+    await writeFile(path.join(binDir, 'npm'), `#!/bin/sh\necho "$@" > "${logFile}"\ncat "${path.join(root, 'view.json')}"\n`, {
+      mode: 0o755,
+    });
+
+    const source = new NpmUpstreamSource({ root, cacheDir: path.join(root, 'cache') });
+    const prevPath = process.env.PATH ?? '';
+    process.env.PATH = `${binDir}${path.delimiter}${prevPath}`;
+    try {
+      const res = await source.versions('demo');
+      expect(res).toEqual({ versions: ['1.0.0'], distTags: { latest: '1.0.0' } });
+    } finally {
+      process.env.PATH = prevPath;
+    }
+    expect((await readFile(logFile, 'utf8')).trim()).toBe('view demo versions dist-tags time --json');
+  });
+});
