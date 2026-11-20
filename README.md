@@ -37,17 +37,20 @@ pnpm exec graft sync --version 2.1.3 --install                    # a real upgra
 
 ### Or hand it to your coding agent
 
-Paste this into Claude Code, Codex, Cursor or any agent that can run shell commands in your repo. Fill in the first line.
+Paste this into Claude Code, Codex, Cursor or any agent that can run shell commands in your repo.
 
 ````text
-I modify <upstream package, or "this repository, a fork of <upstream repo URL>"> so that <what the
-change does and why>. Set up Graft (https://github.com/brandonroberts/graft) so this modification
-keeps working, and keeps being re-verified, when upstream releases new versions.
+Set up Graft (https://github.com/brandonroberts/graft) in this repository so local modifications
+to upstream software keep working, and keep being re-verified, when upstream releases new versions.
 
 1. Run `npx -y @graftsync/cli@latest init --agent`, then read the graft-sync skill it installs.
    Use that same CLI (`npx -y @graftsync/cli@latest …`) for every graft command below.
-2. Find the modification as it exists today: a patch file, an edited dependency, commits on a
-   fork. If it doesn't exist yet, make it. Tell me what you found before changing anything.
+2. Inspect this repository for modifications to upstream software: patch files (pnpm, bun, yarn,
+   patch-package), vendored or overridden dependencies (including Cargo `[patch]`, Go `replace`,
+   or Python overrides), or a fork relationship (such as an `upstream` git remote or commits on
+   top of an upstream repo). Tell me what you found and confirm which modification(s) to graft
+   and why they exist before changing anything. If none exist yet, ask me what we're modifying
+   and why, and make the change first.
 3. Scaffold the graft:
    - a dependency: `graft add <id> --package <pkg> --target <files>`, make the change in the
      installed package, then `graft capture <id>` writes it as the variant (with pnpm, use
