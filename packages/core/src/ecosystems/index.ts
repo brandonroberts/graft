@@ -5,9 +5,39 @@ import { npmEcosystem } from './npm.js';
 import { pypiEcosystem } from './pypi.js';
 
 export { npmEcosystem, cargoEcosystem, goEcosystem, pypiEcosystem };
-export { detectPythonTool, pypiName, pypiOptions, pythonFor, wheelDistName, PypiUpstreamSource, type PypiOptions } from './pypi.js';
-export { goModuleDir, goListModule, goVersion, GoUpstreamSource, type GoOptions, type GoListModule } from './go.js';
-export { cargoManifest, cargoMetadata, sparseIndexPath, CargoUpstreamSource, type CargoOptions, type CargoPackage } from './cargo.js';
+export {
+  declaredPypiDependencies,
+  detectPythonTool,
+  findPypiSiblings,
+  pypiName,
+  pypiOptions,
+  pypiRepoKey,
+  pythonFor,
+  wheelDistName,
+  PypiUpstreamSource,
+  type PypiOptions,
+} from './pypi.js';
+export {
+  findGoSiblings,
+  goListModule,
+  goModuleDir,
+  goRepoKey,
+  goVersion,
+  parseGoListJsonStream,
+  GoUpstreamSource,
+  type GoListModule,
+  type GoOptions,
+} from './go.js';
+export {
+  cargoManifest,
+  cargoMetadata,
+  findCargoSiblings,
+  sparseIndexPath,
+  CargoUpstreamSource,
+  type CargoMetadata,
+  type CargoOptions,
+  type CargoPackage,
+} from './cargo.js';
 export { tool, fetchText, channelTags, posixPath, type ToolResult } from './util.js';
 
 /** Every ecosystem a project knows (`rootstock.ecosystem`). */

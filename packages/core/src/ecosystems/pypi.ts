@@ -16,6 +16,7 @@ import { pep440Scheme } from '@graftsync/spec';
 import { ecosystemOptions, type Ecosystem } from '../ecosystem.js';
 import { GraftError } from '../errors.js';
 import type { Project } from '../project.js';
+import { repositoryKey } from '../siblings.js';
 import type { InstalledPackage, PackageVersions, UpstreamSource } from '../upstream.js';
 import { readZip } from '../zip.js';
 import { channelTags, fetchText, tool } from './util.js';
@@ -66,6 +67,138 @@ except metadata.PackageNotFoundError:
     sys.exit(0)
 print(json.dumps({"version": d.version, "dir": str(d.locate_file(""))}))
 `;
+
+const METADATA_BATCH_SCRIPT = `
+import json, sys
+from importlib import metadata
+out = {}
+for name in sys.argv[1:]:
+    try:
+        d = metadata.distribution(name)
+    except metadata.PackageNotFoundError:
+        continue
+    meta = d.metadata
+    out[name] = {
+        "name": meta.get("Name") or name,
+        "version": d.version,
+        "projectUrls": meta.get_all("Project-URL") or [],
+        "homePage": meta.get("Home-page"),
+    }
+print(json.dumps(out))
+`;
+
+const REPO_URL_LABELS = new Set(['repository', 'source', 'source code', 'code', 'github', 'gitlab', 'git', 'scm']);
+const HOME_URL_LABELS = new Set(['homepage', 'home']);
+const GIT_HOST_URL = /^https?:\/\/(?:github\.com|gitlab\.com|bitbucket\.org|codeberg\.org)\//i;
+
+/**
+ * Normalize a Python distribution's `Project-URL` headers and `Home-page` into one repository key
+ * so distributions published from the same repository (e.g. `opentelemetry-*`) match (#56).
+ */
+export function pypiRepoKey(projectUrls: string[], homePage?: string | null): string | undefined {
+  const entries = projectUrls
+    .map((line) => {
+      const idx = line.indexOf(',');
+      if (idx < 0) return undefined;
+      return { label: line.slice(0, idx).trim().toLowerCase(), url: line.slice(idx + 1).trim() };
+    })
+    .filter((e): e is { label: string; url: string } => !!e && !!e.url);
+
+  const pick =
+    entries.find((e) => REPO_URL_LABELS.has(e.label))?.url ??
+    entries.find((e) => GIT_HOST_URL.test(e.url))?.url ??
+    entries.find((e) => HOME_URL_LABELS.has(e.label))?.url ??
+    (homePage && homePage.trim().toUpperCase() !== 'UNKNOWN' ? homePage.trim() : undefined);
+  return repositoryKey(pick);
+}
+
+const REQ_SPEC_NAME = /^\s*([A-Za-z0-9][A-Za-z0-9._-]*)\s*(?:\[[^\]]*\])?\s*(?:[<>=!~;@ ]|$)/;
+
+/** Declared PEP 503 dependency names from `pyproject.toml` and `requirements.txt` (if present). */
+export async function declaredPypiDependencies(project: Project): Promise<Set<string>> {
+  const names = new Set<string>();
+  const addSpec = (spec: string) => {
+    const trimmed = spec.replace(/\s+#.*$/, '').trim();
+    if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('-')) return;
+    if (trimmed.endsWith('.whl')) {
+      const dist = path.basename(trimmed).split('-')[0];
+      if (dist) names.add(pypiName(dist));
+      return;
+    }
+    const m = REQ_SPEC_NAME.exec(trimmed);
+    if (m?.[1]) names.add(pypiName(m[1]));
+  };
+
+  const reqFile = path.resolve(project.root, pypiOptions(project).requirements ?? 'requirements.txt');
+  if (existsSync(reqFile)) {
+    for (const line of (await readFile(reqFile, 'utf8')).split('\n')) addSpec(line);
+  }
+
+  const pyproject = path.join(project.root, 'pyproject.toml');
+  if (existsSync(pyproject)) {
+    const text = await readFile(pyproject, 'utf8');
+    // Extract quoted requirement strings inside [project] dependencies, [project.optional-dependencies],
+    // and [dependency-groups], plus table keys under [tool.poetry(.group.*).dependencies].
+    let section = '';
+    let inArray = false;
+    for (const rawLine of text.split('\n')) {
+      const line = rawLine.replace(/\s+#.*$/, '').trim();
+      if (!line) continue;
+      const header = /^\[([^\]]+)\]$/.exec(line);
+      if (header) {
+        section = header[1]!.trim();
+        inArray = false;
+        continue;
+      }
+      if (section === 'project') {
+        if (/^dependencies\s*=\s*\[/.test(line)) inArray = true;
+        if (inArray) {
+          for (const m of line.matchAll(/["']([^"']+)["']/g)) addSpec(m[1]!);
+          if (line.includes(']')) inArray = false;
+        }
+      } else if (section === 'project.optional-dependencies' || section === 'dependency-groups') {
+        if (/=\s*\[/.test(line)) inArray = true;
+        if (inArray) {
+          for (const m of line.matchAll(/["']([^"']+)["']/g)) addSpec(m[1]!);
+          if (line.includes(']')) inArray = false;
+        }
+      } else if (section === 'tool.poetry.dependencies' || /^tool\.poetry\.group\.[^.]+\.dependencies$/.test(section)) {
+        const key = /^([A-Za-z0-9][A-Za-z0-9._-]*)\s*=/.exec(line)?.[1];
+        if (key && key.toLowerCase() !== 'python') names.add(pypiName(key));
+      }
+    }
+  }
+  return names;
+}
+
+/**
+ * Python distributions released together with `pkg`: declared in `pyproject.toml` or requirements,
+ * installed at `pkg`'s installed version, with the same normalized repository URL (#56).
+ */
+export async function findPypiSiblings(project: Project, pkg: string): Promise<string[]> {
+  const declared = await declaredPypiDependencies(project);
+  const rootNorm = pypiName(pkg);
+  declared.delete(rootNorm);
+  if (!declared.size) return [];
+  const python = pythonFor(project);
+  const query = [pkg, ...[...declared].sort()];
+  const { stdout } = await tool(python, ['-c', METADATA_BATCH_SCRIPT, ...query], { cwd: project.root, code: 'pypi/installed' });
+  const infos = JSON.parse(stdout.trim()) as Record<
+    string,
+    { name: string; version: string; projectUrls: string[]; homePage?: string | null }
+  >;
+  const root = infos[pkg];
+  if (!root) return [];
+  const key = pypiRepoKey(root.projectUrls, root.homePage);
+  if (!key) return [];
+  const siblings: string[] = [];
+  for (const name of [...declared].sort()) {
+    const other = infos[name];
+    if (!other || other.version !== root.version) continue;
+    if (pypiRepoKey(other.projectUrls, other.homePage) === key) siblings.push(name);
+  }
+  return siblings;
+}
 
 /** A pip that can download: the project's interpreter's, else python3's. */
 async function pipCommand(project: Project): Promise<string[]> {
@@ -172,20 +305,40 @@ export const pypiEcosystem: Ecosystem = {
   scheme: pep440Scheme,
   createUpstream: (project) => new PypiUpstreamSource(project),
   detect: (root) => detectPythonTool(root),
-  async install(project, pkg, version) {
+  siblings: (project, pkg) => findPypiSiblings(project, pkg),
+  async install(project, pkg, version, siblings = []) {
+    const all = [pkg, ...siblings];
     const which = detectPythonTool(project.root);
     if (which === 'uv') {
-      await tool('uv', ['lock', '--upgrade-package', `${pkg}==${version}`], { cwd: project.root, code: 'install/failed' });
+      const flags = all.flatMap((n) => ['--upgrade-package', `${n}==${version}`]);
+      await tool('uv', ['lock', ...flags], { cwd: project.root, code: 'install/failed' });
       await tool('uv', ['sync'], { cwd: project.root, code: 'install/failed' });
-      return `uv lock --upgrade-package ${pkg}==${version} && uv sync`;
+      return `uv lock ${flags.join(' ')} && uv sync`;
     }
     if (which === 'poetry') {
-      await tool('poetry', ['add', `${pkg}@${version}`], { cwd: project.root, code: 'install/failed' });
-      return `poetry add ${pkg}@${version}`;
+      const specs = all.map((n) => `${n}@${version}`);
+      await tool('poetry', ['add', ...specs], { cwd: project.root, code: 'install/failed' });
+      return `poetry add ${specs.join(' ')}`;
     }
     const python = pythonFor(project);
-    await tool(python, ['-m', 'pip', 'install', `${pkg}==${version}`], { cwd: project.root, code: 'install/failed' });
-    return `${python} -m pip install ${pkg}==${version}`;
+    const requirements = path.resolve(project.root, pypiOptions(project).requirements ?? 'requirements.txt');
+    if (existsSync(requirements)) {
+      const before = await readFile(requirements, 'utf8');
+      const normSet = new Set(all.map(pypiName));
+      const next = before
+        .split('\n')
+        .map((line) => {
+          const m = /^(\s*([A-Za-z0-9][A-Za-z0-9._-]*(?:\[[^\]]*\])?)\s*==\s*)([^\s;#]+)(.*)$/.exec(line);
+          if (!m) return line;
+          const bareName = m[2]!.replace(/\[[^\]]*\]$/, '');
+          return normSet.has(pypiName(bareName)) ? `${m[1]}${version}${m[4]}` : line;
+        })
+        .join('\n');
+      if (next !== before) await writeFile(requirements, next);
+    }
+    const specs = all.map((n) => `${n}==${version}`);
+    await tool(python, ['-m', 'pip', 'install', ...specs], { cwd: project.root, code: 'install/failed' });
+    return `${python} -m pip install ${specs.join(' ')}`;
   },
   async reinstall(project) {
     const which = detectPythonTool(project.root);

@@ -26,7 +26,8 @@ export function repositoryKey(repository: Manifest['repository']): string | unde
   url = url
     .replace(/^[\w+]+:\/\//, '')
     .replace(/^[^@/]+@/, '')
-    .replace(/^([^/:]+):(?!\d)/, '$1/');
+    .replace(/^([^/:]+):(?!\d)/, '$1/')
+    .replace(/^((?:github\.com|gitlab\.com|bitbucket\.org|codeberg\.org)\/[^/]+\/[^/]+)\/(?:tree|blob|src)\/.*$/i, '$1');
   return url.toLowerCase();
 }
 
