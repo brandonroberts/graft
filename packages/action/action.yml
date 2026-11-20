@@ -37,6 +37,14 @@ inputs:
       if there are changes to propose, otherwise an issue with the sync report (once per package@version).
       "skip": only record it in the job summary.
     default: report
+  on-unchanged:
+    description: >
+      What to do when existing variants already fit the newer upstream version unchanged (no anchor
+      misses, no regenerated variant, not likely upstreamed). "skip" (default): skip the upgrade
+      without running install/upgrade commands or opening a PR; only act when a graft needs a new or
+      regenerated variant, or looks upstreamed (standalone repo-mode forks still open PRs). "pr":
+      install the upgrade and open a PR bumping verified even when variants are unchanged.
+    default: skip
   install-command:
     description: >
       Reinstall command used to reset node_modules between npm packages (default detected from the lockfile).
@@ -51,6 +59,12 @@ inputs:
     default: graft/sync-
   labels:
     description: Comma-separated labels to add to PRs (they must already exist).
+    default: ''
+  issue-title:
+    description: >
+      Title template for issues opened by the action. Supports literal {package}, {version}, and
+      {status} (expands to " (needs attention)" when grafts need attention, otherwise empty).
+      Defaults to "build: graft sync {package} to {version}{status}".
     default: ''
   commit-author:
     description: Commit author, as "Name <email>".

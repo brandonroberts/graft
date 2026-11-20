@@ -4,14 +4,22 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error -- plain .mjs module without type declarations
-import { detectInstallCommand, detectResetCommand, parseInputs, renderPrBody, runAction, sh } from '../src/sync-action.mjs';
+import {
+  detectInstallCommand,
+  detectResetCommand,
+  formatIssueTitle,
+  parseInputs,
+  renderPrBody,
+  runAction,
+  sh,
+} from '../src/sync-action.mjs';
 
 const FAKE_GRAFT = path.join(import.meta.dirname, 'fake-graft.mjs');
 
 type Scenario = {
   outdated: unknown[];
   sync: Record<string, string>;
-  issues?: { title: string; url: string }[];
+  issues?: { title: string; url: string; body?: string }[];
   check?: 'ok' | 'fail' | 'error';
   refusePr?: 'actions' | 'other';
   noUpstream?: boolean;
@@ -109,7 +117,7 @@ describe('graft GitHub Action', () => {
       outdated: [entry('lib', '1.1.0'), { package: 'other', grafts: ['o'], verified: '2.0.0', distTags: {} }],
       sync: { lib: 'green' },
     });
-    const { results, failed } = await t.run({ labels: 'deps' });
+    const { results, failed } = await t.run({ labels: 'deps', 'on-unchanged': 'pr' });
     expect(failed).toBe(false);
     expect(results.find((r: any) => r.package === 'lib')).toMatchObject({
       outcome: 'pr',
@@ -157,7 +165,7 @@ describe('graft GitHub Action', () => {
     const agent = `test -f "$GRAFT_PROMPT_FILE" && test -n "$GRAFT_COMMAND" && test -f "$GRAFT_SKILL_PATH" && grep -q "Do NOT commit" "$GRAFT_PROMPT_FILE" && touch .agent-fixed && printf '## Graft sync: lib 1.0.0 → 2.0.0\\nAgent wrote a v2 variant.' > "$GRAFT_PR_BODY_FILE"`;
     const { results } = await t.run({ 'agent-command': agent });
     expect(results[0]).toMatchObject({ outcome: 'pr', agent: true, agentExitCode: 0, syncExitCode: 0 });
-    expect(t.calls().match(/graft sync/g)).toHaveLength(2); // before and after the agent
+    expect(t.calls().match(/graft sync --json/g)).toHaveLength(2); // before and after the agent
     expect(t.calls()).toContain('Agent wrote a v2 variant.');
     expect(t.git('show', '--stat', 'origin/graft/sync-lib-2.0.0')).toContain('.agent-fixed');
   });
@@ -260,7 +268,7 @@ describe('graft GitHub Action', () => {
 
   it('when Actions may not open PRs, pushes the branch and opens an issue with a one-click PR link instead', async () => {
     const t = setup({ outdated: [entry('lib', '1.1.0')], sync: { lib: 'green' }, refusePr: 'actions' });
-    const { results, failed } = await t.run();
+    const { results, failed } = await t.run({ 'on-unchanged': 'pr' });
     expect(failed).toBe(false);
     expect(results[0]).toMatchObject({
       outcome: 'pr-refused-issue',
@@ -285,7 +293,7 @@ describe('graft GitHub Action', () => {
     expect(draft.calls()).toContain('(as a draft: grafts still need attention)');
 
     const other = setup({ outdated: [entry('lib', '1.1.0')], sync: { lib: 'green' }, refusePr: 'other' });
-    const o = await other.run();
+    const o = await other.run({ 'on-unchanged': 'pr' });
     expect(o.failed).toBe(true);
     expect(o.results[0].outcome).toBe('error');
     expect(o.results[0].reasons.join('\n')).toContain('Head sha cannot be blank');
@@ -317,7 +325,7 @@ describe('graft GitHub Action', () => {
 
   it('a branch pushed by a run whose PR failed to open is resumed on the next run, not skipped (#33)', async () => {
     const t = setup({ outdated: [entry('lib', '1.1.0')], sync: { lib: 'green' }, refusePr: 'other' });
-    const first = await t.run();
+    const first = await t.run({ 'on-unchanged': 'pr' });
     expect(first.failed).toBe(true);
     expect(first.results[0]).toMatchObject({ outcome: 'error' });
     expect(first.results[0].reasons.join('\n')).toContain('the next run opens its pull request');
@@ -335,7 +343,7 @@ describe('graft GitHub Action', () => {
       .split('\n')
       .filter((l) => l.includes('"pr","create"'));
     expect(creates).toHaveLength(2);
-    expect(creates[1]).toContain('"--title","graft: sync lib to 1.1.0"');
+    expect(creates[1]).toContain('"--title","build: graft sync lib to 1.1.0"');
     expect(t.calls().match(/graft sync --json/g)).toHaveLength(1); // the pushed work is proposed as is, not redone
 
     const third = await t.run();
@@ -344,7 +352,7 @@ describe('graft GitHub Action', () => {
 
   it("commits and pushes without the repository's git hooks, and leaves its hook config alone (#32)", async () => {
     const t = setup({ outdated: [entry('lib', '1.1.0')], sync: { lib: 'green' } });
-    // Like husky + commitlint: hooks that reject the action's `graft: sync …` commit, its push and its checkouts.
+    // Like husky + commitlint: hooks that reject the action's commit, its push and its checkouts.
     const hooks = path.join(t.work, '.githooks');
     mkdirSync(hooks);
     for (const hook of ['commit-msg', 'pre-commit', 'pre-push', 'post-checkout']) {
@@ -356,16 +364,16 @@ describe('graft GitHub Action', () => {
     t.git('-c', 'core.hooksPath=/nonexistent', '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-am', 'ignore hooks');
     t.git('-c', 'core.hooksPath=/nonexistent', 'push', '-q', 'origin', 'main');
 
-    const { results, failed } = await t.run();
+    const { results, failed } = await t.run({ 'on-unchanged': 'pr' });
     expect(failed).toBe(false);
     expect(results[0]).toMatchObject({ outcome: 'pr', branch: 'graft/sync-lib-1.1.0' });
-    expect(t.git('log', '-1', '--format=%s', 'origin/graft/sync-lib-1.1.0').trim()).toBe('graft: sync lib to 1.1.0');
+    expect(t.git('log', '-1', '--format=%s', 'origin/graft/sync-lib-1.1.0').trim()).toBe('build: graft sync lib to 1.1.0');
     expect(t.git('config', 'core.hooksPath').trim()).toBe('.githooks');
   });
 
   it('dry run pushes nothing', async () => {
     const t = setup({ outdated: [entry('lib', '1.1.0')], sync: { lib: 'green' } });
-    const { results } = await t.run({ 'dry-run': 'true' });
+    const { results } = await t.run({ 'dry-run': 'true', 'on-unchanged': 'pr' });
     expect(results[0]).toMatchObject({ outcome: 'would-open-pr' });
     expect(t.remoteBranches()).not.toContain('graft/sync');
     expect(existsSync(path.join(t.work, '.grafts/lib-graft/graft.md'))).toBe(false); // back on main, clean
@@ -392,7 +400,7 @@ describe('graft GitHub Action', () => {
     const ignored = setup({ outdated: [entry('lib', '1.1.0')], sync: { lib: 'green' } });
     mkdirSync(path.join(ignored.work, '.grafts/.report'), { recursive: true });
     writeFileSync(path.join(ignored.work, '.grafts/.report/sync.md'), 'old report\n');
-    expect((await ignored.run()).results[0]).toMatchObject({ outcome: 'pr' });
+    expect((await ignored.run({ 'on-unchanged': 'pr' })).results[0]).toMatchObject({ outcome: 'pr' });
 
     const checkOnly = setup({ outdated: [entry('lib', '1.1.0')], sync: { lib: 'green' }, check: 'ok' });
     dirtyWork(checkOnly);
@@ -414,7 +422,7 @@ describe('graft GitHub Action', () => {
       outdated: [eco('cargo', 'lib', '1.1.0'), eco('npm', 'lib', '1.1.0'), eco('npm', 'other', '2.1.0')],
       sync: { lib: 'green', other: 'green' },
     });
-    const { results, failed } = await t.run({ 'install-command': 'echo REINSTALL >> "$FAKE_LOG"' });
+    const { results, failed } = await t.run({ 'install-command': 'echo REINSTALL >> "$FAKE_LOG"', 'on-unchanged': 'pr' });
     expect(failed).toBe(false);
     expect(results.map((r: any) => [r.ecosystem, r.package, r.branch])).toEqual([
       ['cargo', 'lib', 'graft/sync-cargo-lib-1.1.0'],
@@ -429,12 +437,12 @@ describe('graft GitHub Action', () => {
       .calls()
       .split('\n')
       .find((l) => l.includes('"create"') && l.includes('cargo:lib'))!;
-    expect(create).toContain('graft: sync cargo:lib to 1.1.0');
+    expect(create).toContain('build: graft sync cargo:lib to 1.1.0');
     expect(t.summary()).toContain('| cargo:lib | 1.0.0 → 1.1.0 | ✅ pr |');
 
     // `packages` tells same-named packages apart by ecosystem.
     const only = setup({ outdated: [eco('cargo', 'lib', '1.1.0'), eco('npm', 'lib', '1.1.0')], sync: { lib: 'green' } });
-    const picked = await only.run({ packages: 'cargo:lib' });
+    const picked = await only.run({ packages: 'cargo:lib', 'on-unchanged': 'pr' });
     expect(picked.results.map((r: any) => r.branch)).toEqual(['graft/sync-cargo-lib-1.1.0']);
   });
 
@@ -519,7 +527,7 @@ describe('graft check in the Action', () => {
 
   it('fails the job (after still doing the sync work) when grafts are not applied', async () => {
     const t = setup({ outdated: [entry('lib', '1.1.0')], sync: { lib: 'green' }, check: 'fail' });
-    const { failed, results, check } = await t.run();
+    const { failed, results, check } = await t.run({ 'on-unchanged': 'pr' });
     expect(failed).toBe(true);
     expect(results.find((r: any) => r.package === 'lib').outcome).toBe('pr'); // sync still ran
     expect(check.failures[0]).toMatch(/lib-graft \(lib@1\.0\.0\): installed lib@1\.0\.0 index\.js is not patched/);
@@ -575,5 +583,130 @@ describe('detectInstallCommand', () => {
     expect(detectInstallCommand(dir({ 'yarn.lock': '', 'package.json': '{"packageManager":"yarn@1.22.22"}' }))).toBe(
       'yarn install --frozen-lockfile',
     );
+  });
+});
+
+describe('custom issue-title', () => {
+  it('formats placeholders literally, collapses newlines, and defaults when blank', () => {
+    const candidate = { package: 'itoa', ecosystem: 'cargo', version: '1.0.15' };
+    expect(formatIssueTitle('', { candidate, outcome: 'needs-agent' })).toBe('build: graft sync cargo:itoa to 1.0.15 (needs attention)');
+    expect(formatIssueTitle('', { candidate, outcome: 'green' })).toBe('build: graft sync cargo:itoa to 1.0.15');
+    expect(formatIssueTitle('[deps]\nupdate {package}@{version} {status}', { candidate, outcome: 'needs-agent' })).toBe(
+      '[deps] update cargo:itoa@1.0.15 (needs attention)',
+    );
+    expect(formatIssueTitle('[deps] update {package}@{version} {status}', { candidate, outcome: 'green' })).toBe(
+      '[deps] update cargo:itoa@1.0.15',
+    );
+    expect(formatIssueTitle('sync "{package}" $(whoami) {version}', { candidate, outcome: 'green' })).toBe(
+      'sync "cargo:itoa" $(whoami) 1.0.15',
+    );
+  });
+
+  it('uses issue-title for needs-agent issues, escapes quotes in search queries, and deduplicates by title or branch marker', async () => {
+    const template = 'chore: update "{package}" to {version} $(echo INJECTED){status}';
+    const expectedTitle = 'chore: update "lib" to 2.0.0 $(echo INJECTED) (needs attention)';
+
+    const first = setup({ outdated: [entry('lib', '2.0.0')], sync: { lib: 'needs-agent' } });
+    const r1 = await first.run({ 'issue-title': template });
+    expect(r1.results[0]).toMatchObject({ outcome: 'issue', issue: 'https://github.com/o/r/issues/7' });
+    const ghLines = first.calls().split('\n');
+    const createCall = ghLines.find((l) => l.includes('"issue","create"'))!;
+    expect(createCall).toContain(JSON.stringify(expectedTitle));
+    expect(createCall).not.toContain('INJECTED\n');
+    const searchCall = ghLines.find((l) => l.includes('"issue","list"'))!;
+    expect(searchCall).toContain('in:title \\"chore: update lib to 2.0.0 $(echo INJECTED) (needs attention)\\"');
+    expect(first.calls()).toContain('<!-- graft-sync: graft/sync-lib-2.0.0 -->');
+
+    // Deduplicates when an open issue has the custom title.
+    const byTitle = setup({
+      outdated: [entry('lib', '2.0.0')],
+      sync: { lib: 'needs-agent' },
+      issues: [{ title: expectedTitle, url: 'https://github.com/o/r/issues/7' }],
+    });
+    const r2 = await byTitle.run({ 'issue-title': template });
+    expect(r2.results[0]).toMatchObject({ outcome: 'skipped-existing', issue: 'https://github.com/o/r/issues/7' });
+    expect(byTitle.calls()).not.toContain('"issue","create"');
+
+    // Deduplicates by branch marker even if the template changed since the issue was opened.
+    const byMarker = setup({
+      outdated: [entry('lib', '2.0.0')],
+      sync: { lib: 'needs-agent' },
+      issues: [
+        {
+          title: 'older custom title',
+          url: 'https://github.com/o/r/issues/7',
+          body: 'report\n\n<!-- graft-sync: graft/sync-lib-2.0.0 -->\n',
+        },
+      ],
+    });
+    const r3 = await byMarker.run({ 'issue-title': '[new] {package} {version}' });
+    expect(r3.results[0]).toMatchObject({ outcome: 'skipped-existing', issue: 'https://github.com/o/r/issues/7' });
+    expect(byMarker.calls()).not.toContain('"issue","create"');
+  });
+
+  it('uses issue-title on PR-refused fallback issues and skips an existing branch with that open issue', async () => {
+    const template = '[sync] {package} -> {version}{status}';
+    const t = setup({ outdated: [entry('lib', '1.1.0')], sync: { lib: 'green' }, refusePr: 'actions' });
+    const first = await t.run({ 'issue-title': template, 'on-unchanged': 'pr' });
+    expect(first.results[0]).toMatchObject({ outcome: 'pr-refused-issue', issue: 'https://github.com/o/r/issues/7' });
+    const createCall = t
+      .calls()
+      .split('\n')
+      .find((l) => l.includes('"issue","create"'))!;
+    expect(createCall).toContain('"[sync] lib -> 1.1.0"');
+
+    // Next run sees the pushed branch + open custom-titled issue and skips cleanly.
+    t.setScenario({
+      outdated: [entry('lib', '1.1.0')],
+      sync: { lib: 'green' },
+      refusePr: 'actions',
+      issues: [{ title: '[sync] lib -> 1.1.0', url: 'https://github.com/o/r/issues/7' }],
+    });
+    const second = await t.run({ 'issue-title': template, 'on-unchanged': 'pr' });
+    expect(second.results[0]).toMatchObject({ outcome: 'skipped-existing', issue: 'https://github.com/o/r/issues/7' });
+  });
+});
+
+describe('on-unchanged: skip (default)', () => {
+  it('skips upgrades by default without installing, branching, or opening a PR when existing variants already fit unchanged', async () => {
+    const t = setup({ outdated: [entry('lib', '1.1.0')], sync: { lib: 'green' } });
+    const { results, failed } = await t.run();
+    expect(failed).toBe(false);
+    expect(results[0]).toMatchObject({ outcome: 'skipped-unchanged', syncExitCode: 0 });
+    expect(t.calls()).toContain('--dry-run');
+    expect(t.calls()).not.toContain('--install');
+    expect(t.calls()).not.toContain('"pr","create"');
+    expect(t.calls()).not.toContain('"issue","create"');
+    expect(t.remoteBranches()).not.toContain('graft/sync');
+    expect(t.summary()).toContain('⏭️ skipped-unchanged');
+  });
+
+  it('still installs and opens a PR when a generator regenerated a new variant', async () => {
+    const t = setup({ outdated: [entry('lib', '1.1.0')], sync: { lib: 'regenerated' } });
+    const { results, failed } = await t.run({ 'on-unchanged': 'skip' });
+    expect(failed).toBe(false);
+    expect(results[0]).toMatchObject({ outcome: 'pr', pullRequest: 'https://github.com/o/r/pull/1' });
+    expect(t.calls()).toContain('--dry-run');
+    expect(t.calls()).toContain('--install');
+    expect(t.remoteBranches()).toContain('refs/heads/graft/sync-lib-1.1.0');
+  });
+
+  it('still opens an issue (without running --install) when a graft needs attention and no agent is configured', async () => {
+    const t = setup({ outdated: [entry('lib', '2.0.0')], sync: { lib: 'needs-agent' } });
+    const { results, failed } = await t.run({ 'on-unchanged': 'skip' });
+    expect(failed).toBe(false);
+    expect(results[0]).toMatchObject({ outcome: 'issue', issue: 'https://github.com/o/r/issues/7' });
+    expect(t.calls().match(/graft sync --json/g)).toHaveLength(1);
+    expect(t.calls()).not.toContain('--install');
+    expect(t.remoteBranches()).not.toContain('graft/sync');
+  });
+
+  it('still runs the agent and opens a PR when a graft needs attention and agent-command is configured', async () => {
+    const t = setup({ outdated: [entry('lib', '2.0.0')], sync: { lib: 'needs-agent' } });
+    const agent = 'touch .agent-fixed';
+    const { results, failed } = await t.run({ 'on-unchanged': 'skip', 'agent-command': agent });
+    expect(failed).toBe(false);
+    expect(results[0]).toMatchObject({ outcome: 'pr', agent: true, pullRequest: 'https://github.com/o/r/pull/1' });
+    expect(t.calls()).toContain('--install');
   });
 });
