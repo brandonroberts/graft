@@ -229,4 +229,43 @@ describe('graft sync: output of the commands it runs', () => {
     const dashVal = graft('mark', 'add-c', '--history', '- noted change');
     expect(dashVal.code, dashVal.err).toBe(0);
   });
+
+  it('fails loudly in graft apply when a graft.md is invalid or an id is unknown (#85)', async () => {
+    const { root, graft } = await fixture();
+    await mkdir(path.join(root, '.grafts/broken'), { recursive: true });
+    await writeFile(
+      path.join(root, '.grafts/broken/graft.md'),
+      '---\nid: broken\nrootstock:\n  package: @scope/pkg\n  verified: 1.0.0\nmechanism: patch\n---\n',
+    );
+
+    // Whole-project apply reports the invalid graft and exits 2 instead of silently skipping it.
+    const all = graft('apply', '--no-install', '--json');
+    expect(all.code).toBe(2);
+    expect(all.json().errors).toEqual([
+      expect.objectContaining({ id: 'broken', error: expect.stringMatching(/invalid graft\.md:.*not valid YAML/) }),
+    ]);
+
+    // Targeting the invalid graft explicitly also fails with exit 2.
+    const oneInvalid = graft('apply', 'broken', '--no-install', '--json');
+    expect(oneInvalid.code).toBe(2);
+    expect(oneInvalid.json().errors[0]).toMatchObject({ id: 'broken' });
+
+    // Targeting only the valid graft ignores unrelated invalid grafts (no tooling error).
+    const oneValid = graft('apply', 'add-c', '--no-install', '--json');
+    expect(oneValid.code).not.toBe(2);
+    expect(oneValid.json().errors).toEqual([]);
+    expect(oneValid.json().configured).toEqual([expect.objectContaining({ id: 'add-c' })]);
+
+    // Unknown graft IDs fail loudly instead of silently doing nothing.
+    const missing = graft('apply', 'does-not-exist', '--no-install', '--json');
+    expect(missing.code).toBe(2);
+    expect(missing.json().errors).toEqual([{ id: 'does-not-exist', error: 'no graft "does-not-exist"' }]);
+
+    // apply --installed filters invalid grafts by id and reports unknown ids.
+    const installedMissing = graft('apply', '--installed', 'does-not-exist', '--json');
+    expect(installedMissing.code).toBe(1);
+    expect(installedMissing.json().reports).toEqual([
+      expect.objectContaining({ graft: 'does-not-exist', errors: ['no graft "does-not-exist"'] }),
+    ]);
+  });
 });

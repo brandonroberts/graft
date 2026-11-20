@@ -284,8 +284,17 @@ export interface ApplyToProjectResult {
  * for each installed version (e.g. pnpm patchedDependencies), reinstall, and re-check anchors.
  */
 export async function applyToProject(project: Project, options: { ids?: string[]; install?: boolean } = {}): Promise<ApplyToProjectResult> {
-  const { grafts } = await project.loadAll();
+  const { grafts, invalid } = await project.loadAll();
   const result: ApplyToProjectResult = { configured: [], anchors: [], errors: [] };
+  // Invalid grafts are never silently skipped (#85).
+  for (const g of invalid.filter((g) => !options.ids?.length || options.ids.includes(g.id))) {
+    const messages = g.diagnostics.filter((d) => d.severity === 'error').map((d) => d.message);
+    result.errors.push({ id: g.id, error: `invalid graft.md: ${messages.join('; ')}` });
+  }
+  const knownIds = new Set([...grafts.map((g) => g.id), ...invalid.map((g) => g.id)]);
+  for (const id of options.ids ?? []) {
+    if (!knownIds.has(id)) result.errors.push({ id, error: `no graft "${id}"` });
+  }
   const selected = grafts.filter(
     (g) =>
       (g.frontmatter.status === 'applied' || g.frontmatter.status === 'conflicted') && (!options.ids?.length || options.ids.includes(g.id)),
@@ -331,13 +340,21 @@ export async function applyInstalled(
   options: { ids?: string[] } = {},
 ): Promise<{ reports: InstalledApplyReport[]; ok: boolean }> {
   const { grafts, invalid } = await project.loadAll();
-  const reports: InstalledApplyReport[] = invalid.map((g) => ({
-    graft: g.id,
-    package: '?',
-    copies: [],
-    errors: g.diagnostics.filter((d) => d.severity === 'error').map((d) => d.message),
-    warnings: [],
-  }));
+  const reports: InstalledApplyReport[] = invalid
+    .filter((g) => !options.ids?.length || options.ids.includes(g.id))
+    .map((g) => ({
+      graft: g.id,
+      package: '?',
+      copies: [],
+      errors: g.diagnostics.filter((d) => d.severity === 'error').map((d) => d.message),
+      warnings: [],
+    }));
+  const knownIds = new Set([...grafts.map((g) => g.id), ...invalid.map((g) => g.id)]);
+  for (const id of options.ids ?? []) {
+    if (!knownIds.has(id)) {
+      reports.push({ graft: id, package: '?', copies: [], errors: [`no graft "${id}"`], warnings: [] });
+    }
+  }
   for (const graft of grafts) {
     if (graft.frontmatter.status !== 'applied' && graft.frontmatter.status !== 'conflicted') continue;
     if (options.ids?.length && !options.ids.includes(graft.id)) continue;
