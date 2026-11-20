@@ -1,5 +1,39 @@
 # @graftsync/core
 
+## 0.3.0
+
+### Minor Changes
+
+- f5b9f1b: Split installed configuration and installed-copy verification out of `MechanismAdapter.checkAnchors` into a dedicated optional `checkInstalled?(ctx, version)` hook (#61):
+  
+  - `checkAnchors(ctx, version)` is now strictly static (pristine upstream only), so `graft replay`, `graft variant add --verify-version`, and generator regeneration on an already-installed version no longer fail on unapplied local applier config.
+  - `graft check`, `graft status`, `graft apply`, and `graft sync` (when verifying or after installing a target) invoke `checkInstalled` and continue to fail loudly when applier config or installed files do not match the selected variant.
+  - **Breaking for direct adapter callers:** code calling `patchAdapter.checkAnchors` or `forkAdapter.checkAnchors` directly now gets static anchor checks only; use `@graftsync/core`'s `checkAnchors(project, id, version)` (or `checkGraftWithInstalled`) / `adapter.checkInstalled` to include installed verification.
+- 5718e30: Stop silently promoting transitive npm dependencies into root `dependencies` during `sync --install` (#63):
+  
+  - When a rootstock package is not declared in `dependencies`, `devDependencies`, or `optionalDependencies` of any workspace manifest (and not in a pnpm catalog), Graft now checks for an existing top-level override/resolution (`overrides` in `pnpm-workspace.yaml` or `package.json`, `pnpm.overrides`, or `resolutions`) pinning the installed version.
+  - If a matching override pins the installed version, Graft updates it (preserving prefixes, comments, and formatting) and runs a bare reinstall.
+  - Otherwise, Graft fails loudly with `install/transitive` instead of running `bun add` / `npm install` / `yarn add` into root `dependencies` (or running `pnpm update -r` / `yarn up` that leaves it behind).
+  - `installPackage` also preserves `optionalDependencies` when upgrading a direct optional dependency.
+
+### Patch Changes
+
+- 842a720: - `npm`: detect workspace manifests referencing a package via pnpm `catalog:` / `catalog:<name>` when its catalog entry does not pin the installed version (e.g. a range like `>=24.0.0 <25.0.0`) and fail loudly with `install/catalog` instead of running `pnpm update` and overwriting `catalog:` references with literal versions (#55).
+  - `ecosystems`: add sibling detection and multi-package upgrades for Cargo (`cargo metadata` `repository`), Go (`go list -m -json all` repository module prefix), and PyPI (`pyproject.toml`/requirements + `importlib.metadata` `Project-URL`/`Home-page`) so companion packages released together move with the rootstock (#56).
+  - `sync`: add optional `needsAgentIf` (`exists`, `output`, and/or `command`) on `.grafts/config.json` `upgrade` entries to detect upgrade commands that exit 0 while leaving unfinished work (e.g. Nx agentic migrate runs), marking grafts `needs-agent` (exit code 1) instead of `green` (#57).
+- 0e2644f: - `npm`: when `sync --install` bumps a top-level override/resolution for a direct dependency, also update matching pinned dependency specifiers (`1.0.0`, `^1.0.0`, `~1.0.0`, `=1.0.0`) across workspace `package.json` manifests so exact-pinned specs don't stay stale behind the override (#74).
+  - `npm`: respect `.npmrc` `min-release-age` (days) and `pnpm-workspace.yaml` `minimumReleaseAge` (minutes, with `minimumReleaseAgeExclude`) in `NpmUpstreamSource.versions`, filtering out releases newer than the cooldown and falling back `latest` to the highest eligible stable version so `graft outdated` matches what `npm pack` and pnpm will install (#75).
+- ae39fce: - `patch`: accept LF patches against CRLF upstream files across anchor checks, `apply`, `applyToInstalledCopy`, and `checkInstalled` (tolerating mixed CRLF/LF output produced by pnpm) while preserving strict matching when a patch explicitly contains CR (#67).
+  - `pnpm`: pin `patchedDependencies` to `<pkg>@<installed>` when multiple distinct versions of `<pkg>` are installed in `node_modules/.pnpm`, avoiding broken installs on unrelated versions in multi-version workspaces (#68).
+  - `patch`: support hunkless deleted and created files (`deleted file mode` / `new file mode` with 0 hunks, as written by `pnpm patch-commit` and `git diff`) in parsing, anchor checks, `apply`, `applyToInstalledCopy`, and `checkInstalled`, and report a non-empty error if a file patch makes no changes (#69).
+  - `pnpm`: detect pnpm major version (`packageManager`, `devEngines.packageManager`, or `pnpm --version`) and skip requiring/writing `ignorePatchFailures: false` on pnpm 11+, where the setting was removed and patch failures fail installs by default (#70).
+  - `core`: bump matching top-level overrides/resolutions for direct dependencies as well as transitive ones during `sync --install` so an override pinning the old version does not hold back a direct dependency upgrade, and filter `node_modules/.pnpm` scans against `node_modules/.pnpm/lock.yaml` so unpruned directories left by `pnpm update` do not trigger false `upstream/ambiguous-installed` errors (#71).
+- 8c078e8: - `upstream`: pass `npm_config_force=true` when calling `npm view`/`npm pack` so repos declaring `devEngines.packageManager` (e.g. pnpm with `onFail: "error"`) do not fail with `EBADDEVENGINES` (#58).
+  - `upstream`: fall back to pnpm's virtual store (`node_modules/.pnpm/`) in `findInstalledPackage` for unhoisted transitive dependencies, failing loudly with `upstream/ambiguous-installed` when multiple distinct versions are installed (#59).
+  - `fork`: fall back to ephemeral `commit-tree` parents in `mergeToBranch` when `git merge-tree` lacks `--merge-base` (git 2.38–2.39) (#60).
+  - `patch`: ignore crates.io publish/vendor metadata (`.cargo_vcs_info.json`, `Cargo.toml.orig`, `.cargo-checksum.json`) during `graft capture` for Cargo crates (#62).
+- @graftsync/spec@0.3.0
+
 ## 0.2.9
 
 ### Patch Changes

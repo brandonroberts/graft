@@ -1,5 +1,31 @@
 # @graftsync/adapter-fork
 
+## 0.3.0
+
+### Minor Changes
+
+- f5b9f1b: Split installed configuration and installed-copy verification out of `MechanismAdapter.checkAnchors` into a dedicated optional `checkInstalled?(ctx, version)` hook (#61):
+  
+  - `checkAnchors(ctx, version)` is now strictly static (pristine upstream only), so `graft replay`, `graft variant add --verify-version`, and generator regeneration on an already-installed version no longer fail on unapplied local applier config.
+  - `graft check`, `graft status`, `graft apply`, and `graft sync` (when verifying or after installing a target) invoke `checkInstalled` and continue to fail loudly when applier config or installed files do not match the selected variant.
+  - **Breaking for direct adapter callers:** code calling `patchAdapter.checkAnchors` or `forkAdapter.checkAnchors` directly now gets static anchor checks only; use `@graftsync/core`'s `checkAnchors(project, id, version)` (or `checkGraftWithInstalled`) / `adapter.checkInstalled` to include installed verification.
+
+### Patch Changes
+
+- 8c078e8: - `upstream`: pass `npm_config_force=true` when calling `npm view`/`npm pack` so repos declaring `devEngines.packageManager` (e.g. pnpm with `onFail: "error"`) do not fail with `EBADDEVENGINES` (#58).
+  - `upstream`: fall back to pnpm's virtual store (`node_modules/.pnpm/`) in `findInstalledPackage` for unhoisted transitive dependencies, failing loudly with `upstream/ambiguous-installed` when multiple distinct versions are installed (#59).
+  - `fork`: fall back to ephemeral `commit-tree` parents in `mergeToBranch` when `git merge-tree` lacks `--merge-base` (git 2.38–2.39) (#60).
+  - `patch`: ignore crates.io publish/vendor metadata (`.cargo_vcs_info.json`, `Cargo.toml.orig`, `.cargo-checksum.json`) during `graft capture` for Cargo crates (#62).
+- Updated dependencies [842a720]
+- Updated dependencies [f5b9f1b]
+- Updated dependencies [0e2644f]
+- Updated dependencies [ae39fce]
+- Updated dependencies [5718e30]
+- Updated dependencies [8c078e8]
+  - @graftsync/core@0.3.0
+  - @graftsync/adapter-patch@0.3.0
+  - @graftsync/spec@0.3.0
+
 ## 0.2.9
 
 ### Patch Changes

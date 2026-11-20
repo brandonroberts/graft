@@ -1,5 +1,21 @@
 # @graftsync/cli
 
+## 0.3.0
+
+### Patch Changes
+
+- Updated dependencies [842a720]
+- Updated dependencies [f5b9f1b]
+- Updated dependencies [0e2644f]
+- Updated dependencies [ae39fce]
+- Updated dependencies [5718e30]
+- Updated dependencies [8c078e8]
+  - @graftsync/core@0.3.0
+  - @graftsync/adapter-patch@0.3.0
+  - @graftsync/adapter-fork@0.3.0
+  - @graftsync/skill@0.3.0
+  - @graftsync/spec@0.3.0
+
 ## 0.2.9
 
 ### Patch Changes
