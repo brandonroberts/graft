@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { readFile, writeFile } from 'node:fs/promises';
+import { glob, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { parseDocument } from 'yaml';
 import { GraftError } from './errors.js';
@@ -72,28 +72,31 @@ export function detectPackageManager(root: string): PackageManager {
 export async function installPackage(root: string, pkg: string, spec: string, also: { pkg: string; spec: string }[] = []): Promise<string> {
   const manifest = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8')) as {
     devDependencies?: Record<string, string>;
+    optionalDependencies?: Record<string, string>;
   };
   const pm = detectPackageManager(root);
   const quote = (s: string) => `'${s.replaceAll("'", "'\\''")}'`;
   const all = [{ pkg, spec }, ...also];
   const specs = (entries: typeof all) => entries.map((e) => quote(e.spec)).join(' ');
+  const fieldOf = (name: string): 'dep' | 'dev' | 'opt' =>
+    manifest.devDependencies?.[name] ? 'dev' : manifest.optionalDependencies?.[name] ? 'opt' : 'dep';
   // npm, yarn classic, bun and upm add to one dependency field per command.
-  const byField = (add: (dev: boolean, list: string) => string) =>
-    [false, true]
-      .map((dev) => all.filter((e) => !!manifest.devDependencies?.[e.pkg] === dev))
-      .filter((entries) => entries.length)
-      .map((entries) => add(!!manifest.devDependencies?.[entries[0]!.pkg], specs(entries)))
+  const byField = (add: (field: 'dep' | 'dev' | 'opt', list: string) => string) =>
+    (['dep', 'dev', 'opt'] as const)
+      .map((field) => ({ field, entries: all.filter((e) => fieldOf(e.pkg) === field) }))
+      .filter(({ entries }) => entries.length)
+      .map(({ field, entries }) => add(field, specs(entries)))
       .join(' && ');
   const command = {
     // `update -r` bumps the package wherever it is already declared (workspace-aware)
     // instead of adding it to the root manifest.
     pnpm: `pnpm update -r ${specs(all)}`,
-    yarn: byField((dev, list) => `yarn add ${dev ? '-D ' : ''}${list}`),
+    yarn: byField((field, list) => `yarn add ${field === 'dev' ? '-D ' : field === 'opt' ? '-O ' : ''}${list}`),
     // berry: `up` bumps the package in every workspace that declares it, keeping its field.
     'yarn-berry': `yarn up ${specs(all)}`,
-    bun: byField((dev, list) => `bun add ${dev ? '-d ' : ''}${list}`),
-    upm: byField((dev, list) => `upm add ${dev ? '--dev ' : ''}${list}`),
-    npm: byField((dev, list) => `npm install ${dev ? '--save-dev ' : ''}${list}`),
+    bun: byField((field, list) => `bun add ${field === 'dev' ? '-d ' : field === 'opt' ? '--optional ' : ''}${list}`),
+    upm: byField((field, list) => `upm add ${field === 'dev' ? '--dev ' : field === 'opt' ? '--optional ' : ''}${list}`),
+    npm: byField((field, list) => `npm install ${field === 'dev' ? '--save-dev ' : field === 'opt' ? '--save-optional ' : ''}${list}`),
   }[pm];
   const result = await runCommand(command, { cwd: root, timeoutMs: 10 * 60_000 });
   if (!result.passed) throw new GraftError(`\`${command}\` failed:\n${result.output}`, 'install/failed');
@@ -118,6 +121,168 @@ export async function reinstall(root: string): Promise<string> {
   return command;
 }
 
+/** Nearest directory at or above `from` containing `filename`, or undefined. */
+function findUp(from: string, filename: string): string | undefined {
+  let dir = path.resolve(from);
+  for (;;) {
+    if (existsSync(path.join(dir, filename))) return dir;
+    const parent = path.dirname(dir);
+    if (parent === dir) return undefined;
+    dir = parent;
+  }
+}
+
+/** Nearest workspace/install root at or above `from` (pnpm-workspace.yaml, lockfile, or package.json). */
+function workspaceRoot(from: string): string {
+  const pnpm = findUp(from, 'pnpm-workspace.yaml');
+  if (pnpm) return pnpm;
+  let dir = path.resolve(from);
+  let fallback: string | undefined;
+  for (;;) {
+    if (existsSync(path.join(dir, 'package.json'))) fallback ??= dir;
+    if (
+      ['bun.lock', 'bun.lockb', 'package-lock.json', 'yarn.lock', 'upm.lock', 'pnpm-lock.yaml'].some((f) => existsSync(path.join(dir, f)))
+    )
+      return dir;
+    const parent = path.dirname(dir);
+    if (parent === dir) return fallback ?? path.resolve(from);
+    dir = parent;
+  }
+}
+
+const DECLARED_FIELDS = ['dependencies', 'devDependencies', 'optionalDependencies'] as const;
+
+async function manifestDeclares(dir: string, pkg: string): Promise<boolean> {
+  const file = path.join(dir, 'package.json');
+  if (!existsSync(file)) return false;
+  try {
+    const json = JSON.parse(await readFile(file, 'utf8')) as Record<string, Record<string, string> | undefined>;
+    return DECLARED_FIELDS.some((field) => json[field] !== undefined && Object.hasOwn(json[field]!, pkg));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * True when `pkg` is declared in `dependencies`, `devDependencies`, or `optionalDependencies`
+ * of the project root, any `extraDirs` (e.g. `resolveFrom`), or any workspace package listed in
+ * `pnpm-workspace.yaml` or `package.json` `workspaces`.
+ */
+export async function isDeclaredNpmDependency(root: string, pkg: string, extraDirs: string[] = []): Promise<boolean> {
+  const wsRoot = workspaceRoot(root);
+  const dirs = new Set<string>([path.resolve(root), wsRoot, ...extraDirs.map((d) => path.resolve(d))]);
+  for (const dir of dirs) if (await manifestDeclares(dir, pkg)) return true;
+
+  const patterns: string[] = [];
+  const pnpmWs = path.join(wsRoot, 'pnpm-workspace.yaml');
+  if (existsSync(pnpmWs)) {
+    try {
+      const doc = parseDocument(await readFile(pnpmWs, 'utf8'));
+      const pkgs = doc.get('packages');
+      if (pkgs && typeof pkgs === 'object' && 'toJSON' in pkgs) {
+        const list = (pkgs as { toJSON: () => unknown }).toJSON();
+        if (Array.isArray(list)) patterns.push(...list.filter((p): p is string => typeof p === 'string'));
+      }
+    } catch {
+      // unreadable workspace file
+    }
+  }
+  const rootPkg = path.join(wsRoot, 'package.json');
+  if (existsSync(rootPkg)) {
+    try {
+      const json = JSON.parse(await readFile(rootPkg, 'utf8')) as { workspaces?: string[] | { packages?: string[] } };
+      const ws = Array.isArray(json.workspaces) ? json.workspaces : json.workspaces?.packages;
+      if (Array.isArray(ws)) patterns.push(...ws.filter((p): p is string => typeof p === 'string'));
+    } catch {
+      // unreadable manifest
+    }
+  }
+  const include = patterns.filter((p) => p && !p.startsWith('!'));
+  const exclude = patterns.filter((p) => p.startsWith('!')).map((p) => p.slice(1));
+  for (const pattern of include) {
+    const normalized = pattern.replace(/\/+$/, '');
+    const manifestGlob = normalized === '.' ? 'package.json' : `${normalized}/package.json`;
+    for await (const match of glob(manifestGlob, { cwd: wsRoot, exclude: ['**/node_modules/**', ...exclude] })) {
+      const dir = path.resolve(wsRoot, path.dirname(match));
+      if (dirs.has(dir)) continue;
+      dirs.add(dir);
+      if (await manifestDeclares(dir, pkg)) return true;
+    }
+  }
+  return false;
+}
+
+/** Rewrite a pinned version string (`1.0.0`, `^1.0.0`, `~1.0.0`, `=1.0.0`) from `from` to `to`, keeping its prefix. */
+function bumpPinnedVersion(value: unknown, from: string, to: string): string | undefined {
+  const m = typeof value === 'string' ? /^([~^=]?)(.*)$/.exec(value) : null;
+  return m && m[2] === from ? `${m[1]}${to}` : undefined;
+}
+
+/**
+ * Update existing top-level override/resolution entries that pin a transitive package's previously
+ * installed version (`1.0.0`, `^1.0.0`, `~1.0.0`, `=1.0.0`) to its new version, keeping prefixes,
+ * comments and formatting. Complex ranges or nested selectors are left alone.
+ */
+export async function updatePackageOverrides(
+  root: string,
+  pm: PackageManager,
+  updates: { pkg: string; from: string; to: string }[],
+): Promise<{ moved: string[]; locations: string[] }> {
+  const moved = new Set<string>();
+  const locations = new Set<string>();
+  if (!updates.length) return { moved: [], locations: [] };
+  const wsRoot = workspaceRoot(root);
+
+  if (pm === 'pnpm') {
+    const wsFile = path.join(wsRoot, 'pnpm-workspace.yaml');
+    if (existsSync(wsFile)) {
+      const before = await readFile(wsFile, 'utf8');
+      const doc = parseDocument(before);
+      for (const { pkg, from, to } of updates) {
+        const next = bumpPinnedVersion(doc.getIn(['overrides', pkg]), from, to);
+        if (!next) continue;
+        doc.setIn(['overrides', pkg], next);
+        moved.add(pkg);
+        locations.add("pnpm-workspace.yaml's overrides");
+      }
+      const after = doc.toString();
+      if (after !== before) await writeFile(wsFile, after);
+    }
+  }
+
+  const manifestFile = path.join(wsRoot, 'package.json');
+  if (existsSync(manifestFile)) {
+    const before = await readFile(manifestFile, 'utf8');
+    const json = JSON.parse(before) as Record<string, unknown>;
+    const target: { map: Record<string, unknown> | undefined; label: string } =
+      pm === 'pnpm'
+        ? {
+            map: (json.pnpm as Record<string, unknown> | undefined)?.overrides as Record<string, unknown> | undefined,
+            label: 'package.json pnpm.overrides',
+          }
+        : pm === 'yarn' || pm === 'yarn-berry'
+          ? { map: json.resolutions as Record<string, unknown> | undefined, label: 'package.json resolutions' }
+          : { map: json.overrides as Record<string, unknown> | undefined, label: 'package.json overrides' };
+    let changed = false;
+    if (target.map && typeof target.map === 'object' && !Array.isArray(target.map)) {
+      for (const { pkg, from, to } of updates) {
+        const next = bumpPinnedVersion(target.map[pkg], from, to);
+        if (!next) continue;
+        target.map[pkg] = next;
+        moved.add(pkg);
+        locations.add(target.label);
+        changed = true;
+      }
+    }
+    if (changed) {
+      const indent = /^[ \t]+/m.exec(before)?.[0] ?? '  ';
+      await writeFile(manifestFile, `${JSON.stringify(json, null, indent)}\n`);
+    }
+  }
+
+  return { moved: [...moved], locations: [...locations] };
+}
+
 /**
  * pnpm catalogs: point the entries (default `catalog` and named `catalogs`) that pin a package's
  * previously installed version at its new one, keeping the range prefix (`^24.0.0` → `^24.0.6`)
@@ -126,12 +291,8 @@ export async function reinstall(root: string): Promise<string> {
  * replaces the `catalog:` references in the manifests with the literal version.
  */
 export async function updatePnpmCatalogs(root: string, updates: { pkg: string; from: string; to: string }[]): Promise<string[]> {
-  let dir = path.resolve(root);
-  while (!existsSync(path.join(dir, 'pnpm-workspace.yaml'))) {
-    const parent = path.dirname(dir);
-    if (parent === dir) return [];
-    dir = parent;
-  }
+  const dir = findUp(root, 'pnpm-workspace.yaml');
+  if (!dir) return [];
   const file = path.join(dir, 'pnpm-workspace.yaml');
   const before = await readFile(file, 'utf8');
   const doc = parseDocument(before);
@@ -141,10 +302,9 @@ export async function updatePnpmCatalogs(root: string, updates: { pkg: string; f
   const moved = new Set<string>();
   for (const { pkg, from, to } of updates) {
     for (const at of catalogs) {
-      const value = doc.getIn([...at, pkg]);
-      const m = typeof value === 'string' ? /^([~^=]?)(.*)$/.exec(value) : null;
-      if (!m || m[2] !== from) continue;
-      doc.setIn([...at, pkg], `${m[1]}${to}`);
+      const next = bumpPinnedVersion(doc.getIn([...at, pkg]), from, to);
+      if (!next) continue;
+      doc.setIn([...at, pkg], next);
       moved.add(pkg);
     }
   }
