@@ -4,7 +4,8 @@
 // applier wires the package manager so that the *selected* variant is applied, and reports
 // any configuration that would apply something else or fail silently:
 //
-//   pnpm           patchedDependencies (name-only key) + ignorePatchFailures: false
+//   pnpm           patchedDependencies (name-only key, or `<pkg>@<installed>` when other versions
+//                  of `<pkg>` are installed in `.pnpm`) + `ignorePatchFailures: false` on pnpm < 11
 //   bun            package.json patchedDependencies["<pkg>@<installed>"]; bun silently ignores
 //                  name-only keys and keys for other versions, so the key tracks the version
 //   yarn           (default for yarn 2+ / berry, Plug'n'Play or node-modules) package.json
@@ -134,9 +135,9 @@ async function writeManifest(m: { file: string; text: string; json: Record<strin
 
 export const pnpmApplier: PatchApplier = {
   name: 'pnpm',
-  problems: (root, pkg, _version, variantPath) => pnpmConfigProblems(root, pkg, variantPath),
-  async configure(root, pkg, _version, variantPath) {
-    const r = await configurePnpmPatch(root, pkg, variantPath);
+  problems: (root, pkg, version, variantPath) => pnpmConfigProblems(root, pkg, variantPath, version),
+  async configure(root, pkg, version, variantPath) {
+    const r = await configurePnpmPatch(root, pkg, variantPath, version);
     return { files: [r.file] };
   },
 };

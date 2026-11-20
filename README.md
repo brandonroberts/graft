@@ -298,7 +298,7 @@ Variants are git-style `.patch` files with package-relative paths, the format `p
 
 | Package manager | How the selected variant is applied | Silent failure Graft prevents |
 |---|---|---|
-| pnpm | `pnpm-workspace.yaml` `patchedDependencies[<pkg>]` (name-only key) | Without `ignorePatchFailures: false`, a patch that stops applying is only a *warning*, and the package installs unmodified |
+| pnpm | `pnpm-workspace.yaml` `patchedDependencies[<pkg>]` (name-only key, or `<pkg>@<installed>` when other versions of `<pkg>` are installed in the workspace) | On pnpm < 11, without `ignorePatchFailures: false` a patch that stops applying is only a *warning* and the package installs unmodified (pnpm 11+ fails by default and removed the setting). When another version of the package exists in `.pnpm`, a name-only key would try to patch it too and fail install, so Graft pins `<pkg>@<installed>` and rewrites it on upgrade |
 | bun | `package.json` `patchedDependencies["<pkg>@<installed>"]` | bun ignores name-only keys and keys for other versions, so an upgrade installs unpatched. Graft rewrites the key before every version change |
 | npm ≥ 12 (`npm`, native) | package.json `patchedDependencies[<pkg>]` (name-only key) | npm < 12 ignores the field, so the project would install unpatched with no error. Graft refuses the native applier below npm 12 and falls back to the built-in one |
 | npm < 12, yarn classic, anything else (`graft`, built-in) | `graft apply --installed` in `postinstall` | npm and pnpm skip the project's `postinstall` on a targeted install (`npm install ms@2.1.3`), so `sync --install` applies the variant itself after installing |

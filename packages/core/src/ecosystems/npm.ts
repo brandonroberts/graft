@@ -55,35 +55,36 @@ export const npmEcosystem: Ecosystem = {
       }
     }
 
-    // Transitive dependencies (not declared in any workspace manifest) must not be passed to
-    // `<pm> add`/`install` (which promotes them to root dependencies) or `pnpm update -r` /
-    // `yarn up` (which leaves them behind). Bump an existing override/resolution that pins the
-    // installed version, or fail loudly (#63).
+    // Update existing top-level overrides/resolutions for both direct and transitive packages:
+    // - For direct dependencies that are ALSO pinned in overrides/resolutions (#71), bumping the
+    //   override first prevents `<pm> update` / `install` from leaving the resolved version stuck,
+    //   while keeping the package in `names` so its declared manifest specifier updates too.
+    // - For transitive dependencies (not declared in any workspace manifest, #63), remove moved
+    //   packages from `names` so a bare reinstall runs instead of `<pm> add` (which promotes them
+    //   to root dependencies), and fail loudly if no matching override pins the installed version.
     if (names.length) {
-      const transitive: string[] = [];
+      const transitive = new Set<string>();
       for (const name of names) {
         const extra = resolveFrom[name] ? [path.resolve(project.root, resolveFrom[name])] : [];
-        if (!(await isDeclaredNpmDependency(project.root, name, extra))) transitive.push(name);
+        if (!(await isDeclaredNpmDependency(project.root, name, extra))) transitive.add(name);
       }
-      if (transitive.length) {
-        const transitiveUpdates = transitive
-          .filter((n) => installedVersions.has(n))
-          .map((n) => ({ pkg: n, from: installedVersions.get(n)!, to: version }));
-        const { moved, locations } = await updatePackageOverrides(project.root, pm, transitiveUpdates);
-        if (moved.length) {
-          steps.push(`set ${moved.map((n) => `${n}@${version}`).join(', ')} in ${locations.join(' and ')}`);
-          names = names.filter((n) => !moved.includes(n));
-        }
-        const remaining = transitive.filter((n) => !moved.includes(n));
-        if (remaining.length) {
-          const field = pm === 'yarn' || pm === 'yarn-berry' ? 'resolutions' : 'overrides';
-          const list = remaining.join(', ');
-          const plural = remaining.length > 1;
-          throw new GraftError(
-            `${list} ${plural ? 'are transitive dependencies' : 'is a transitive dependency'} (not declared in dependencies, devDependencies or optionalDependencies of any workspace manifest, and no matching top-level ${field} entry pins the installed version); upgrading ${plural ? 'them' : 'it'} with ${pm} would promote ${plural ? 'them' : 'it'} into root dependencies or leave ${plural ? 'them' : 'it'} behind. Pin ${plural ? 'them' : 'it'} in ${field}, configure an \`upgrade\` command in .grafts/config.json, or use the \`vendor\` applier`,
-            'install/transitive',
-          );
-        }
+      const overrideUpdates = names
+        .filter((n) => installedVersions.has(n))
+        .map((n) => ({ pkg: n, from: installedVersions.get(n)!, to: version }));
+      const { moved, locations } = await updatePackageOverrides(project.root, pm, overrideUpdates);
+      if (moved.length) {
+        steps.push(`set ${moved.map((n) => `${n}@${version}`).join(', ')} in ${locations.join(' and ')}`);
+        names = names.filter((n) => !(transitive.has(n) && moved.includes(n)));
+      }
+      const remaining = [...transitive].filter((n) => !moved.includes(n));
+      if (remaining.length) {
+        const field = pm === 'yarn' || pm === 'yarn-berry' ? 'resolutions' : 'overrides';
+        const list = remaining.join(', ');
+        const plural = remaining.length > 1;
+        throw new GraftError(
+          `${list} ${plural ? 'are transitive dependencies' : 'is a transitive dependency'} (not declared in dependencies, devDependencies or optionalDependencies of any workspace manifest, and no matching top-level ${field} entry pins the installed version); upgrading ${plural ? 'them' : 'it'} with ${pm} would promote ${plural ? 'them' : 'it'} into root dependencies or leave ${plural ? 'them' : 'it'} behind. Pin ${plural ? 'them' : 'it'} in ${field}, configure an \`upgrade\` command in .grafts/config.json, or use the \`vendor\` applier`,
+          'install/transitive',
+        );
       }
     }
 

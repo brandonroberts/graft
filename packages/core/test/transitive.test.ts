@@ -101,4 +101,45 @@ describe('transitive npm dependencies (#63)', () => {
     // package.json must remain untouched.
     expect(await readFile(path.join(root, 'package.json'), 'utf8')).toBe(pkgJson);
   });
+
+  it('bumps matching overrides for a direct dependency AND still runs the package manager update (#71)', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'graft-direct-override-'));
+    await mkdir(path.join(root, 'packages/vitest'), { recursive: true });
+    await writeFile(path.join(root, 'package.json'), JSON.stringify({ name: 'root', packageManager: 'pnpm@11.0.0' }));
+    await writeFile(path.join(root, 'pnpm-workspace.yaml'), `packages:\n  - packages/*\noverrides:\n  acorn: 8.11.3\n`);
+    await writeFile(path.join(root, 'pnpm-lock.yaml'), 'lockfileVersion: 9.0\n');
+    await writeFile(path.join(root, 'packages/vitest/package.json'), JSON.stringify({ name: 'vitest', dependencies: { acorn: '8.11.3' } }));
+    const v1 = path.join(root, 'up/8.11.3');
+    const v2 = path.join(root, 'up/8.12.0');
+    await mkdir(v1, { recursive: true });
+    await mkdir(v2, { recursive: true });
+    await writeFile(path.join(v1, 'package.json'), JSON.stringify({ name: 'acorn', version: '8.11.3' }));
+    await writeFile(path.join(v2, 'package.json'), JSON.stringify({ name: 'acorn', version: '8.12.0' }));
+
+    // Put a fake `pnpm` on PATH that records the args it was called with and verifies the override was already bumped.
+    const binDir = path.join(root, 'fake-bin');
+    const logFile = path.join(root, 'pnpm.log');
+    await mkdir(binDir, { recursive: true });
+    const fakePnpm = path.join(binDir, 'pnpm');
+    await writeFile(fakePnpm, `#!/bin/sh\ncat "${path.join(root, 'pnpm-workspace.yaml')}" > "${logFile}.ws"\necho "$@" > "${logFile}"\n`, {
+      mode: 0o755,
+    });
+
+    const upstream = new DirectoryUpstreamSource({ acorn: { '8.11.3': v1, '8.12.0': v2 } }, { acorn: '8.11.3' });
+    const project = await Project.open({ root, adapters: [], upstream });
+
+    const prevPath = process.env.PATH ?? '';
+    process.env.PATH = `${binDir}${path.delimiter}${prevPath}`;
+    try {
+      const cmd = await npmEcosystem.install(project, 'acorn', '8.12.0');
+      expect(cmd).toContain("set acorn@8.12.0 in pnpm-workspace.yaml's overrides");
+      expect(cmd).toContain("pnpm update -r 'acorn@8.12.0'");
+    } finally {
+      process.env.PATH = prevPath;
+    }
+
+    // Override was bumped BEFORE pnpm ran, and pnpm update -r was still invoked for the direct manifest entry.
+    expect(await readFile(`${logFile}.ws`, 'utf8')).toContain('acorn: 8.12.0');
+    expect((await readFile(logFile, 'utf8')).trim()).toBe('update -r acorn@8.12.0');
+  });
 });

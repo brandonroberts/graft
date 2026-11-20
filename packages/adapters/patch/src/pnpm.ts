@@ -1,9 +1,16 @@
-import { existsSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { activePnpmLockVersions } from '@graftsync/core';
 import { parseDocument } from 'yaml';
 
 export const WORKSPACE_FILE = 'pnpm-workspace.yaml';
+
+/** pnpm 11 removed `ignorePatchFailures` and fails on patch errors by default. */
+export const PNPM_STRICT_PATCH_MAJOR = 11;
+
+const pnpmCliVersionCache = new Map<string, number | undefined>();
 
 /** Nearest directory at or above `from` containing pnpm-workspace.yaml. */
 export function findPnpmWorkspaceRoot(from: string): string | undefined {
@@ -14,6 +21,57 @@ export function findPnpmWorkspaceRoot(from: string): string | undefined {
     if (parent === dir) return undefined;
     dir = parent;
   }
+}
+
+/**
+ * Major version of pnpm for this project: `packageManager` ("pnpm@11.28.6") or
+ * `devEngines.packageManager` in the workspace root's package.json, otherwise `pnpm --version`.
+ */
+export function pnpmMajor(root: string): number | undefined {
+  const workspaceRoot = findPnpmWorkspaceRoot(root) ?? path.resolve(root);
+  for (const dir of workspaceRoot === path.resolve(root) ? [workspaceRoot] : [workspaceRoot, path.resolve(root)]) {
+    try {
+      const json = JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8')) as {
+        packageManager?: unknown;
+        devEngines?: { packageManager?: { name?: unknown; version?: unknown } | { name?: unknown; version?: unknown }[] };
+      };
+      const pm = /^pnpm@(\d+)/.exec(String(json.packageManager ?? ''))?.[1];
+      if (pm) return Number(pm);
+      const devPm = json.devEngines?.packageManager;
+      const entries = Array.isArray(devPm) ? devPm : devPm ? [devPm] : [];
+      const pnpmEntry = entries.find((e) => e && typeof e === 'object' && e.name === 'pnpm');
+      const devVer =
+        pnpmEntry && typeof pnpmEntry.version === 'string' ? /^(?:\^|~|>=|=)?\s*(\d+)/.exec(pnpmEntry.version.trim())?.[1] : undefined;
+      if (devVer) return Number(devVer);
+    } catch {
+      // no readable manifest here
+    }
+  }
+  if (pnpmCliVersionCache.has(workspaceRoot)) return pnpmCliVersionCache.get(workspaceRoot);
+  const r = spawnSync('pnpm', ['--version'], { cwd: workspaceRoot, encoding: 'utf8', shell: process.platform === 'win32' });
+  const cliVer = r.status === 0 ? /^(\d+)/.exec(r.stdout.trim())?.[1] : undefined;
+  const major = cliVer ? Number(cliVer) : undefined;
+  pnpmCliVersionCache.set(workspaceRoot, major);
+  return major;
+}
+
+/** Distinct active installed versions of `pkg` present in `<workspaceRoot>/node_modules/.pnpm`. */
+export function installedPnpmVersions(workspaceRoot: string, pkg: string): string[] {
+  const storeDir = path.join(workspaceRoot, 'node_modules', '.pnpm');
+  if (!existsSync(storeDir)) return [];
+  const active = activePnpmLockVersions(storeDir, pkg);
+  const prefix = `${pkg.replace('/', '+')}@`;
+  const versions = new Set<string>();
+  try {
+    for (const entry of readdirSync(storeDir)) {
+      if (!entry.startsWith(prefix)) continue;
+      const version = entry.slice(prefix.length).split(/[_(]/, 1)[0];
+      if (version && (!active || active.has(version))) versions.add(version);
+    }
+  } catch {
+    return [];
+  }
+  return [...versions].sort();
 }
 
 export interface PnpmPatchState {
@@ -37,6 +95,14 @@ async function readManifest(workspaceRoot: string): Promise<{ file: string; text
 
 const keyMatches = (key: string, pkg: string) => key === pkg || (key.startsWith(`${pkg}@`) && key.length > pkg.length + 1);
 
+function pnpmPatchKey(workspaceRoot: string, pkg: string, version?: string): { key: string; otherVersions: string[] } {
+  const installed = version ? installedPnpmVersions(workspaceRoot, pkg) : [];
+  if (version && installed.length > 1) {
+    return { key: `${pkg}@${version}`, otherVersions: installed.filter((v) => v !== version) };
+  }
+  return { key: pkg, otherVersions: [] };
+}
+
 export async function readPnpmPatchState(root: string, pkg: string): Promise<PnpmPatchState | undefined> {
   const workspaceRoot = findPnpmWorkspaceRoot(root);
   if (!workspaceRoot) return undefined;
@@ -59,44 +125,77 @@ export async function readPnpmPatchState(root: string, pkg: string): Promise<Pnp
 }
 
 /** Problems that would make pnpm apply something other than `variantPath` to `pkg`, or fail silently. */
-export async function pnpmConfigProblems(root: string, pkg: string, variantPath: string): Promise<string[]> {
+export async function pnpmConfigProblems(root: string, pkg: string, variantPath: string, version?: string): Promise<string[]> {
   const state = await readPnpmPatchState(root, pkg);
   if (!state) return [`no ${WORKSPACE_FILE} found; pnpm applies grafts through its patchedDependencies — run \`graft apply\` to create it`];
   const problems: string[] = [];
   const expected = relativePosix(state.workspaceRoot, variantPath);
-  if (state.ignorePatchFailures !== false) {
+  const major = pnpmMajor(state.workspaceRoot);
+  if ((major === undefined || major < PNPM_STRICT_PATCH_MAJOR) && state.ignorePatchFailures !== false) {
     problems.push(`${WORKSPACE_FILE} must set \`ignorePatchFailures: false\`, otherwise pnpm only warns when a patch stops applying`);
   }
-  if (!state.entries.length) problems.push(`patchedDependencies has no entry for ${pkg} (expected ${pkg}: ${expected})`);
+  const { key: expectedKey, otherVersions } = pnpmPatchKey(state.workspaceRoot, pkg, version);
+  const pinned = expectedKey !== pkg;
+  if (!state.entries.length) {
+    problems.push(
+      pinned
+        ? `patchedDependencies has no entry for ${expectedKey} (expected ${expectedKey}: ${expected}); other versions of ${pkg} (${otherVersions.join(', ')}) are also installed in this workspace`
+        : `patchedDependencies has no entry for ${pkg} (expected ${pkg}: ${expected})`,
+    );
+  }
   for (const e of state.manifestEntries) {
     problems.push(
       `package.json pnpm.patchedDependencies["${e.key}"] (${e.path}) also patches ${pkg}; graft manages it in ${WORKSPACE_FILE} — run \`graft apply\` to move it`,
     );
   }
   for (const e of state.entries) {
-    if (e.key !== pkg) problems.push(`patchedDependencies["${e.key}"] is version-pinned; graft manages ${pkg} with a name-only key`);
-    else if (path.resolve(state.workspaceRoot, e.path) !== path.resolve(variantPath)) {
-      problems.push(`patchedDependencies["${pkg}"] points to ${e.path}, but the selected variant is ${expected}`);
+    if (e.key !== expectedKey) {
+      if (pinned && e.key === pkg) {
+        problems.push(
+          `patchedDependencies["${pkg}"] is a name-only key, but other versions of ${pkg} (${otherVersions.join(', ')}) are installed in this workspace; pin it as "${expectedKey}" — run \`graft apply\``,
+        );
+      } else if (pinned) {
+        problems.push(`patchedDependencies["${e.key}"] does not match ${expectedKey}; run \`graft apply\` to update it`);
+      } else {
+        problems.push(`patchedDependencies["${e.key}"] is version-pinned; graft manages ${pkg} with a name-only key`);
+      }
+    } else if (path.resolve(state.workspaceRoot, e.path) !== path.resolve(variantPath)) {
+      problems.push(`patchedDependencies["${expectedKey}"] points to ${e.path}, but the selected variant is ${expected}`);
     }
   }
   return problems;
 }
 
-/** Point patchedDependencies[pkg] at `variantPath` and enforce ignorePatchFailures: false. Preserves comments. */
-export async function configurePnpmPatch(root: string, pkg: string, variantPath: string): Promise<{ file: string; changed: boolean }> {
+/**
+ * Point patchedDependencies at `variantPath` (using a name-only key, or `pkg@version` when other
+ * versions of `pkg` are installed in the workspace) and enforce `ignorePatchFailures: false` on
+ * pnpm < 11. Preserves comments.
+ */
+export async function configurePnpmPatch(
+  root: string,
+  pkg: string,
+  variantPath: string,
+  version?: string,
+): Promise<{ file: string; changed: boolean }> {
   // A project can be pnpm (e.g. via packageManager) without a workspace file yet.
-  // pnpm 10 accepts a settings-only pnpm-workspace.yaml for a single-package project.
+  // pnpm 10+ accepts a settings-only pnpm-workspace.yaml for a single-package project.
   const workspaceRoot = findPnpmWorkspaceRoot(root) ?? path.resolve(root);
   const file = path.join(workspaceRoot, WORKSPACE_FILE);
   const before = existsSync(file) ? await readFile(file, 'utf8') : '';
   const doc = parseDocument(before);
+  const { key: expectedKey } = pnpmPatchKey(workspaceRoot, pkg, version);
   const patched = doc.get('patchedDependencies', true) as { items?: { key: unknown }[] } | undefined;
   for (const item of patched?.items ?? []) {
     const key = String((item.key as { value?: unknown })?.value ?? item.key);
-    if (key !== pkg && keyMatches(key, pkg)) doc.deleteIn(['patchedDependencies', key]);
+    if (key !== expectedKey && keyMatches(key, pkg)) doc.deleteIn(['patchedDependencies', key]);
   }
-  doc.setIn(['patchedDependencies', pkg], relativePosix(workspaceRoot, variantPath));
-  doc.set('ignorePatchFailures', false);
+  doc.setIn(['patchedDependencies', expectedKey], relativePosix(workspaceRoot, variantPath));
+  const major = pnpmMajor(workspaceRoot);
+  if (major === undefined || major < PNPM_STRICT_PATCH_MAJOR) {
+    doc.set('ignorePatchFailures', false);
+  } else if (doc.get('ignorePatchFailures') === false) {
+    doc.delete('ignorePatchFailures');
+  }
   const after = doc.toString();
   if (after !== before) await writeFile(file, after);
 

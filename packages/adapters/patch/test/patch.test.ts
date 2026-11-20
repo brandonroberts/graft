@@ -16,7 +16,15 @@ import {
   updateGraft,
   type MechanismAdapter,
 } from '@graftsync/core';
-import { configurePnpmPatch, patchAdapter, pnpmConfigProblems } from '../src/index.js';
+import {
+  applyToInstalledCopy,
+  configurePnpmPatch,
+  installedPnpmVersions,
+  patchAdapter,
+  pnpmApplier,
+  pnpmConfigProblems,
+  pnpmMajor,
+} from '../src/index.js';
 
 const V1 = `const a = 1\nconst b = 2\nmodule.exports = { a, b }\n`;
 const V2 = `// moved down one line\n${V1}`; // same anchors, shifted
@@ -52,6 +60,7 @@ async function fixture(installed: string) {
     path.join(g, 'graft.md'),
     `---\nid: add-c\nrootstock: { package: lib, verified: 1.0.0 }\nmechanism: patch\nvariants:\n  - range: ">=1.0.0"\n    module: ./variants/v1.patch\n---\n## Why\nw\n## Invariants\ni\n## Where to look\nl\n## Anchors\na\n## History\n- created\n`,
   );
+  await writeFile(path.join(root, 'package.json'), JSON.stringify({ name: 'app', packageManager: 'pnpm@10.28.0' }));
   await writeFile(
     path.join(root, 'pnpm-workspace.yaml'),
     `packages: []\nignorePatchFailures: false\npatchedDependencies:\n  lib: .grafts/add-c/variants/v1.patch\n`,
@@ -463,5 +472,303 @@ describe('checkInstalled separation (#61)', () => {
     expect(synced.exitCode).toBe(1);
     expect(synced.grafts[0]?.outcome).toBe('needs-agent');
     expect(synced.grafts[0]?.reasons.join('\n')).toMatch(/ignorePatchFailures/);
+  });
+});
+
+describe('CRLF upstream files with LF patches (#67)', () => {
+  async function crlfFixture(installedContent: string) {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'graft-crlf-'));
+    const v1 = path.join(root, 'upstream/1.0.0');
+    const v2 = path.join(root, 'upstream/2.0.0');
+    const v3 = path.join(root, 'upstream/3.0.0');
+    const installedDir = path.join(root, 'node_modules/lib');
+    for (const dir of [v1, v2, v3, installedDir]) await mkdir(dir, { recursive: true });
+    const crlfV1 = V1.replace(/\n/g, '\r\n');
+    const crlfPatched = `const a = 1\r\nconst b = 2\r\nconst c = 3\r\nmodule.exports = { a, b }\r\n`;
+    await writeFile(path.join(v1, 'index.js'), crlfV1);
+    await writeFile(path.join(v1, 'package.json'), JSON.stringify({ name: 'lib', version: '1.0.0' }));
+    await writeFile(path.join(v2, 'index.js'), crlfPatched);
+    await writeFile(path.join(v2, 'package.json'), JSON.stringify({ name: 'lib', version: '2.0.0' }));
+    await writeFile(path.join(v3, 'index.js'), V3.replace(/\n/g, '\r\n'));
+    await writeFile(path.join(v3, 'package.json'), JSON.stringify({ name: 'lib', version: '3.0.0' }));
+    await writeFile(path.join(installedDir, 'index.js'), installedContent);
+    await writeFile(path.join(installedDir, 'package.json'), JSON.stringify({ name: 'lib', version: '1.0.0' }));
+
+    const g = path.join(root, '.grafts/add-c');
+    await mkdir(path.join(g, 'variants'), { recursive: true });
+    await writeFile(path.join(g, 'variants/v1.patch'), PATCH);
+    await writeFile(
+      path.join(g, 'graft.md'),
+      `---
+id: add-c
+rootstock:
+  package: lib
+  verified: 1.0.0
+mechanism: patch
+variants:
+  - range: '>=1.0.0'
+    module: ./variants/v1.patch
+---
+## Why
+w
+## Invariants
+i
+## Where to look
+l
+## Anchors
+a
+## History
+- created
+`,
+    );
+    await writeFile(
+      path.join(root, 'pnpm-workspace.yaml'),
+      `packages: []\npatchedDependencies:\n  lib: .grafts/add-c/variants/v1.patch\nignorePatchFailures: false\n`,
+    );
+    await writeFile(path.join(root, 'package.json'), JSON.stringify({ name: 'app', packageManager: 'pnpm@10.28.0' }));
+    const upstream = new DirectoryUpstreamSource({ lib: { '1.0.0': v1, '2.0.0': v2, '3.0.0': v3 } }, { lib: '1.0.0' });
+    upstream.installed = async (pkg) => (pkg === 'lib' ? { version: '1.0.0', dir: installedDir } : undefined);
+    const project = await Project.open({ root, adapters: [patchAdapter], upstream });
+    return { root, project, installedDir, crlfV1, crlfPatched };
+  }
+
+  it('matches anchors, applies preserving CRLF, detects upstreamed, and tolerates mixed CRLF/LF installed copies', async () => {
+    // Mixed CRLF/LF as written by pnpm when applying an LF patch to a CRLF file.
+    const mixedInstalled = `const a = 1\r\nconst b = 2\r\nconst c = 3\nmodule.exports = { a, b }\r\n`;
+    const { project, installedDir, crlfV1, crlfPatched } = await crlfFixture(mixedInstalled);
+    const graft = await project.get('add-c');
+
+    const checked = await checkAnchors(project, 'add-c');
+    expect(checked.ok).toBe(true);
+    expect(checked.errors).toEqual([]);
+
+    const applied = await patchAdapter.apply(project.context(graft));
+    expect(applied.ok).toBe(true);
+
+    // Upstreamed detection still works on CRLF files.
+    const absorbed = await patchAdapter.checkAnchors(project.context(graft), '2.0.0');
+    expect(absorbed.ok).toBe(false);
+    expect(absorbed.upstreamed?.evidence.length).toBeGreaterThan(0);
+
+    // Genuine anchor miss still fails on CRLF files.
+    const missed = await patchAdapter.checkAnchors(project.context(graft), '3.0.0');
+    expect(missed.ok).toBe(false);
+    expect(missed.upstreamed).toBeUndefined();
+
+    // Built-in postinstall applier handles CRLF cleanly and is idempotent.
+    await writeFile(path.join(installedDir, 'index.js'), crlfV1);
+    const patches = (await import('../src/index.js')).parsePatchFile(PATCH);
+    const first = await applyToInstalledCopy({ dir: installedDir, version: '1.0.0' }, patches);
+    expect(first.action).toBe('patched');
+    expect(await readFile(path.join(installedDir, 'index.js'), 'utf8')).toBe(crlfPatched);
+    const second = await applyToInstalledCopy({ dir: installedDir, version: '1.0.0' }, patches);
+    expect(second.action).toBe('already-patched');
+  });
+
+  it('still fails checkInstalled when a CRLF installed file is unpatched or altered', async () => {
+    const unpatchedCrlf = V1.replace(/\n/g, '\r\n');
+    const { project } = await crlfFixture(unpatchedCrlf);
+    const checked = await checkAnchors(project, 'add-c');
+    expect(checked.ok).toBe(false);
+    expect(checked.errors.join('\n')).toMatch(/is not patched/);
+  });
+});
+
+describe('zero-byte deleted and created files (#69)', () => {
+  const DELETE_EMPTY_PATCH = `diff --git a/empty.txt b/empty.txt
+deleted file mode 100644
+index e69de29..0000000
+`;
+  const CREATE_EMPTY_PATCH = `diff --git a/created.txt b/created.txt
+new file mode 100644
+index 0000000..e69de29
+`;
+
+  async function zeroByteFixture(patchText: string, upstreamFiles: Record<string, string>, installedFiles: Record<string, string>) {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'graft-zerobyte-'));
+    const v1 = path.join(root, 'upstream/1.0.0');
+    const installedDir = path.join(root, 'node_modules/lib');
+    await mkdir(v1, { recursive: true });
+    await mkdir(installedDir, { recursive: true });
+    await writeFile(path.join(v1, 'package.json'), JSON.stringify({ name: 'lib', version: '1.0.0' }));
+    await writeFile(path.join(installedDir, 'package.json'), JSON.stringify({ name: 'lib', version: '1.0.0' }));
+    for (const [f, content] of Object.entries(upstreamFiles)) await writeFile(path.join(v1, f), content);
+    for (const [f, content] of Object.entries(installedFiles)) await writeFile(path.join(installedDir, f), content);
+
+    const g = path.join(root, '.grafts/empty-op');
+    await mkdir(path.join(g, 'variants'), { recursive: true });
+    await writeFile(path.join(g, 'variants/v1.patch'), patchText);
+    await writeFile(
+      path.join(g, 'graft.md'),
+      `---
+id: empty-op
+rootstock:
+  package: lib
+  verified: 1.0.0
+mechanism: patch
+variants:
+  - range: '>=1.0.0'
+    module: ./variants/v1.patch
+---
+## Why
+w
+## Invariants
+i
+## Where to look
+l
+## Anchors
+a
+## History
+- created
+`,
+    );
+    await writeFile(
+      path.join(root, 'pnpm-workspace.yaml'),
+      `packages: []\npatchedDependencies:\n  lib: .grafts/empty-op/variants/v1.patch\nignorePatchFailures: false\n`,
+    );
+    await writeFile(path.join(root, 'package.json'), JSON.stringify({ name: 'app', packageManager: 'pnpm@10.28.0' }));
+    const upstream = new DirectoryUpstreamSource({ lib: { '1.0.0': v1 } }, { lib: '1.0.0' });
+    upstream.installed = async (pkg) => (pkg === 'lib' ? { version: '1.0.0', dir: installedDir } : undefined);
+    const project = await Project.open({ root, adapters: [patchAdapter], upstream });
+    return { root, project, installedDir };
+  }
+
+  it('supports zero-byte deleted files in checkAnchors, apply, applyToInstalledCopy, and checkInstalled', async () => {
+    const { project, installedDir } = await zeroByteFixture(DELETE_EMPTY_PATCH, { 'empty.txt': '' }, {});
+    const graft = await project.get('empty-op');
+
+    const checked = await checkAnchors(project, 'empty-op');
+    expect(checked.ok).toBe(true);
+    expect(checked.anchors).toMatchObject([{ name: 'empty.txt#delete', matched: true }]);
+
+    const applied = await patchAdapter.apply(project.context(graft));
+    expect(applied.ok).toBe(true);
+    expect(applied.files).toEqual([{ file: 'empty.txt', changed: true }]);
+
+    // Built-in applier deletes the file and is idempotent.
+    await writeFile(path.join(installedDir, 'empty.txt'), '');
+    const patches = (await import('../src/index.js')).parsePatchFile(DELETE_EMPTY_PATCH);
+    const first = await applyToInstalledCopy({ dir: installedDir, version: '1.0.0' }, patches);
+    expect(first.action).toBe('patched');
+    expect(existsSync(path.join(installedDir, 'empty.txt'))).toBe(false);
+    const second = await applyToInstalledCopy({ dir: installedDir, version: '1.0.0' }, patches);
+    expect(second.action).toBe('already-patched');
+  });
+
+  it('fails checkInstalled when a deleted zero-byte file is still present, and flags upstreamed when already absent', async () => {
+    const stillThere = await zeroByteFixture(DELETE_EMPTY_PATCH, { 'empty.txt': '' }, { 'empty.txt': '' });
+    const checked = await checkAnchors(stillThere.project, 'empty-op');
+    expect(checked.ok).toBe(false);
+    expect(checked.errors.join('\n')).toMatch(/empty\.txt was not deleted/);
+
+    const alreadyGone = await zeroByteFixture(DELETE_EMPTY_PATCH, {}, {});
+    const staticCheck = await patchAdapter.checkAnchors(alreadyGone.project.context(await alreadyGone.project.get('empty-op')), '1.0.0');
+    expect(staticCheck.ok).toBe(false);
+    expect(staticCheck.upstreamed?.evidence.join('\n')).toMatch(/empty\.txt/);
+
+    // pnpm patch-commit also writes hunkless `deleted file mode` for non-empty deleted files (e.g. CHANGELOG.md).
+    const nonEmpty = await zeroByteFixture(DELETE_EMPTY_PATCH, { 'empty.txt': '# Changelog\nline 2\n' }, {});
+    const nonEmptyCheck = await checkAnchors(nonEmpty.project, 'empty-op');
+    expect(nonEmptyCheck.ok).toBe(true);
+    expect((await patchAdapter.apply(nonEmpty.project.context(await nonEmpty.project.get('empty-op')))).ok).toBe(true);
+  });
+
+  it('supports zero-byte created files and fails if the file already exists upstream', async () => {
+    const { project, installedDir } = await zeroByteFixture(CREATE_EMPTY_PATCH, {}, { 'created.txt': '' });
+    const graft = await project.get('empty-op');
+    expect((await checkAnchors(project, 'empty-op')).ok).toBe(true);
+    expect((await patchAdapter.apply(project.context(graft))).ok).toBe(true);
+
+    // Missing from installed copy fails checkInstalled.
+    const missingInstalled = await zeroByteFixture(CREATE_EMPTY_PATCH, {}, {});
+    expect((await checkAnchors(missingInstalled.project, 'empty-op')).ok).toBe(false);
+
+    // Already exists upstream fails checkAnchors.
+    const existsUpstream = await zeroByteFixture(CREATE_EMPTY_PATCH, { 'created.txt': '' }, { 'created.txt': '' });
+    const checkUp = await patchAdapter.checkAnchors(existsUpstream.project.context(await existsUpstream.project.get('empty-op')), '1.0.0');
+    expect(checkUp.ok).toBe(false);
+
+    // Built-in applier creates the empty file idempotently.
+    const patches = (await import('../src/index.js')).parsePatchFile(CREATE_EMPTY_PATCH);
+    const targetDir = path.join(installedDir, '../fresh');
+    await mkdir(targetDir, { recursive: true });
+    expect((await applyToInstalledCopy({ dir: targetDir, version: '1.0.0' }, patches)).action).toBe('patched');
+    expect(await readFile(path.join(targetDir, 'created.txt'), 'utf8')).toBe('');
+    expect((await applyToInstalledCopy({ dir: targetDir, version: '1.0.0' }, patches)).action).toBe('already-patched');
+  });
+});
+
+describe('pnpm 11+ and multi-version workspaces (#68, #70)', () => {
+  it('skips ignorePatchFailures on pnpm >= 11 (packageManager or devEngines) and enforces it on pnpm 10 (#70)', async () => {
+    const root11 = await mkdtemp(path.join(os.tmpdir(), 'graft-pnpm11-'));
+    const variant11 = path.join(root11, '.grafts/fix/variants/v1.patch');
+    await writeFile(path.join(root11, 'package.json'), JSON.stringify({ name: 'app', packageManager: 'pnpm@11.28.6' }));
+    await writeFile(path.join(root11, 'pnpm-workspace.yaml'), 'packages:\n  - packages/*\nignorePatchFailures: false\n');
+    expect(pnpmMajor(root11)).toBe(11);
+
+    await configurePnpmPatch(root11, 'lib', variant11, '1.0.0');
+    const ws11 = await readFile(path.join(root11, 'pnpm-workspace.yaml'), 'utf8');
+    expect(ws11).not.toContain('ignorePatchFailures');
+    expect(await pnpmConfigProblems(root11, 'lib', variant11, '1.0.0')).toEqual([]);
+
+    // devEngines.packageManager also detected.
+    const root12 = await mkdtemp(path.join(os.tmpdir(), 'graft-pnpm12-'));
+    await writeFile(
+      path.join(root12, 'package.json'),
+      JSON.stringify({ name: 'app', devEngines: { packageManager: { name: 'pnpm', version: '^12.0.0' } } }),
+    );
+    expect(pnpmMajor(root12)).toBe(12);
+
+    // pnpm 10 still requires and writes ignorePatchFailures: false.
+    const root10 = await mkdtemp(path.join(os.tmpdir(), 'graft-pnpm10-'));
+    const variant10 = path.join(root10, '.grafts/fix/variants/v1.patch');
+    await writeFile(path.join(root10, 'package.json'), JSON.stringify({ name: 'app', packageManager: 'pnpm@10.28.0' }));
+    await writeFile(path.join(root10, 'pnpm-workspace.yaml'), 'packages: []\npatchedDependencies:\n  lib: .grafts/fix/variants/v1.patch\n');
+    expect(pnpmMajor(root10)).toBe(10);
+    expect((await pnpmConfigProblems(root10, 'lib', variant10, '1.0.0')).join('\n')).toMatch(/ignorePatchFailures/);
+    await configurePnpmPatch(root10, 'lib', variant10, '1.0.0');
+    expect(await readFile(path.join(root10, 'pnpm-workspace.yaml'), 'utf8')).toContain('ignorePatchFailures: false');
+    expect(await pnpmConfigProblems(root10, 'lib', variant10, '1.0.0')).toEqual([]);
+  });
+
+  it('pins patchedDependencies to pkg@version when multiple versions exist in node_modules/.pnpm (#68)', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'graft-pnpm-multi-'));
+    const variant = path.join(root, '.grafts/cac-fix/variants/v6.patch');
+    await writeFile(path.join(root, 'package.json'), JSON.stringify({ name: 'app', packageManager: 'pnpm@11.28.6' }));
+    await writeFile(path.join(root, 'pnpm-workspace.yaml'), 'packages:\n  - packages/*\n');
+    await mkdir(path.join(root, 'node_modules/.pnpm/cac@6.7.14_patch_hash=abc'), { recursive: true });
+    await mkdir(path.join(root, 'node_modules/.pnpm/cac@7.1.0'), { recursive: true });
+    await mkdir(path.join(root, 'node_modules/.pnpm/@scope+pkg@1.0.0_react@19.0.0'), { recursive: true });
+    await mkdir(path.join(root, 'node_modules/.pnpm/@scope+pkg@2.0.0'), { recursive: true });
+
+    expect(installedPnpmVersions(root, 'cac')).toEqual(['6.7.14', '7.1.0']);
+    expect(installedPnpmVersions(root, '@scope/pkg')).toEqual(['1.0.0', '2.0.0']);
+
+    // A name-only key is flagged as conflicting with the other installed version.
+    await writeFile(
+      path.join(root, 'pnpm-workspace.yaml'),
+      'packages:\n  - packages/*\npatchedDependencies:\n  cac: .grafts/cac-fix/variants/v6.patch\n',
+    );
+    const nameOnlyProblems = await pnpmApplier.problems(root, 'cac', '6.7.14', variant);
+    expect(nameOnlyProblems.join('\n')).toMatch(/name-only key.*7\.1\.0.*cac@6\.7\.14/);
+
+    // configure rewrites it to cac@6.7.14.
+    await pnpmApplier.configure(root, 'cac', '6.7.14', variant);
+    const ws = await readFile(path.join(root, 'pnpm-workspace.yaml'), 'utf8');
+    expect(ws).toContain('cac@6.7.14: .grafts/cac-fix/variants/v6.patch');
+    expect(ws).not.toMatch(/\n\s*cac:/);
+    expect(await pnpmApplier.problems(root, 'cac', '6.7.14', variant)).toEqual([]);
+
+    // Upgrading to a new version flags the old pinned key and rewrites cleanly.
+    expect((await pnpmApplier.problems(root, 'cac', '6.7.15', variant)).join('\n')).toMatch(/does not match cac@6\.7\.15/);
+    await pnpmApplier.configure(root, 'cac', '6.7.15', variant);
+    expect(await pnpmApplier.problems(root, 'cac', '6.7.15', variant)).toEqual([]);
+
+    // Single-version workspace still uses name-only keys even when configuring a new target version.
+    await mkdir(path.join(root, 'node_modules/.pnpm/acorn@8.11.3'), { recursive: true });
+    const acornVariant = path.join(root, '.grafts/acorn-fix/variants/v8.patch');
+    await pnpmApplier.configure(root, 'acorn', '8.12.0', acornVariant);
+    expect(await readFile(path.join(root, 'pnpm-workspace.yaml'), 'utf8')).toContain('acorn: .grafts/acorn-fix/variants/v8.patch');
+    expect(await pnpmApplier.problems(root, 'acorn', '8.12.0', acornVariant)).toEqual([]);
   });
 });

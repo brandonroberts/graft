@@ -94,4 +94,27 @@ describe('findInstalledPackage (pnpm virtual store fallback, #59)', () => {
     await writeFile(path.join(direct, 'package.json'), JSON.stringify({ name: 'lib', version: '2.0.0' }));
     expect(await findInstalledPackage('lib', app)).toEqual({ version: '2.0.0', dir: await realpath(direct) });
   });
+
+  it('ignores stale unpruned directories in node_modules/.pnpm when .pnpm/lock.yaml lists only the active version', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'graft-pnpm-stale-'));
+    const oldDir = path.join(root, 'node_modules/.pnpm/acorn@8.11.3/node_modules/acorn');
+    const newDir = path.join(root, 'node_modules/.pnpm/acorn@8.12.0/node_modules/acorn');
+    await mkdir(oldDir, { recursive: true });
+    await mkdir(newDir, { recursive: true });
+    await writeFile(path.join(oldDir, 'package.json'), JSON.stringify({ name: 'acorn', version: '8.11.3' }));
+    await writeFile(path.join(newDir, 'package.json'), JSON.stringify({ name: 'acorn', version: '8.12.0' }));
+    await writeFile(
+      path.join(root, 'node_modules/.pnpm/lock.yaml'),
+      `lockfileVersion: '9.0'\n\npackages:\n  acorn@8.12.0:\n    resolution: {integrity: sha512-abc}\n\nsnapshots:\n  acorn@8.12.0: {}\n`,
+    );
+
+    expect(await findInstalledPackage('acorn', root)).toEqual({ version: '8.12.0', dir: await realpath(newDir) });
+
+    // When both versions ARE active in lock.yaml, still fail loudly.
+    await writeFile(
+      path.join(root, 'node_modules/.pnpm/lock.yaml'),
+      `lockfileVersion: '9.0'\n\npackages:\n  acorn@8.11.3:\n    resolution: {integrity: sha512-old}\n  acorn@8.12.0:\n    resolution: {integrity: sha512-abc}\n`,
+    );
+    await expect(findInstalledPackage('acorn', root)).rejects.toThrow(/multiple versions of acorn .*8\.11\.3, 8\.12\.0/);
+  });
 });

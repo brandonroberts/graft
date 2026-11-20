@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, readdir, readFile, realpath, rename, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -123,6 +123,43 @@ export async function readInstalledFiles(installed: InstalledPackage, files: str
 }
 
 /**
+ * Versions of `pkg` currently active in `<storeDir>/lock.yaml`'s `packages:` section, or
+ * undefined if the lockfile isn't present or lists no entries for `pkg`. Filters out stale
+ * unreferenced directories that `pnpm update` leaves behind in `node_modules/.pnpm/`.
+ */
+export function activePnpmLockVersions(storeDir: string, pkg: string): Set<string> | undefined {
+  const lockFile = path.join(storeDir, 'lock.yaml');
+  if (!existsSync(lockFile)) return undefined;
+  let text: string;
+  try {
+    text = readFileSync(lockFile, 'utf8');
+  } catch {
+    return undefined;
+  }
+  const prefix = `${pkg}@`;
+  const versions = new Set<string>();
+  let inPackages = false;
+  for (const line of text.split('\n')) {
+    if (!inPackages) {
+      if (line === 'packages:') inPackages = true;
+      continue;
+    }
+    if (line.length > 0 && line[0] !== ' ' && line[0] !== '\t') break;
+    if (!line.startsWith('  ') || line[2] === ' ') continue;
+    let key = line.slice(2).trim();
+    if (key.endsWith(':')) key = key.slice(0, -1).trim();
+    if ((key.startsWith("'") && key.endsWith("'")) || (key.startsWith('"') && key.endsWith('"'))) {
+      key = key.slice(1, -1);
+    }
+    if (key.startsWith('/')) key = key.slice(1);
+    if (!key.startsWith(prefix)) continue;
+    const ver = key.slice(prefix.length).split(/[_(]/, 1)[0];
+    if (ver) versions.add(ver);
+  }
+  return versions.size ? versions : undefined;
+}
+
+/**
  * Look up a transitive package inside pnpm's virtual store (`node_modules/.pnpm/`), walking up
  * from `from` to the nearest `.pnpm` directory. Returns the package when one distinct version is
  * installed; throws `upstream/ambiguous-installed` when multiple distinct versions are present
@@ -141,6 +178,7 @@ async function findInPnpmStore(pkg: string, from: string): Promise<InstalledPack
     if (parent === dir) return undefined;
     dir = parent;
   }
+  const active = activePnpmLockVersions(pnpmDir, pkg);
   const prefix = `${pkg.replace('/', '+')}@`;
   const entries = (await readdir(pnpmDir, { withFileTypes: true }).catch(() => []))
     .filter((e) => e.isDirectory() && e.name.startsWith(prefix))
@@ -152,7 +190,7 @@ async function findInPnpmStore(pkg: string, from: string): Promise<InstalledPack
     if (!existsSync(pkgJson)) continue;
     try {
       const json = JSON.parse(await readFile(pkgJson, 'utf8')) as { name?: string; version?: string };
-      if (json.version && (!json.name || json.name === pkg) && !byVersion.has(json.version)) {
+      if (json.version && (!json.name || json.name === pkg) && (!active || active.has(json.version)) && !byVersion.has(json.version)) {
         byVersion.set(json.version, await realpath(path.dirname(pkgJson)));
       }
     } catch {
