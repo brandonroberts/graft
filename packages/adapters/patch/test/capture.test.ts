@@ -101,4 +101,41 @@ describe('graft capture (patch)', () => {
     await writeFile(path.join(installed, 'logo.png'), Buffer.from([0x89, 0x50, 0, 1, 2]));
     await expect(captureVariant(project, 'add-b')).rejects.toThrow(/binary files differ .*logo\.png/);
   });
+
+  it('ignores Cargo publish metadata (.cargo_vcs_info.json, Cargo.toml.orig, .cargo-checksum.json) (#62)', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'graft-capture-cargo-'));
+    const pristine = path.join(root, 'pristine');
+    const installed = path.join(root, 'app/vendor/demo-0.1.0');
+    const app = path.join(root, 'app');
+    await mkdir(path.join(pristine, 'src'), { recursive: true });
+    await writeFile(path.join(pristine, 'Cargo.toml'), '[package]\nname = "demo"\nversion = "0.1.0"\n');
+    await writeFile(path.join(pristine, 'Cargo.toml.orig'), '[package]\nname = "demo"\nversion = "0.1.0"\n# orig\n');
+    await writeFile(path.join(pristine, '.cargo_vcs_info.json'), '{"git":{"sha1":"aaaa"}}\n');
+    await writeFile(path.join(pristine, 'src/lib.rs'), 'pub fn f() -> u32 { 1 }\n');
+    await cp(pristine, installed, { recursive: true });
+    // Metadata differences alone (e.g. a vendored/git crate) must not count as changes.
+    await rm(path.join(installed, '.cargo_vcs_info.json'));
+    await writeFile(path.join(installed, 'Cargo.toml.orig'), '[package]\nname = "demo"\nversion = "0.1.0"\n');
+    await writeFile(path.join(installed, '.cargo-checksum.json'), '{"files":{}}\n');
+
+    const cargoUpstream: UpstreamSource = {
+      resolve: async () => pristine,
+      installed: async () => ({ version: '0.1.0', dir: installed }),
+      versions: async () => ({ versions: ['0.1.0'], distTags: { latest: '0.1.0' } }),
+      installSpec: (pkg, v) => `${pkg}@${v}`,
+    };
+    const project = await Project.open({ root: app, adapters: [patchAdapter] });
+    // Override the cargo upstream source for offline capture testing.
+    project.upstreamFor = () => cargoUpstream;
+    await addGraft(project, { id: 'demo-fix', package: 'demo', ecosystem: 'cargo', version: '0.1.0', mechanism: 'patch' });
+
+    await expect(captureVariant(project, 'demo-fix')).rejects.toThrow(/identical to the published package/);
+
+    // A real Rust change is captured without the metadata files.
+    await writeFile(path.join(installed, 'src/lib.rs'), 'pub fn f() -> u32 { 2 }\n');
+    const result = await captureVariant(project, 'demo-fix');
+    expect(result.replacedStub).toBe(true);
+    const patch = await readFile(path.join(app, '.grafts/demo-fix', result.module), 'utf8');
+    expect(parsePatchFile(patch).map(patchTarget)).toEqual(['src/lib.rs']);
+  });
 });

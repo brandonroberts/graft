@@ -493,8 +493,9 @@ it.
   directory that isn't exactly pristine + variant.
 - **Capture:** `graft capture` diffs the copy cargo resolves (the vendored crate after
   `graft apply`, else the registry source, which every project on the machine shares) against
-  the pristine `.crate`. A `target/` directory and cargo's `.cargo-ok` marker are not part of the
-  package.
+  the pristine `.crate`. A `target/` directory, cargo's `.cargo-ok` marker, and publish/vendor
+  metadata (`.cargo_vcs_info.json`, `Cargo.toml.orig`, `.cargo-checksum.json`) are not part of
+  the package.
 
 ### 10.3 go
 

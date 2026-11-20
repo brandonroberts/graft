@@ -123,8 +123,58 @@ export async function readInstalledFiles(installed: InstalledPackage, files: str
 }
 
 /**
+ * Look up a transitive package inside pnpm's virtual store (`node_modules/.pnpm/`), walking up
+ * from `from` to the nearest `.pnpm` directory. Returns the package when one distinct version is
+ * installed; throws `upstream/ambiguous-installed` when multiple distinct versions are present
+ * so Graft never silently picks the wrong one.
+ */
+async function findInPnpmStore(pkg: string, from: string): Promise<InstalledPackage | undefined> {
+  let dir = path.resolve(from);
+  let pnpmDir: string | undefined;
+  for (;;) {
+    const candidate = path.join(dir, 'node_modules', '.pnpm');
+    if (existsSync(candidate)) {
+      pnpmDir = candidate;
+      break;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) return undefined;
+    dir = parent;
+  }
+  const prefix = `${pkg.replace('/', '+')}@`;
+  const entries = (await readdir(pnpmDir, { withFileTypes: true }).catch(() => []))
+    .filter((e) => e.isDirectory() && e.name.startsWith(prefix))
+    .map((e) => e.name)
+    .sort();
+  const byVersion = new Map<string, string>();
+  for (const entry of entries) {
+    const pkgJson = path.join(pnpmDir, entry, 'node_modules', pkg, 'package.json');
+    if (!existsSync(pkgJson)) continue;
+    try {
+      const json = JSON.parse(await readFile(pkgJson, 'utf8')) as { name?: string; version?: string };
+      if (json.version && (!json.name || json.name === pkg) && !byVersion.has(json.version)) {
+        byVersion.set(json.version, await realpath(path.dirname(pkgJson)));
+      }
+    } catch {
+      // ignore unreadable entries
+    }
+  }
+  if (byVersion.size === 0) return undefined;
+  if (byVersion.size > 1) {
+    const versions = [...byVersion.keys()].sort().join(', ');
+    throw new GraftError(
+      `multiple versions of ${pkg} are installed in pnpm's store (${versions}); set resolveFrom["${pkg}"] in .grafts/config.json to the directory that resolves the copy you want`,
+      'upstream/ambiguous-installed',
+    );
+  }
+  const [[version, resolvedDir]] = [...byVersion.entries()] as [[string, string]];
+  return { version, dir: resolvedDir };
+}
+
+/**
  * Finds the installed `pkg` as seen from `from`: through the Plug'n'Play runtime when the
- * project has one (yarn 2+ `.pnp.cjs`), otherwise `node_modules/<pkg>/package.json` walking up.
+ * project has one (yarn 2+ `.pnp.cjs`), otherwise `node_modules/<pkg>/package.json` walking up,
+ * falling back to pnpm's virtual store (`node_modules/.pnpm/`) for unhoisted transitive packages.
  */
 export async function findInstalledPackage(pkg: string, from: string): Promise<InstalledPackage | undefined> {
   const pnp = findPnpRuntime(from);
@@ -140,9 +190,10 @@ export async function findInstalledPackage(pkg: string, from: string): Promise<I
       if (json.version) return { version: json.version, dir: await realpath(path.dirname(candidate)) };
     }
     const parent = path.dirname(dir);
-    if (parent === dir) return undefined;
+    if (parent === dir) break;
     dir = parent;
   }
+  return findInPnpmStore(pkg, from);
 }
 
 /**
@@ -156,8 +207,15 @@ async function npm(args: string[], cwd: string): Promise<string> {
       maxBuffer: 64 * 1024 * 1024,
       timeout: 5 * 60_000,
       shell: process.platform === 'win32',
-      // A project pinned to another package manager must not stop us from asking npm.
-      env: { ...process.env, COREPACK_ENABLE_STRICT: '0', npm_config_update_notifier: 'false', npm_config_fund: 'false' },
+      // A project pinned to another package manager (Corepack or devEngines.packageManager)
+      // must not stop us from asking npm for read-only registry metadata/tarballs.
+      env: {
+        ...process.env,
+        COREPACK_ENABLE_STRICT: '0',
+        npm_config_force: 'true',
+        npm_config_update_notifier: 'false',
+        npm_config_fund: 'false',
+      },
     });
     return stdout;
   } catch (err) {
