@@ -147,7 +147,7 @@ Variants are git-style patches with package-relative paths. Each hunk must fit e
 
 `mechanisms.patch.applier` in `.grafts/config.json` overrides the choice, and `mechanisms.patch.pinKeys: true` keeps exact `<pkg>@<version>` keys in `pnpm` and `npm` ≥ 12 `patchedDependencies`.
 
-**Checks that apply whatever the applier:** at the installed version, `graft check` compares installed files with *pristine + variant*, reading through PnP's zip cache where needed. It catches dropped patches, including installs with `--ignore-scripts`.
+**Checks that apply whatever the applier:** at the installed version, `graft check` compares installed files with *pristine + variant*, reading through PnP's zip cache where needed (and verifying every covered nested copy under `node_modules` for the built-in `graft` applier, warning on uncovered ones). It catches dropped patches, including installs with `--ignore-scripts`.
 
 **Other patch-mechanism behavior:**
 - **Likely upstreamed:** when the reverse patch applies to the pristine target, the graft is flagged "likely upstreamed".

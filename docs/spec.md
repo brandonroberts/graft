@@ -380,7 +380,10 @@ When a removed target file matches a content-hashed bundler chunk rename in the 
 content), `scopeDiff` diffs the old chunk against the renamed counterpart (`newFile`) instead of
 dumping the entire removed file. An *applier* makes the package manager apply the variant (pnpm,
 npm ≥ 12, bun and yarn 2+ natively; a built-in `postinstall` applier; patch-package; or a
-vendored tarball). Details: the README's *Mechanisms* section.
+vendored tarball). With the built-in `graft` applier, `checkInstalled` MUST also verify every
+nested copy of the package under `node_modules` whose version matches a variant (failing loudly
+if a nested copy is unpatched or its variant no longer applies, and warning on uncovered nested
+copies). Details: the README's *Mechanisms* section.
 
 ### 9.2 The `fork` mechanism
 
