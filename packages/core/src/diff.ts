@@ -16,6 +16,8 @@ export interface AnchorRegion {
 
 export interface ScopeFileOptions {
   file: string;
+  /** New path when diffing a renamed file (e.g. a content-hashed bundler chunk). */
+  newFile?: string;
   oldText: string | undefined;
   newText: string | undefined;
   regions: AnchorRegion[];
@@ -29,16 +31,17 @@ const overlaps = (a: [number, number], b: [number, number]) => a[0] <= b[1] && b
 
 /** Diff one target file and keep only hunks near or mentioning the given anchor regions. */
 export function scopeFileDiff(options: ScopeFileOptions): ScopedFileDiff {
-  const { file, oldText, newText, regions } = options;
+  const { file, newFile, oldText, newText, regions } = options;
+  const renamed = newFile && newFile !== file ? { newFile } : {};
   const window = options.window ?? 40;
   if (oldText === undefined && newText === undefined) {
-    return { file, status: 'removed', totalHunks: 0, hunks: [], narrowed: false };
+    return { file, ...renamed, status: 'removed', totalHunks: 0, hunks: [], narrowed: false };
   }
   const status: ScopedFileDiff['status'] =
     oldText === undefined ? 'added' : newText === undefined ? 'removed' : oldText === newText ? 'unchanged' : 'modified';
-  if (status === 'unchanged') return { file, status, totalHunks: 0, hunks: [], narrowed: true };
+  if (status === 'unchanged') return { file, ...renamed, status, totalHunks: 0, hunks: [], narrowed: true };
 
-  const patch = structuredPatch(file, file, oldText ?? '', newText ?? '', '', '', {
+  const patch = structuredPatch(file, newFile ?? file, oldText ?? '', newText ?? '', '', '', {
     context: options.context ?? 3,
   });
   const hunks: DiffHunk[] = patch.hunks.map((h) => ({
@@ -52,7 +55,7 @@ export function scopeFileDiff(options: ScopeFileOptions): ScopedFileDiff {
 
   const located = regions.some((r) => r.old || r.new || r.symbols?.length);
   if (!located || status !== 'modified') {
-    return { file, status, totalHunks: hunks.length, hunks, narrowed: false };
+    return { file, ...renamed, status, totalHunks: hunks.length, hunks, narrowed: false };
   }
 
   for (const hunk of hunks) {
@@ -67,15 +70,17 @@ export function scopeFileDiff(options: ScopeFileOptions): ScopedFileDiff {
       if (near || mentions) hunk.anchors.push(region.name);
     }
   }
-  return { file, status, totalHunks: hunks.length, hunks: hunks.filter((h) => h.anchors.length > 0), narrowed: true };
+  return { file, ...renamed, status, totalHunks: hunks.length, hunks: hunks.filter((h) => h.anchors.length > 0), narrowed: true };
 }
 
 /** Render scoped file diffs as a unified patch. */
 export function renderPatch(files: ScopedFileDiff[], labels: { from: string; to: string }): string {
   const out: string[] = [];
   for (const f of files) {
-    if (f.status === 'unchanged') continue;
-    out.push(`--- a/${f.file}\t(${labels.from})`, `+++ b/${f.file}\t(${labels.to})`);
+    const renamed = Boolean(f.newFile && f.newFile !== f.file);
+    if (f.status === 'unchanged' && !renamed) continue;
+    out.push(`--- a/${f.file}\t(${labels.from})`, `+++ b/${f.newFile ?? f.file}\t(${labels.to})`);
+    if (renamed) out.push(`# renamed: ${f.file} -> ${f.newFile}`);
     if (f.status === 'removed' && f.hunks.length === 0) out.push(`# target removed in ${labels.to}`);
     if (f.narrowed && f.hunks.length < f.totalHunks) {
       out.push(`# narrowed: showing ${f.hunks.length} of ${f.totalHunks} hunks (those near anchors)`);
@@ -92,6 +97,33 @@ export function renderPatch(files: ScopedFileDiff[], labels: { from: string; to:
     }
   }
   return out.join('\n') + (out.length ? '\n' : '');
+}
+
+const CHUNK_EXT_RE = /^(.*?)(\.d\.[cm]?ts|\.[cm]?[jt]sx?|\.css)$/;
+const CHUNK_HASH_RE = /^(.+?)([.-])([A-Za-z0-9_-]{6,32})$/;
+const looksLikeContentHash = (s: string) => /\d/.test(s) || (/[a-z]/.test(s) && /[A-Z]/.test(s));
+
+/**
+ * True when `oldFile` and `newFile` are content-hashed bundler chunks with the same directory,
+ * stem, separator, and extension (e.g. `dist/chunks/cac.CLrZKo1g.js` → `dist/chunks/cac.BYbt0aJp.js`
+ * or `dist/chunks/plugin.d.C8mmycim.d.ts` → `dist/chunks/plugin.d.LRFSN46m.d.ts`) (#80).
+ */
+export function isHashedChunkRename(oldFile: string, newFile: string): boolean {
+  if (oldFile === newFile) return false;
+  if (path.posix.dirname(oldFile) !== path.posix.dirname(newFile)) return false;
+  const oldExt = CHUNK_EXT_RE.exec(path.posix.basename(oldFile));
+  const newExt = CHUNK_EXT_RE.exec(path.posix.basename(newFile));
+  if (!oldExt || !newExt || oldExt[2] !== newExt[2]) return false;
+  const oldParts = CHUNK_HASH_RE.exec(oldExt[1]!);
+  const newParts = CHUNK_HASH_RE.exec(newExt[1]!);
+  if (!oldParts || !newParts) return false;
+  return (
+    oldParts[1] === newParts[1] &&
+    oldParts[2] === newParts[2] &&
+    oldParts[3] !== newParts[3] &&
+    looksLikeContentHash(oldParts[3]!) &&
+    looksLikeContentHash(newParts[3]!)
+  );
 }
 
 const CODE_EXT = /\.(c|m)?js$/;

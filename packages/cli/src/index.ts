@@ -48,11 +48,76 @@ const print = (json: boolean | undefined, value: unknown, human: () => void) => 
   else human();
 };
 
+/** Reject unknown flags and unexpected positional arguments (citty ignores both by default, #80). */
+function validateCliArgs(cmd: { args?: unknown }, rawArgs: string[], positionals?: string[]): void {
+  const defs =
+    typeof cmd.args === 'object' && cmd.args !== null ? (cmd.args as Record<string, { type?: string; alias?: string | string[] }>) : {};
+  const longOpts = new Map<string, 'boolean' | 'string'>([
+    ['help', 'boolean'],
+    ['version', 'boolean'],
+  ]);
+  const shortOpts = new Map<string, 'boolean' | 'string'>([['h', 'boolean']]);
+  let positionalCount = 0;
+  for (const [name, def] of Object.entries(defs)) {
+    if (def.type === 'positional') {
+      positionalCount++;
+      continue;
+    }
+    const kind: 'boolean' | 'string' = def.type === 'boolean' ? 'boolean' : 'string';
+    longOpts.set(name, kind);
+    if (kind === 'boolean') longOpts.set(`no-${name}`, 'boolean');
+    const aliases = def.alias ? (Array.isArray(def.alias) ? def.alias : [def.alias]) : [];
+    for (const a of aliases) {
+      if (a.length === 1) shortOpts.set(a, kind);
+      else longOpts.set(a, kind);
+    }
+  }
+
+  let expectValue = false;
+  for (const token of rawArgs) {
+    if (expectValue) {
+      expectValue = false;
+      continue;
+    }
+    if (token === '--') break;
+    if (token.startsWith('--')) {
+      const eq = token.indexOf('=');
+      const name = eq >= 0 ? token.slice(2, eq) : token.slice(2);
+      const kind = longOpts.get(name);
+      if (!kind) throw new GraftError(`unknown option "--${name}" (pass --help for usage)`, 'cli/usage');
+      if (kind === 'string' && eq < 0) expectValue = true;
+      continue;
+    }
+    if (token.startsWith('-') && token.length > 1) {
+      const eq = token.indexOf('=');
+      const flags = eq >= 0 ? token.slice(1, eq) : token.slice(1);
+      for (let i = 0; i < flags.length; i++) {
+        const ch = flags[i]!;
+        const kind = shortOpts.get(ch);
+        if (!kind) throw new GraftError(`unknown option "-${ch}" (pass --help for usage)`, 'cli/usage');
+        if (kind === 'string') {
+          if (i === flags.length - 1 && eq < 0) expectValue = true;
+          break;
+        }
+      }
+    }
+  }
+
+  const extras = (positionals ?? []).slice(positionalCount);
+  if (extras.length) {
+    throw new GraftError(
+      `unexpected argument${extras.length > 1 ? 's' : ''}: ${extras.map((a) => JSON.stringify(a)).join(', ')} (pass --help for usage)`,
+      'cli/usage',
+    );
+  }
+}
+
 /** Run a command body, mapping errors to exit code 2 (tooling error). */
 const guarded =
   <A>(fn: (args: A) => Promise<number>) =>
-  async ({ args }: { args: A }) => {
+  async ({ args, rawArgs, cmd }: { args: A; rawArgs: string[]; cmd: { args?: unknown } }) => {
     try {
+      validateCliArgs(cmd, rawArgs, (args as { _?: string[] })._);
       process.exitCode = await fn(args);
     } catch (err) {
       console.error(err instanceof GraftError ? `graft: ${err.message}` : err);

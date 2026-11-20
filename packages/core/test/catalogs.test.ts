@@ -2,7 +2,14 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { DirectoryUpstreamSource, findPnpmCatalogReferences, npmEcosystem, Project, updatePnpmCatalogs } from '../src/index.js';
+import {
+  DirectoryUpstreamSource,
+  findPnpmCatalogReferences,
+  npmEcosystem,
+  Project,
+  updatePnpmCatalogs,
+  updatePnpmPackageExtensions,
+} from '../src/index.js';
 
 const WORKSPACE = `packages:
   - packages/*
@@ -104,5 +111,103 @@ catalogs:
       code: 'install/catalog',
       message: expect.stringMatching(/catalog:named.*catalogs\.named\["helper"\] = ">=1\.0\.0 <2\.0\.0"/),
     });
+  });
+});
+
+describe('pnpm packageExtensions (#79)', () => {
+  it('renames exact-pinned keys in pnpm-workspace.yaml and package.json preserving comments and bare entries', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'graft-pkgext-'));
+    const ws = `packages:
+  - .
+packageExtensions:
+  # keep acorn attached
+  "playwright-core@1.64.1":
+    dependencies:
+      acorn: 8.19.0
+  # bare key applies to all versions
+  baileys:
+    peerDependenciesMeta:
+      sharp:
+        optional: true
+  "@scope/pkg@1.0.0":
+    dependencies:
+      extra: 1.0.0
+`;
+    await writeFile(path.join(root, 'pnpm-workspace.yaml'), ws);
+    await writeFile(
+      path.join(root, 'package.json'),
+      JSON.stringify(
+        {
+          name: 'app',
+          pnpm: {
+            packageExtensions: {
+              'other@2.0.0': { dependencies: { helper: '1.0.0' } },
+              'other@2.1.0': { dependencies: { helper: '2.0.0' } },
+              'foo@1.0.0': { dependencies: { bar: '1.0.0' } },
+            },
+          },
+        },
+        null,
+        2,
+      ) + '\n',
+    );
+
+    const res = await updatePnpmPackageExtensions(root, [
+      { pkg: 'playwright-core', from: '1.64.1', to: '1.65.0' },
+      { pkg: 'baileys', from: '7.0.0-rc14', to: '7.0.0' },
+      { pkg: '@scope/pkg', from: '1.0.0', to: '1.1.0' },
+      { pkg: 'other', from: '2.0.0', to: '2.1.0' },
+      { pkg: 'foo', from: '1.0.0', to: '1.2.0' },
+    ]);
+    expect(res.blocked).toEqual([]);
+    expect(res.renamed.map((r) => `${r.fromKey} -> ${r.toKey}`).sort()).toEqual([
+      '@scope/pkg@1.0.0 -> @scope/pkg@1.1.0',
+      'foo@1.0.0 -> foo@1.2.0',
+      'playwright-core@1.64.1 -> playwright-core@1.65.0',
+    ]);
+
+    const afterWs = await readFile(path.join(root, 'pnpm-workspace.yaml'), 'utf8');
+    expect(afterWs).toContain('# keep acorn attached');
+    expect(afterWs).toContain('"playwright-core@1.65.0":');
+    expect(afterWs).toContain('"@scope/pkg@1.1.0":');
+    expect(afterWs).not.toContain('playwright-core@1.64.1');
+    expect(afterWs).toContain('baileys:');
+
+    const afterPkg = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
+    expect(Object.keys(afterPkg.pnpm.packageExtensions)).toEqual(['other@2.0.0', 'other@2.1.0', 'foo@1.2.0']);
+  });
+
+  it('fails loudly with install/package-extensions when a range-pinned key matches from but not to', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'graft-pkgext-range-'));
+    const ws = `packages:
+  - .
+packageExtensions:
+  "playwright-core@^1.64.0":
+    dependencies:
+      acorn: 8.19.0
+`;
+    await writeFile(path.join(root, 'pnpm-workspace.yaml'), ws);
+    await writeFile(path.join(root, 'pnpm-lock.yaml'), 'lockfileVersion: 9.0\n');
+    await writeFile(
+      path.join(root, 'package.json'),
+      JSON.stringify({ name: 'app', packageManager: 'pnpm@12.15.0', dependencies: { 'playwright-core': '1.64.1' } }),
+    );
+    const up = async (version: string) => {
+      const dir = path.join(root, 'up', version);
+      await mkdir(dir, { recursive: true });
+      await writeFile(path.join(dir, 'package.json'), JSON.stringify({ name: 'playwright-core', version }));
+      return dir;
+    };
+    const upstream = new DirectoryUpstreamSource(
+      { 'playwright-core': { '1.64.1': await up('1.64.1'), '2.0.0': await up('2.0.0') } },
+      { 'playwright-core': '1.64.1' },
+    );
+    const project = await Project.open({ root, adapters: [], upstream });
+
+    await expect(npmEcosystem.install(project, 'playwright-core', '2.0.0')).rejects.toMatchObject({
+      code: 'install/package-extensions',
+      message: expect.stringMatching(/playwright-core@\^1\.64\.0.*matches 1\.64\.1 but not 2\.0\.0/),
+    });
+    expect(await readFile(path.join(root, 'pnpm-workspace.yaml'), 'utf8')).toBe(ws);
   });
 });

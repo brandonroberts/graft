@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { glob, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { semverScheme } from '@graftsync/spec';
 import { parseDocument } from 'yaml';
 import { GraftError } from './errors.js';
 import { runCommand } from './command.js';
@@ -406,6 +407,102 @@ export async function updatePnpmCatalogs(
   const after = doc.toString();
   if (!options.dryRun && after !== before) await writeFile(file, after);
   return [...moved];
+}
+
+export interface PnpmPackageExtensionsResult {
+  renamed: { fromKey: string; toKey: string; location: string }[];
+  blocked: { key: string; pkg: string; from: string; to: string; location: string }[];
+}
+
+/**
+ * pnpm `packageExtensions`: rename exact-pinned keys (`<pkg>@<from>` → `<pkg>@<to>`) in
+ * `pnpm-workspace.yaml` and root `package.json` `pnpm.packageExtensions` (preserving comments
+ * and formatting) when `<pkg>@<to>` does not already exist (#79). Range-pinned keys that matched
+ * `from` but do not match `to` are reported in `blocked` so the caller fails loudly instead of
+ * silently dropping the extension.
+ */
+export async function updatePnpmPackageExtensions(
+  root: string,
+  updates: { pkg: string; from: string; to: string }[],
+  options: { dryRun?: boolean } = {},
+): Promise<PnpmPackageExtensionsResult> {
+  const renamed: PnpmPackageExtensionsResult['renamed'] = [];
+  const blocked: PnpmPackageExtensionsResult['blocked'] = [];
+  if (!updates.length) return { renamed, blocked };
+  const wsRoot = workspaceRoot(root);
+
+  const wsFile = path.join(wsRoot, 'pnpm-workspace.yaml');
+  if (existsSync(wsFile)) {
+    const before = await readFile(wsFile, 'utf8');
+    const doc = parseDocument(before);
+    const ext = doc.get('packageExtensions', true) as { items?: { key: { value?: unknown } }[] } | undefined;
+    const items = ext?.items ?? [];
+    const existingKeys = new Set(items.map((item) => String(item.key?.value ?? item.key)));
+    let changed = false;
+    for (const item of items) {
+      const key = String(item.key?.value ?? item.key);
+      for (const { pkg, from, to } of updates) {
+        if (!key.startsWith(`${pkg}@`) || key.length <= pkg.length + 1) continue;
+        const spec = key.slice(pkg.length + 1);
+        if (spec === from) {
+          const nextKey = `${pkg}@${to}`;
+          if (!existingKeys.has(nextKey)) {
+            if (item.key && typeof item.key === 'object' && 'value' in item.key) item.key.value = nextKey;
+            existingKeys.delete(key);
+            existingKeys.add(nextKey);
+            renamed.push({ fromKey: key, toKey: nextKey, location: "pnpm-workspace.yaml's packageExtensions" });
+            changed = true;
+          }
+        } else if (spec !== to && semverScheme.satisfies(from, spec) && !semverScheme.satisfies(to, spec)) {
+          blocked.push({ key, pkg, from, to, location: "pnpm-workspace.yaml's packageExtensions" });
+        }
+      }
+    }
+    if (!options.dryRun && changed && !blocked.length) {
+      const after = doc.toString();
+      if (after !== before) await writeFile(wsFile, after);
+    }
+  }
+
+  const manifestFile = path.join(wsRoot, 'package.json');
+  if (existsSync(manifestFile)) {
+    const before = await readFile(manifestFile, 'utf8');
+    const json = JSON.parse(before) as Record<string, unknown>;
+    const pnpm = json.pnpm as Record<string, unknown> | undefined;
+    const ext = pnpm?.packageExtensions as Record<string, unknown> | undefined;
+    if (ext && typeof ext === 'object' && !Array.isArray(ext)) {
+      const existingKeys = new Set(Object.keys(ext));
+      const nextMap: Record<string, unknown> = {};
+      let changed = false;
+      for (const [key, val] of Object.entries(ext)) {
+        let outKey = key;
+        for (const { pkg, from, to } of updates) {
+          if (!key.startsWith(`${pkg}@`) || key.length <= pkg.length + 1) continue;
+          const spec = key.slice(pkg.length + 1);
+          if (spec === from) {
+            const nextKey = `${pkg}@${to}`;
+            if (!existingKeys.has(nextKey)) {
+              outKey = nextKey;
+              existingKeys.delete(key);
+              existingKeys.add(nextKey);
+              renamed.push({ fromKey: key, toKey: nextKey, location: 'package.json pnpm.packageExtensions' });
+              changed = true;
+            }
+          } else if (spec !== to && semverScheme.satisfies(from, spec) && !semverScheme.satisfies(to, spec)) {
+            blocked.push({ key, pkg, from, to, location: 'package.json pnpm.packageExtensions' });
+          }
+        }
+        nextMap[outKey] = val;
+      }
+      if (!options.dryRun && changed && !blocked.length) {
+        pnpm!.packageExtensions = nextMap;
+        const indent = /^[ \t]+/m.exec(before)?.[0] ?? '  ';
+        await writeFile(manifestFile, `${JSON.stringify(json, null, indent)}\n`);
+      }
+    }
+  }
+
+  return { renamed, blocked };
 }
 
 /**

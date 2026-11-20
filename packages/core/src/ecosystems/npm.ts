@@ -13,6 +13,7 @@ import {
   updateDeclaredNpmSpecs,
   updatePackageOverrides,
   updatePnpmCatalogs,
+  updatePnpmPackageExtensions,
 } from '../install.js';
 import { findSiblings } from '../siblings.js';
 import { NpmUpstreamSource } from '../upstream.js';
@@ -49,6 +50,20 @@ export const npmEcosystem: Ecosystem = {
       if (from) installedVersions.set(name, from);
     }
     const updates = names.filter((n) => installedVersions.has(n)).map((n) => ({ pkg: n, from: installedVersions.get(n)!, to: version }));
+
+    if (pm === 'pnpm' && updates.length) {
+      const extCheck = await updatePnpmPackageExtensions(project.root, updates, { dryRun: true });
+      if (extCheck.blocked.length) {
+        const detail = extCheck.blocked
+          .map((b) => `${b.location}[${JSON.stringify(b.key)}] (matches ${b.from} but not ${b.to})`)
+          .join('; ');
+        const plural = extCheck.blocked.length > 1;
+        throw new GraftError(
+          `cannot update pnpm packageExtensions ${plural ? 'entries' : 'entry'} automatically (${detail}); upgrading would silently drop ${plural ? 'those extensions' : 'that extension'}. Update packageExtensions in pnpm-workspace.yaml / package.json manually or configure an \`upgrade\` command in .grafts/config.json`,
+          'install/package-extensions',
+        );
+      }
+    }
 
     if (pm === 'pnpm' && names.length) {
       // Check unmoved `catalog:` references before writing pnpm-workspace.yaml or running
@@ -128,6 +143,14 @@ export const npmEcosystem: Ecosystem = {
           `${list} ${plural ? 'are transitive dependencies' : 'is a transitive dependency'} (not declared in dependencies, devDependencies or optionalDependencies of any workspace manifest, and no matching top-level ${field} entry pins the installed version); upgrading ${plural ? 'them' : 'it'} with ${pm} would promote ${plural ? 'them' : 'it'} into root dependencies or leave ${plural ? 'them' : 'it'} behind. Pin ${plural ? 'them' : 'it'} in ${field}, configure an \`upgrade\` command in .grafts/config.json, or use the \`vendor\` applier`,
           'install/transitive',
         );
+      }
+    }
+
+    if (pm === 'pnpm' && updates.length) {
+      const { renamed } = await updatePnpmPackageExtensions(project.root, updates);
+      if (renamed.length) {
+        const locs = [...new Set(renamed.map((r) => r.location))].join(' and ');
+        steps.push(`rename ${renamed.map((r) => `${r.fromKey} → ${r.toKey}`).join(', ')} in ${locs}`);
       }
     }
 

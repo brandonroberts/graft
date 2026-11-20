@@ -370,10 +370,16 @@ Every adapter MUST follow these rules:
 ### 9.1 The `patch` mechanism
 
 A variant is a git-style patch with package-relative paths, applied to the published package.
-Every hunk is an anchor (fuzz 0; position may shift), and a created file MUST NOT already exist
-upstream. An *applier* makes the package manager apply it (pnpm, npm ≥ 12, bun and yarn 2+
-natively; a built-in `postinstall` applier; patch-package; or a vendored tarball). Details: the
-README's *Mechanisms* section.
+Every hunk is an anchor (fuzz 0; position may shift within the selected applier's hunk offset
+window — ±20 lines for `pnpm`, `yarn`, and `patch-package`, unlimited for Graft's built-in
+applier — and a hunk exceeding that limit fails anchor and apply checks so `sync` hands it to an
+agent rather than failing during install), and a created file MUST NOT already exist upstream.
+When a removed target file matches a content-hashed bundler chunk rename in the new version
+(same directory, stem, separator, and extension with a changed hash segment, ranked by
+content), `scopeDiff` diffs the old chunk against the renamed counterpart (`newFile`) instead of
+dumping the entire removed file. An *applier* makes the package manager apply the variant (pnpm,
+npm ≥ 12, bun and yarn 2+ natively; a built-in `postinstall` applier; patch-package; or a
+vendored tarball). Details: the README's *Mechanisms* section.
 
 ### 9.2 The `fork` mechanism
 
@@ -463,13 +469,16 @@ it.
 
 ### 10.1 npm
 
-- **Pristine:** `npm pack <pkg>@<version>`, run from the project root so its `.npmrc` applies,
-  or `ecosystems.npm.upstream` (alias `upstream`).
+- **Pristine:** `npm pack <pkg>@<version>`, run from the project root so its `.npmrc` applies
+  (with `npm_config_min_release_age=0` so read-only tarball inspection is not blocked by a local
+  `.npmrc` cooldown), or `ecosystems.npm.upstream` (alias `upstream`).
 - **Versions:** `npm view <pkg> versions dist-tags`. When the project configures a release-age
-  cooldown (`.npmrc` `min-release-age` in days or `pnpm-workspace.yaml` `minimumReleaseAge` in
-  minutes, honoring `minimumReleaseAgeExclude`), Graft also requests `time` and filters out
-  versions younger than the cooldown (falling back `latest` to the highest eligible stable version)
-  so `outdated` does not recommend releases `npm pack` / pnpm will refuse.
+  cooldown (`.npmrc` `min-release-age` in days with `min-release-age-exclude[]`, or
+  `pnpm-workspace.yaml` `minimumReleaseAge` in minutes with `minimumReleaseAgeExclude`), Graft
+  also requests `time` and filters out versions younger than the cooldown (falling back `latest`
+  to the highest eligible stable version) so `outdated` does not recommend releases the package
+  manager will refuse. When `pnpm-workspace.yaml` sets `minimumReleaseAge`, pnpm's cooldown and
+  exclusions govern over `.npmrc`.
 - **Installed copy:** `node_modules/<pkg>` walking up from the project root (or
   `ecosystems.npm.resolveFrom`), or through Plug'n'Play.
 - **Install and appliers:** §8 and §9.1. pnpm installs with `pnpm update -r <pkg>@<T> …`, except
@@ -479,7 +488,12 @@ it.
   `pnpm update` would replace the manifests' `catalog:` references with the literal version.
   Entries pinning anything else (such as a peer range) are left alone; if a package declared via
   `catalog:` / `catalog:<name>` in any workspace manifest has no catalog entry moved, Graft fails
-  loudly with `install/catalog` instead of falling back to `pnpm update`. Before invoking the
+  loudly with `install/catalog` instead of falling back to `pnpm update`. For pnpm
+  `packageExtensions` (in `pnpm-workspace.yaml` or root `package.json` `pnpm.packageExtensions`),
+  Graft renames exact-pinned keys (`<pkg>@<installed>` → `<pkg>@<T>`) when `<pkg>@<T>` is not
+  already present, fails loudly with `install/package-extensions` when a range-pinned key matches
+  the installed version but not `T`, and warns during `check` if a stale version-pinned key
+  matches no installed version while the installed copy has no covering entry. Before invoking the
   package manager, Graft also updates any existing top-level override/resolution (`overrides` in
   `pnpm-workspace.yaml` or `package.json`, `pnpm.overrides`, or `resolutions`) that pins the
   installed version (keeping its prefix and formatting): for a direct dependency this keeps the

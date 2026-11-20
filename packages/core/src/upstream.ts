@@ -248,11 +248,14 @@ async function npm(args: string[], cwd: string): Promise<string> {
       timeout: 5 * 60_000,
       shell: process.platform === 'win32',
       // A project pinned to another package manager (Corepack or devEngines.packageManager)
-      // must not stop us from asking npm for read-only registry metadata/tarballs.
+      // or with a .npmrc min-release-age must not stop us from asking npm for read-only
+      // registry metadata/tarballs (cooldown filtering happens in versions(), and installs
+      // still enforce the project's policy).
       env: {
         ...process.env,
         COREPACK_ENABLE_STRICT: '0',
         npm_config_force: 'true',
+        npm_config_min_release_age: '0',
         npm_config_update_notifier: 'false',
         npm_config_fund: 'false',
       },
@@ -354,32 +357,44 @@ export class NpmUpstreamSource implements UpstreamSource {
 const DAY_MS = 24 * 60 * 60_000;
 const MINUTE_MS = 60_000;
 
-/** Project release-age cooldown settings from `.npmrc` and `pnpm-workspace.yaml` (#75). */
+/** Project release-age cooldown settings from `.npmrc` and `pnpm-workspace.yaml` (#75, #78). */
 export interface NpmReleaseAgePolicy {
   /** Cooldown from `.npmrc` (`min-release-age`, days) or `npm_config_min_release_age`, in ms. */
   npmMs?: number;
+  /** Exemption patterns from `.npmrc` `min-release-age-exclude[]` / `min-release-age-exclude`. */
+  npmExclude?: string[];
   /** Cooldown from `pnpm-workspace.yaml` (`minimumReleaseAge`, minutes), in ms. */
   pnpmMs?: number;
   /** Exemption patterns from `pnpm-workspace.yaml` `minimumReleaseAgeExclude`. */
   pnpmExclude?: string[];
 }
 
-function parseNpmrcMinReleaseAgeDays(text: string): number | undefined {
+function parseNpmrcReleaseAge(text: string): { days?: number; exclude: string[] } {
   let days: number | undefined;
+  const exclude: string[] = [];
   for (const raw of text.split('\n')) {
     const line = raw.trim();
     if (!line || line.startsWith('#') || line.startsWith(';')) continue;
-    const m = /^min-release-age\s*=\s*(.+)$/.exec(line);
-    if (!m) continue;
-    const value = m[1]!
-      .replace(/\s+[#;].*$/, '')
-      .trim()
-      .replace(/^["']|["']$/g, '');
-    const n = Number(value);
-    if (Number.isFinite(n) && n > 0) days = n;
-    else if (value === '0' || value === 'false') days = 0;
+    const stripVal = (s: string) =>
+      s
+        .replace(/\s+[#;].*$/, '')
+        .trim()
+        .replace(/^["']|["']$/g, '');
+    const mDays = /^min-release-age\s*=\s*(.+)$/.exec(line);
+    if (mDays) {
+      const value = stripVal(mDays[1]!);
+      const n = Number(value);
+      if (Number.isFinite(n) && n > 0) days = n;
+      else if (value === '0' || value === 'false') days = 0;
+      continue;
+    }
+    const mExcl = /^min-release-age-exclude(?:\[\])?\s*=\s*(.+)$/.exec(line);
+    if (mExcl) {
+      const value = stripVal(mExcl[1]!);
+      if (value) exclude.push(value);
+    }
   }
-  return days;
+  return { days, exclude };
 }
 
 const PROJECT_BOUNDARIES = ['pnpm-workspace.yaml', 'pnpm-lock.yaml', 'package-lock.json', 'yarn.lock', 'bun.lock', 'bun.lockb', '.git'];
@@ -398,12 +413,13 @@ export function readNpmReleaseAgePolicy(root: string): NpmReleaseAgePolicy {
 
   let dir = path.resolve(root);
   for (;;) {
-    if (policy.npmMs === undefined) {
+    if (policy.npmMs === undefined || policy.npmExclude === undefined) {
       const npmrc = path.join(dir, '.npmrc');
       if (existsSync(npmrc)) {
         try {
-          const days = parseNpmrcMinReleaseAgeDays(readFileSync(npmrc, 'utf8'));
-          if (days !== undefined) policy.npmMs = days > 0 ? days * DAY_MS : 0;
+          const parsed = parseNpmrcReleaseAge(readFileSync(npmrc, 'utf8'));
+          if (policy.npmMs === undefined && parsed.days !== undefined) policy.npmMs = parsed.days > 0 ? parsed.days * DAY_MS : 0;
+          if (policy.npmExclude === undefined && parsed.exclude.length) policy.npmExclude = parsed.exclude;
         } catch {
           // ignore unreadable .npmrc
         }
@@ -434,7 +450,7 @@ export function readNpmReleaseAgePolicy(root: string): NpmReleaseAgePolicy {
   return policy;
 }
 
-/** True when a `minimumReleaseAgeExclude` pattern (`pkg`, `pkg@version`, `@scope/*`, `pkg@1.*`) matches `pkg@version`. */
+/** True when a `minimumReleaseAgeExclude` / `min-release-age-exclude[]` pattern (`pkg`, `pkg@version`, `@scope/*`, `pkg@1.*`) matches `pkg@version`. */
 export function matchesReleaseAgeExclude(pattern: string, pkg: string, version: string): boolean {
   const trimmed = pattern.trim();
   if (!trimmed) return false;
@@ -446,9 +462,11 @@ export function matchesReleaseAgeExclude(pattern: string, pkg: string, version: 
 }
 
 /**
- * Filter npm `versions` and `distTags` by a project's release-age cooldown policy (#75).
+ * Filter npm `versions` and `distTags` by a project's release-age cooldown policy (#75, #78).
+ * When `pnpm-workspace.yaml` sets `minimumReleaseAge`, pnpm's cooldown and exclusions govern
+ * (so `.npmrc` settings kept for npm consumers do not override `minimumReleaseAgeExclude`).
  * When `latest` is blocked by the cooldown, falls back to the highest eligible stable version
- * `<= latest` so `graft outdated` only recommends versions `npm pack` / pnpm will accept.
+ * `<= latest` so `graft outdated` only recommends versions the package manager will accept.
  */
 export function filterVersionsByReleaseAge(
   pkg: string,
@@ -458,10 +476,9 @@ export function filterVersionsByReleaseAge(
 ): PackageVersions {
   const time = data.time ?? {};
   const isEligible = (v: string): boolean => {
-    const npmMs = policy.npmMs ?? 0;
     const pnpmExcluded = (policy.pnpmExclude ?? []).some((pat) => matchesReleaseAgeExclude(pat, pkg, v));
-    const pnpmMs = pnpmExcluded ? 0 : (policy.pnpmMs ?? 0);
-    const cooldownMs = Math.max(npmMs, pnpmMs);
+    const npmExcluded = (policy.npmExclude ?? []).some((pat) => matchesReleaseAgeExclude(pat, pkg, v));
+    const cooldownMs = policy.pnpmMs !== undefined ? (pnpmExcluded ? 0 : policy.pnpmMs) : npmExcluded ? 0 : (policy.npmMs ?? 0);
     if (cooldownMs <= 0) return true;
     const raw = time[v];
     if (!raw) return true;

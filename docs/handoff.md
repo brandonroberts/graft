@@ -306,7 +306,7 @@ Graft keeps three of its own CommonJS dependencies converted to native ESM, as r
 
 ## 15. Open work
 
-**Released:** 0.1.0 and 0.1.1 are on npm (`@graftsync/*`, tags `v0.1.0`, `v0.1.1`). #1, #3, #15, #16 and #18 are done.
+**Released:** `0.3.0` is on npm (`@graftsync/*`, tag `v0.3.0`). #1, #3, #15, #16, #18 and #58–#80 are done. Validated against `openclaw/openclaw` (16 pnpm 12 patches), which surfaced and fixed: applier hunk offset limits (±20 lines for pnpm, yarn berry and patch-package, #77); `.npmrc` `min-release-age-exclude[]`, pnpm cooldown precedence and read-only `npm pack` cooldown bypass (#78); pnpm `packageExtensions` key updates/warnings (`install/package-extensions`, #79); content-hashed bundler chunk rename matching in `graft diff` and CLI unknown-flag / extra-positional rejection (#80).
 
 - **#4:** real-agent evaluation (needs agent and API credentials). This is the most important unanswered question. angular-tr's 7 conflicting pages are a ready test case.
 - **#5:** a design partner. angular-tr is ready to pitch (`examples/angular-tr`, 0.1.1); contacting its maintainer is the owner's call.
