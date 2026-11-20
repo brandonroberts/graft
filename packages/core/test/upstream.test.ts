@@ -206,4 +206,61 @@ describe('release-age cooldown filtering (.npmrc min-release-age / pnpm minimumR
     }
     expect((await readFile(logFile, 'utf8')).trim()).toBe('view demo versions dist-tags time --json');
   });
+
+  it('parses .npmrc min-release-age-exclude[] and lets pnpm minimumReleaseAgeExclude govern over .npmrc (#78)', async () => {
+    const { filterVersionsByReleaseAge, readNpmReleaseAgePolicy } = await import('../src/upstream.js');
+    const root = await mkdtemp(path.join(os.tmpdir(), 'graft-npmrc-excl-'));
+    await writeFile(
+      path.join(root, '.npmrc'),
+      [
+        'min-release-age=7',
+        'min-release-age-exclude[]=@openai/codex',
+        'min-release-age-exclude[]=@openai/codex-*',
+        'min-release-age-exclude=bare-pkg@2.0.0',
+      ].join('\n') + '\n',
+    );
+    const npmOnly = readNpmReleaseAgePolicy(root);
+    expect(npmOnly).toEqual({
+      npmMs: 7 * 24 * 60 * 60_000,
+      npmExclude: ['@openai/codex', '@openai/codex-*', 'bare-pkg@2.0.0'],
+    });
+
+    const now = Date.parse('2026-11-20T00:00:00.000Z');
+    const data = {
+      versions: ['1.0.0', '2.0.0'],
+      distTags: { latest: '2.0.0' },
+      time: {
+        '1.0.0': '2026-10-01T00:00:00.000Z',
+        '2.0.0': '2026-11-19T00:00:00.000Z', // 1 day old
+      },
+    };
+    expect(filterVersionsByReleaseAge('@openai/codex-cli', data, npmOnly, now).distTags.latest).toBe('2.0.0');
+    expect(filterVersionsByReleaseAge('bare-pkg', data, npmOnly, now).distTags.latest).toBe('2.0.0');
+    expect(filterVersionsByReleaseAge('other-pkg', data, npmOnly, now).distTags.latest).toBe('1.0.0');
+
+    // When pnpm-workspace.yaml also sets minimumReleaseAge, its exclusions govern over .npmrc.
+    await writeFile(path.join(root, 'pnpm-workspace.yaml'), 'minimumReleaseAge: 10080\nminimumReleaseAgeExclude:\n  - "@solidjs/*"\n');
+    const both = readNpmReleaseAgePolicy(root);
+    expect(filterVersionsByReleaseAge('@solidjs/web', data, both, now).distTags.latest).toBe('2.0.0');
+    expect(filterVersionsByReleaseAge('other-pkg', data, both, now).distTags.latest).toBe('1.0.0');
+  });
+
+  it('passes npm_config_min_release_age=0 to read-only npm pack so .npmrc cooldowns do not break checks (#78)', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'graft-pack-age-'));
+    await writeFile(path.join(root, '.npmrc'), 'min-release-age=7\n');
+    await writeFile(path.join(root, 'package.json'), JSON.stringify({ name: 'app' }));
+    const binDir = path.join(root, 'fake-bin');
+    const envLog = path.join(root, 'env.log');
+    await mkdir(binDir, { recursive: true });
+    await writeFile(path.join(binDir, 'npm'), `#!/bin/sh\necho "age=$npm_config_min_release_age" > "${envLog}"\nexit 1\n`, { mode: 0o755 });
+    const source = new NpmUpstreamSource({ root, cacheDir: path.join(root, 'cache') });
+    const prevPath = process.env.PATH ?? '';
+    process.env.PATH = `${binDir}${path.delimiter}${prevPath}`;
+    try {
+      await expect(source.resolve('@solidjs/web', '2.0.3')).rejects.toThrow(/could not fetch/);
+    } finally {
+      process.env.PATH = prevPath;
+    }
+    expect((await readFile(envLog, 'utf8')).trim()).toBe('age=0');
+  });
 });

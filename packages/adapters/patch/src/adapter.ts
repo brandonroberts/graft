@@ -4,6 +4,7 @@ import path from 'node:path';
 import {
   distinctiveText,
   GraftError,
+  isHashedChunkRename,
   rankFilesByContent,
   readInstalledFiles,
   renderPatch,
@@ -32,6 +33,7 @@ import {
 import { selectApplier, type ApplierConfig } from './appliers.js';
 import { applyToInstalledCopy, findInstalledCopies } from './installed.js';
 import { captureInstalledChanges } from './capture.js';
+import { pnpmPackageExtensionWarnings } from './pnpm.js';
 import type { Project } from '@graftsync/core';
 
 /** The applier for a graft (config `mechanisms.patch.applier`, else from its ecosystem's tooling). */
@@ -72,8 +74,13 @@ async function readIn(dir: string, file: string): Promise<string | undefined> {
   return existsSync(full) ? readFile(full, 'utf8') : undefined;
 }
 
-/** Anchors of a patch: every hunk must fit exactly; created files must not already exist. */
-function hunkAnchors(patch: FilePatch, content: string | undefined): AnchorResult[] {
+interface HunkOffsetLimit {
+  limit: number;
+  applier: string;
+}
+
+/** Anchors of a patch: every hunk must fit exactly (and within the applier's offset window); created files must not already exist. */
+function hunkAnchors(patch: FilePatch, content: string | undefined, maxOffset?: HunkOffsetLimit): AnchorResult[] {
   const file = patchTarget(patch);
   if (patch.oldFile === null) {
     return [
@@ -102,11 +109,20 @@ function hunkAnchors(patch: FilePatch, content: string | undefined): AnchorResul
     if (content === undefined) return { ...base, matched: false, error: 'file missing' };
     const m = locateHunk(content, hunk);
     if (!m.occurrences) return { ...base, matched: false, error: 'context or removed lines not found' };
+    const drift = m.offset ? `found ${m.offset > 0 ? '+' : ''}${m.offset} lines from the header position` : undefined;
+    if (m.offset !== undefined && maxOffset && Math.abs(m.offset) > maxOffset.limit) {
+      return {
+        ...base,
+        matched: false,
+        location: { line: m.line!, column: 1, start: 0, end: 0 },
+        error: `${drift} (exceeds ${maxOffset.applier}'s ±${maxOffset.limit}-line hunk offset limit; rebase into a new variant)`,
+      };
+    }
     return {
       ...base,
       matched: true,
       location: { line: m.line!, column: 1, start: 0, end: 0 },
-      error: m.offset ? `found ${m.offset > 0 ? '+' : ''}${m.offset} lines from the header position` : undefined,
+      error: drift,
     };
   });
 }
@@ -154,16 +170,19 @@ export function createPatchAdapter(): MechanismAdapter {
       }
       let patches: FilePatch[];
       let dir: string;
+      let maxOffset: HunkOffsetLimit | undefined;
       try {
         patches = await loadPatch(graft, report.variant);
         dir = await project.upstreamFor(graft).resolve(pkg, version);
+        const applier = applierFor(project, graft);
+        if (applier.maxHunkOffset !== undefined) maxOffset = { limit: applier.maxHunkOffset, applier: applier.name };
       } catch (err) {
         report.errors.push((err as Error).message);
         return report;
       }
       for (const p of patches) {
         const content = await readIn(dir, patchTarget(p));
-        const anchors = hunkAnchors(p, content);
+        const anchors = hunkAnchors(p, content, maxOffset);
         report.anchors.push(...anchors);
         // Hunks can each fit yet fail together (ordering); confirm the whole file applies.
         if (content !== undefined && p.oldFile && anchors.every((a) => a.matched) && applyFilePatch(content, p) === false) {
@@ -187,8 +206,9 @@ export function createPatchAdapter(): MechanismAdapter {
       const upstream = project.upstreamFor(graft);
       const installed = await upstream.installed(pkg);
       if (installed?.version !== version) return { errors: [] };
-      const errors = await applierFor(project, graft).problems(project.root, pkg, version, variant.path, { upstream, project });
-      const warnings: string[] = [];
+      const applier = applierFor(project, graft);
+      const errors = await applier.problems(project.root, pkg, version, variant.path, { upstream, project });
+      const warnings: string[] = applier.name === 'pnpm' ? await pnpmPackageExtensionWarnings(project.root, pkg, version) : [];
       // Whatever the configuration says, check what actually got installed: each patched file
       // must equal pristine upstream + this variant. Catches patches dropped silently.
       // Under Plug'n'Play the installed copy lives in a zip archive, read through the PnP runtime.
@@ -251,9 +271,12 @@ export function createPatchAdapter(): MechanismAdapter {
       }
       let patches: FilePatch[];
       let dir: string;
+      let maxOffset: HunkOffsetLimit | undefined;
       try {
         patches = await loadPatch(graft, result.variant);
         dir = await project.upstreamFor(graft).resolve(pkg, version);
+        const applier = applierFor(project, graft);
+        if (applier.maxHunkOffset !== undefined) maxOffset = { limit: applier.maxHunkOffset, applier: applier.name };
       } catch (err) {
         result.errors.push((err as Error).message);
         return result;
@@ -261,6 +284,20 @@ export function createPatchAdapter(): MechanismAdapter {
       for (const p of patches) {
         const file = patchTarget(p);
         const content = await readIn(dir, file);
+        if (maxOffset && p.oldFile !== null && content !== undefined) {
+          const exceeded = p.hunks
+            .map((h, i) => ({ index: i + 1, match: locateHunk(content, h) }))
+            .find((x) => x.match.occurrences > 0 && x.match.offset !== undefined && Math.abs(x.match.offset) > maxOffset!.limit);
+          if (exceeded) {
+            const off = exceeded.match.offset!;
+            result.files.push({
+              file,
+              changed: false,
+              error: `hunk #${exceeded.index} shifted by ${off > 0 ? '+' : ''}${off} lines (exceeds ${maxOffset.applier}'s ±${maxOffset.limit}-line offset limit)`,
+            });
+            continue;
+          }
+        }
         let output: string | false;
         if (p.oldFile === null) output = content === undefined ? applyFilePatch('', p) : false;
         else output = content === undefined ? false : applyFilePatch(content, p);
@@ -304,8 +341,7 @@ export function createPatchAdapter(): MechanismAdapter {
           name: `${file}#${i + 1}`,
           old: [h.oldStart, h.oldStart + Math.max(h.oldLines - 1, 0)] as [number, number],
         }));
-        const scoped = scopeFileDiff({ file, oldText, newText, regions, window: 10 });
-        if (scoped.status === 'removed' && filePatch?.hunks.length) {
+        if (oldText !== undefined && newText === undefined && filePatch?.hunks.length) {
           // Point at where the patched code went: files in `to` holding the hunks' old side.
           const text = distinctiveText(
             filePatch.hunks.flatMap((h) => h.lines.filter((l) => l[0] === ' ' || l[0] === '-').map((l) => l.slice(1))),
@@ -313,9 +349,26 @@ export function createPatchAdapter(): MechanismAdapter {
           const ext = path.extname(file);
           const include = ext && !/^\.(c|m)?js$/.test(ext) ? new RegExp(`(\\.(c|m)?js|${ext.replace('.', '\\.')})$`) : undefined;
           const candidates = await rankFilesByContent(toDir, { ...text, include });
+          const renamed = candidates.find((c) => isHashedChunkRename(file, c));
+          const renamedText = renamed ? await readIn(toDir, renamed) : undefined;
+          if (renamed && renamedText !== undefined) {
+            const renamedRegions = filePatch.hunks.map((h, i) => {
+              const m = locateHunk(renamedText, h);
+              return {
+                name: `${file}#${i + 1}`,
+                old: [h.oldStart, h.oldStart + Math.max(h.oldLines - 1, 0)] as [number, number],
+                ...(m.occurrences > 0 && m.line ? { new: [m.line, m.line + Math.max(h.oldLines - 1, 0)] as [number, number] } : {}),
+              };
+            });
+            files.push(scopeFileDiff({ file, newFile: renamed, oldText, newText: renamedText, regions: renamedRegions, window: 10 }));
+            continue;
+          }
+          const scoped = scopeFileDiff({ file, oldText, newText, regions, window: 10 });
           if (candidates.length) scoped.candidates = candidates;
+          files.push(scoped);
+          continue;
         }
-        files.push(scoped);
+        files.push(scopeFileDiff({ file, oldText, newText, regions, window: 10 }));
       }
       return { graft: graft.id, package: pkg, from, to, files, patch: renderPatch(files, { from: `${pkg}@${from}`, to: `${pkg}@${to}` }) };
     },

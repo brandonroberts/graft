@@ -102,6 +102,8 @@ export interface DiffHunk {
 
 export interface ScopedFileDiff {
   file: string;
+  /** New path when a removed target matched a renamed file (e.g. a content-hashed bundler chunk). */
+  newFile?: string;
   status: 'modified' | 'unchanged' | 'added' | 'removed';
   /** Total hunks in the full file diff. */
   totalHunks: number;

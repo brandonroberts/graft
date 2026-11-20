@@ -7,6 +7,7 @@ import {
   addGraft,
   checkAnchors,
   DirectoryUpstreamSource,
+  isHashedChunkRename,
   Project,
   projectStatus,
   recordVariant,
@@ -24,6 +25,7 @@ import {
   pnpmApplier,
   pnpmConfigProblems,
   pnpmMajor,
+  pnpmPackageExtensionWarnings,
 } from '../src/index.js';
 
 const V1 = `const a = 1\nconst b = 2\nmodule.exports = { a, b }\n`;
@@ -770,5 +772,175 @@ describe('pnpm 11+ and multi-version workspaces (#68, #70)', () => {
     await pnpmApplier.configure(root, 'acorn', '8.12.0', acornVariant);
     expect(await readFile(path.join(root, 'pnpm-workspace.yaml'), 'utf8')).toContain('acorn: .grafts/acorn-fix/variants/v8.patch');
     expect(await pnpmApplier.problems(root, 'acorn', '8.12.0', acornVariant)).toEqual([]);
+  });
+
+  it('warns when pnpm packageExtensions has stale version-pinned keys (#79)', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'graft-pnpm-ext-warn-'));
+    await writeFile(
+      path.join(root, 'pnpm-workspace.yaml'),
+      'packages:\n  - .\npackageExtensions:\n  "playwright-core@1.64.1":\n    dependencies:\n      acorn: 8.19.0\n  baileys:\n    peerDependenciesMeta:\n      sharp:\n        optional: true\n',
+    );
+    await writeFile(path.join(root, 'package.json'), JSON.stringify({ name: 'app', packageManager: 'pnpm@12.15.0' }));
+
+    // Matching version: no warning.
+    expect(await pnpmPackageExtensionWarnings(root, 'playwright-core', '1.64.1')).toEqual([]);
+    // Bare key: covers every version, no warning.
+    expect(await pnpmPackageExtensionWarnings(root, 'baileys', '7.0.0')).toEqual([]);
+    // Upgraded version with stale pin: warns loudly.
+    const warnings = await pnpmPackageExtensionWarnings(root, 'playwright-core', '1.65.0');
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatch(/playwright-core@1\.64\.1.*does not match installed playwright-core@1\.65\.0/);
+
+    // If the older version is also still installed in .pnpm, no false warning.
+    await mkdir(path.join(root, 'node_modules/.pnpm/playwright-core@1.64.1'), { recursive: true });
+    await mkdir(path.join(root, 'node_modules/.pnpm/playwright-core@1.65.0'), { recursive: true });
+    expect(await pnpmPackageExtensionWarnings(root, 'playwright-core', '1.65.0')).toEqual([]);
+  });
+});
+
+describe('applier hunk offset limits (#77)', () => {
+  it('fails checkAnchors, apply, and sync when hunk drift exceeds pnpm ±20-line limit, and passes within ±20 or under graft applier', async () => {
+    const { root, upstream } = await fixture('1.0.0');
+    await writeFile(path.join(root, 'pnpm-workspace.yaml'), 'packages:\n  - .\n');
+    await writeFile(path.join(root, 'package.json'), JSON.stringify({ name: 'app', packageManager: 'pnpm@12.15.0' }));
+
+    const makeShifted = async (version: string, extraLines: number) => {
+      const dir = path.join(root, 'upstream', version);
+      await mkdir(dir, { recursive: true });
+      await writeFile(path.join(dir, 'package.json'), JSON.stringify({ name: 'lib', version }));
+      const pad = Array.from({ length: extraLines }, (_, i) => `// pad ${i + 1}`).join('\n') + '\n';
+      await writeFile(path.join(dir, 'index.js'), pad + V1);
+      (upstream as unknown as { dirs: Record<string, Record<string, string>> }).dirs.lib![version] = dir;
+    };
+    await makeShifted('1.1.0', 20);
+    await makeShifted('1.2.0', 22);
+
+    const project = await Project.open({ root, adapters: [patchAdapter], upstream });
+    const graft = await project.get('add-c');
+
+    // +20 lines: right at pnpm's limit, still passes.
+    const at20 = await patchAdapter.checkAnchors(project.context(graft), '1.1.0');
+    expect(at20.ok).toBe(true);
+    expect(at20.anchors[0]?.error).toContain('+20 lines');
+    const apply20 = await patchAdapter.apply(project.context(graft), { version: '1.1.0' });
+    expect(apply20.ok).toBe(true);
+
+    // +22 lines: exceeds pnpm's ±20-line limit, fails checkAnchors, apply, and sync --dry-run.
+    const at22 = await patchAdapter.checkAnchors(project.context(graft), '1.2.0');
+    expect(at22.ok).toBe(false);
+    expect(at22.anchors[0]?.matched).toBe(false);
+    expect(at22.anchors[0]?.location?.line).toBe(23);
+    expect(at22.anchors[0]?.error).toMatch(/\+22 lines.*pnpm.*±20-line hunk offset limit/);
+
+    const apply22 = await patchAdapter.apply(project.context(graft), { version: '1.2.0' });
+    expect(apply22.ok).toBe(false);
+    expect(apply22.files[0]?.error).toMatch(/\+22 lines.*pnpm.*±20-line offset limit/);
+
+    const report = await sync(project, { version: '1.2.0', dryRun: true, writeReport: false });
+    expect(report.exitCode).toBe(1);
+    expect(report.grafts[0]?.outcome).toBe('needs-agent');
+
+    // Under Graft's own built-in applier (unlimited offset), +22 lines still succeeds.
+    await writeFile(path.join(root, '.grafts/config.json'), JSON.stringify({ mechanisms: { patch: { applier: 'graft' } } }));
+    const graftApplierProject = await Project.open({ root, adapters: [patchAdapter], upstream });
+    const graftGraft = await graftApplierProject.get('add-c');
+    expect((await patchAdapter.checkAnchors(graftApplierProject.context(graftGraft), '1.2.0')).ok).toBe(true);
+    expect((await patchAdapter.apply(graftApplierProject.context(graftGraft), { version: '1.2.0' })).ok).toBe(true);
+  });
+});
+
+describe('hashed bundler chunk renames in scoped diff (#80)', () => {
+  it('recognizes hashed bundler chunk renames without false positives on normal words', () => {
+    expect(isHashedChunkRename('dist/chunks/cac.CLrZKo1g.js', 'dist/chunks/cac.BYbt0aJp.js')).toBe(true);
+    expect(isHashedChunkRename('dist/chunks/plugin.d.C8mmycim.d.ts', 'dist/chunks/plugin.d.LRFSN46m.d.ts')).toBe(true);
+    expect(isHashedChunkRename('dist/chunk-a1b2c3d4.mjs', 'dist/chunk-e5f6a7b8.mjs')).toBe(true);
+    expect(isHashedChunkRename('dist/foo.client.js', 'dist/foo.server.js')).toBe(false);
+    expect(isHashedChunkRename('dist/chunks/cac.CLrZKo1g.js', 'lib/chunks/cac.BYbt0aJp.js')).toBe(false);
+    expect(isHashedChunkRename('dist/chunks/cac.CLrZKo1g.js', 'dist/chunks/run.BYbt0aJp.js')).toBe(false);
+  });
+
+  it('diffs a renamed hashed chunk against its new counterpart instead of dumping the whole file as deleted', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'graft-chunk-rename-'));
+    const body = (extra: string) =>
+      [
+        ...Array.from({ length: 30 }, (_, i) => `const top${i} = ${i};`),
+        'function parseArgs(argv) {',
+        '  const flag = argv[0];',
+        `  return flag${extra};`,
+        '}',
+        ...Array.from({ length: 30 }, (_, i) => `const bot${i} = ${i};`),
+      ].join('\n') + '\n';
+
+    const v1 = path.join(root, 'up/1.0.0');
+    const v2 = path.join(root, 'up/1.1.0');
+    await mkdir(path.join(v1, 'dist/chunks'), { recursive: true });
+    await mkdir(path.join(v2, 'dist/chunks'), { recursive: true });
+    await writeFile(path.join(v1, 'package.json'), JSON.stringify({ name: 'bundler-lib', version: '1.0.0' }));
+    await writeFile(path.join(v2, 'package.json'), JSON.stringify({ name: 'bundler-lib', version: '1.1.0' }));
+    await writeFile(path.join(v1, 'dist/chunks/cac.CLrZKo1g.js'), body(''));
+    await writeFile(path.join(v2, 'dist/chunks/cac.BYbt0aJp.js'), body(' ?? ""').replace('const top0 = 0;', 'const top0 = 999;'));
+
+    const gDir = path.join(root, '.grafts/cac-fix');
+    await mkdir(path.join(gDir, 'variants'), { recursive: true });
+    await writeFile(
+      path.join(gDir, 'variants/v1.patch'),
+      [
+        'diff --git a/dist/chunks/cac.CLrZKo1g.js b/dist/chunks/cac.CLrZKo1g.js',
+        '--- a/dist/chunks/cac.CLrZKo1g.js',
+        '+++ b/dist/chunks/cac.CLrZKo1g.js',
+        '@@ -31,4 +31,4 @@',
+        ' function parseArgs(argv) {',
+        '   const flag = argv[0];',
+        '-  return flag;',
+        '+  return flag.trim();',
+        ' }',
+        '',
+      ].join('\n'),
+    );
+    await writeFile(
+      path.join(gDir, 'graft.md'),
+      `---
+id: cac-fix
+rootstock:
+  package: bundler-lib
+  verified: 1.0.0
+mechanism: patch
+status: applied
+variants:
+  - range: ">=1.0.0"
+    module: ./variants/v1.patch
+---
+## Why
+Trim parsed flag.
+## Invariants
+Parsed flags are trimmed.
+## Where to look
+The parseArgs helper in the cac chunk.
+## Anchors
+The parseArgs return statement.
+## History
+- 2026-01-01: created
+`,
+    );
+
+    const upstream = new DirectoryUpstreamSource({ 'bundler-lib': { '1.0.0': v1, '1.1.0': v2 } }, { 'bundler-lib': '1.0.0' });
+    const project = await Project.open({ root, adapters: [patchAdapter], upstream });
+    const graft = await project.get('cac-fix');
+    const diff = await patchAdapter.scopeDiff(project.context(graft), '1.0.0', '1.1.0');
+
+    expect(diff.files).toHaveLength(1);
+    expect(diff.files[0]).toMatchObject({
+      file: 'dist/chunks/cac.CLrZKo1g.js',
+      newFile: 'dist/chunks/cac.BYbt0aJp.js',
+      status: 'modified',
+      totalHunks: 2,
+      narrowed: true,
+    });
+    expect(diff.files[0]!.hunks).toHaveLength(1);
+    expect(diff.patch).toContain('--- a/dist/chunks/cac.CLrZKo1g.js\t(bundler-lib@1.0.0)');
+    expect(diff.patch).toContain('+++ b/dist/chunks/cac.BYbt0aJp.js\t(bundler-lib@1.1.0)');
+    expect(diff.patch).toContain('# renamed: dist/chunks/cac.CLrZKo1g.js -> dist/chunks/cac.BYbt0aJp.js');
+    expect(diff.patch).toContain('# narrowed: showing 1 of 2 hunks');
+    expect(diff.patch).not.toContain('const top0 = 999');
   });
 });

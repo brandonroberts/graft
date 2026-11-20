@@ -3,6 +3,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { activePnpmLockVersions } from '@graftsync/core';
+import { semverScheme } from '@graftsync/spec';
 import { parseDocument } from 'yaml';
 
 export const WORKSPACE_FILE = 'pnpm-workspace.yaml';
@@ -222,4 +223,59 @@ export async function configurePnpmPatch(
 
 function relativePosix(from: string, to: string): string {
   return path.relative(from, to).split(path.sep).join('/');
+}
+
+/**
+ * Warnings for stale version-pinned `packageExtensions` entries targeting `pkg` (#79):
+ * if `pnpm-workspace.yaml` or `package.json` `pnpm.packageExtensions` has a pinned key
+ * `<pkg>@<spec>` that matches no currently installed version of `pkg` and no entry covers
+ * `version`, warn so the user notices a silently dropped extension.
+ */
+export async function pnpmPackageExtensionWarnings(root: string, pkg: string, version: string): Promise<string[]> {
+  const workspaceRoot = findPnpmWorkspaceRoot(root) ?? path.resolve(root);
+  const installed = new Set([version, ...installedPnpmVersions(workspaceRoot, pkg)]);
+  const entries: { key: string; location: string }[] = [];
+
+  const wsFile = path.join(workspaceRoot, WORKSPACE_FILE);
+  if (existsSync(wsFile)) {
+    try {
+      const doc = parseDocument(await readFile(wsFile, 'utf8'));
+      const ext = (doc.get('packageExtensions', false) as { toJSON?: () => unknown } | undefined)?.toJSON?.();
+      if (ext && typeof ext === 'object' && !Array.isArray(ext)) {
+        for (const key of Object.keys(ext)) {
+          if (keyMatches(key, pkg)) entries.push({ key, location: `${WORKSPACE_FILE} packageExtensions` });
+        }
+      }
+    } catch {
+      // ignore unreadable workspace file
+    }
+  }
+
+  const manifest = await readManifest(workspaceRoot).catch(() => undefined);
+  const manifestExt = manifest?.json.pnpm?.packageExtensions as Record<string, unknown> | undefined;
+  if (manifestExt && typeof manifestExt === 'object' && !Array.isArray(manifestExt)) {
+    for (const key of Object.keys(manifestExt)) {
+      if (keyMatches(key, pkg)) entries.push({ key, location: 'package.json pnpm.packageExtensions' });
+    }
+  }
+
+  if (!entries.length) return [];
+  const coversVersion = entries.some(({ key }) => {
+    if (key === pkg) return true;
+    const spec = key.slice(pkg.length + 1);
+    return spec === version || semverScheme.satisfies(version, spec);
+  });
+  if (coversVersion) return [];
+
+  const warnings: string[] = [];
+  for (const { key, location } of entries) {
+    const spec = key.slice(pkg.length + 1);
+    const matchesAnyInstalled = [...installed].some((v) => v === spec || semverScheme.satisfies(v, spec));
+    if (!matchesAnyInstalled) {
+      warnings.push(
+        `${location}["${key}"] does not match installed ${pkg}@${version} (no installed version of ${pkg} matches "${spec}"); update or remove it`,
+      );
+    }
+  }
+  return warnings;
 }

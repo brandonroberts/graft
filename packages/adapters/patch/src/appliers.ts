@@ -55,6 +55,11 @@ export interface ApplierContext {
 
 export interface PatchApplier {
   name: ApplierName;
+  /**
+   * Maximum line-number drift from a hunk header that this applier accepts when locating hunks.
+   * Undefined means unlimited (Graft's built-in applier searches the entire file).
+   */
+  maxHunkOffset?: number;
   /** Problems that would make the package manager apply something other than `variantPath`, or fail silently. */
   problems(root: string, pkg: string, version: string, variantPath: string, ctx?: ApplierContext): Promise<string[]>;
   /**
@@ -135,6 +140,7 @@ async function writeManifest(m: { file: string; text: string; json: Record<strin
 
 export const pnpmApplier: PatchApplier = {
   name: 'pnpm',
+  maxHunkOffset: 20,
   problems: (root, pkg, version, variantPath) => pnpmConfigProblems(root, pkg, variantPath, version),
   async configure(root, pkg, version, variantPath) {
     const r = await configurePnpmPatch(root, pkg, variantPath, version);
@@ -291,6 +297,7 @@ const DEP_FIELDS = ['dependencies', 'devDependencies', 'optionalDependencies'] a
  */
 export const yarnApplier: PatchApplier = {
   name: 'yarn',
+  maxHunkOffset: 20,
   async problems(root, pkg, version, variantPath) {
     const installRoot = manifestRoot(root);
     const problems: string[] = [];
@@ -362,6 +369,7 @@ export function toPatchPackageFormat(variant: string, pkg: string): string {
 
 export const patchPackageApplier: PatchApplier = {
   name: 'patch-package',
+  maxHunkOffset: 20,
   async problems(root, pkg, version, variantPath) {
     const installRoot = manifestRoot(root);
     const dir = path.join(installRoot, PATCH_PACKAGE_DIR);

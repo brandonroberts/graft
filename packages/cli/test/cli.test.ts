@@ -206,4 +206,27 @@ describe('graft sync: output of the commands it runs', () => {
     expect(quiet.code, quiet.err).toBe(0);
     expect(quiet.err).not.toContain('migrating');
   });
+
+  it('rejects unknown CLI flags and unexpected positional arguments with exit 2 (#80)', async () => {
+    const { graft } = await fixture();
+
+    const unknownLong = graft('diff', 'add-c', '--from=1.0.0', '--to=2.0.0');
+    expect(unknownLong.code).toBe(2);
+    expect(unknownLong.err).toContain('unknown option "--from"');
+
+    const unknownShort = graft('status', '-z');
+    expect(unknownShort.code).toBe(2);
+    expect(unknownShort.err).toContain('unknown option "-z"');
+
+    const extraPos = graft('sync', 'add-c', '--dry-run');
+    expect(extraPos.code).toBe(2);
+    expect(extraPos.err).toContain('unexpected argument: "add-c"');
+
+    // Negated boolean flags and string option values starting with "-" remain valid.
+    const negated = graft('sync', '--dry-run', '--no-quiet', '--json');
+    expect(negated.code).not.toBe(2);
+    expect(negated.err).not.toContain('unknown option');
+    const dashVal = graft('mark', 'add-c', '--history', '- noted change');
+    expect(dashVal.code, dashVal.err).toBe(0);
+  });
 });
