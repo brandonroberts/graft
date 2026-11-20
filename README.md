@@ -247,15 +247,15 @@ This repo uses it on itself: [`.claude/skills/graft-sync`](.claude/skills/graft-
 ## GitHub Action
 
 [`packages/action`](packages/action) runs the loop, from a scheduled or manually triggered workflow. It first runs `graft check` on the installed tree, and fails the job by default if any graft isn't actually applied. Then:
-1. Poll each rootstock package's npm dist-tags.
-2. Run `graft sync --install` on a branch per package@version.
+1. Poll each rootstock package's registry versions (honoring release-age cooldowns).
+2. Pre-check with `graft sync --dry-run` (skipping unchanged dependency variants by default; set `on-unchanged: pr` to upgrade them too), then run `graft sync --install` on a branch per package@version.
 3. If green, open a PR.
 4. If a graft needs an agent, run your `agent-command` (with the prompt, skill and report; the agent uses the `graft` CLI), then re-run `sync` on the agent's work. Green opens a PR; still failing opens a draft PR. With no agent, or nothing to commit, it opens an issue with the report.
 
 ```yaml
-      - uses: brandonroberts/graft/packages/action@v0.2.9   # a release tag, matching the CLI
+      - uses: brandonroberts/graft/packages/action@v0.3.2   # a release tag, matching the CLI
         with:
-          graft-command: npx -y @graftsync/cli@0.2.9          # omit if the project depends on @graftsync/cli
+          graft-command: npx -y @graftsync/cli@0.3.2          # omit if the project depends on @graftsync/cli
           tags: latest                                        # stable releases only; the default also proposes prereleases
           agent-command: ''   # optional: any agent CLI; see packages/action/README.md
 ```
@@ -263,7 +263,7 @@ This repo uses it on itself: [`.claude/skills/graft-sync`](.claude/skills/graft-
 In ordinary CI, check the grafts right after installing. It needs no action:
 
 ```yaml
-      - run: npx -y @graftsync/cli@0.2.9 check   # or: npx graft check, if the project depends on it
+      - run: npx -y @graftsync/cli@0.3.2 check   # or: npx graft check, if the project depends on it
 ```
 
 This repo runs it on itself, triggered manually ([`.github/workflows/graft-sync.yml`](.github/workflows/graft-sync.yml)). Its first real (dry) run found yaml **3.0.0-2** on `next`. That release is native ESM, so the `yaml-esm` patch correctly no longer applies, because upstream has absorbed the graft. The action routes that to a human through an issue.
@@ -518,8 +518,6 @@ Releases use [Changesets](https://github.com/changesets/changesets). All `@graft
 The CLI package ships this README: packing `@graftsync/cli` writes it into the package with its relative links pointed at the release's `v<version>` tag on GitHub, and its images at the packed commit (`tools/package-readme`), and fails on a link to a path that doesn't exist. Images can't wait for the tag: Release tags only after publishing, and npmjs.com fetches and caches README images when it first renders the package.
 
 Prerequisites (done): the `graftsync` npm organization exists, and an npm token that can publish to it is set as the `NPM_TOKEN` repository secret. Without the secret, the workflow skips the release step.
-
-The packages start at 0.1.0, which is not on npm yet, so the first manual run with no changesets publishes 0.1.0 as is.
 
 ## Roadmap
 

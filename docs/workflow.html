@@ -7,7 +7,7 @@ svg text{fill:#1f2328}
 .m{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px}
 .lbl{font-size:12.5px;font-weight:600}
 </style></head><body>
-<svg id="d" xmlns="http://www.w3.org/2000/svg" width="1320" height="1040" viewBox="0 0 1320 1040">
+<svg id="d" xmlns="http://www.w3.org/2000/svg" width="1340" height="1060" viewBox="0 0 1340 1060">
 <defs>
   <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#57606a"/></marker>
   <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#bc4c00"/></marker>
@@ -27,81 +27,86 @@ svg text{fill:#1f2328}
 <text x="40" y="68" class="s">Deterministic path in blue · agent path in orange · nothing is pushed</text>
 
 <!-- start -->
-<rect x="470" y="96" width="300" height="44" rx="22" class="box"/>
+<rect x="460" y="96" width="320" height="44" rx="22" class="box"/>
 <text x="620" y="124" text-anchor="middle" class="t">Upstream releases version X</text>
 <path d="M620 140 V172" class="ln" marker-end="url(#a)"/>
-<rect x="400" y="174" width="440" height="56" rx="10" class="det"/>
+<rect x="330" y="174" width="580" height="58" rx="10" class="det"/>
 <text x="620" y="198" text-anchor="middle" class="m">graft sync --version X --install</text>
-<text x="620" y="219" text-anchor="middle" class="s">manually, or from the GitHub Action</text>
-<path d="M620 230 V262" class="ln" marker-end="url(#a)"/>
+<text x="620" y="220" text-anchor="middle" class="s">manually, or from the GitHub Action (preflights --dry-run; skips unchanged by default)</text>
+<path d="M620 232 V262" class="ln" marker-end="url(#a)"/>
 
 <!-- static checks -->
-<rect x="300" y="264" width="640" height="112" rx="10" class="det"/>
+<rect x="260" y="264" width="720" height="114" rx="10" class="det"/>
 <text x="620" y="292" text-anchor="middle" class="t">1 · Static checks on the pristine upstream at X</text>
-<text x="620" y="317" text-anchor="middle" class="s">patch: the published package · fork: the upstream source tag</text>
-<text x="620" y="339" text-anchor="middle" class="s">select the variant for X (semver range) · locate every anchor (fuzz 0)</text>
+<text x="620" y="317" text-anchor="middle" class="s">patch: published package (npm, Cargo, Go, PyPI) · fork: upstream source tag</text>
+<text x="620" y="339" text-anchor="middle" class="s">select variant (semver / PEP 440) · locate anchors (fuzz 0, applier offset limit)</text>
 <text x="620" y="361" text-anchor="middle" class="s">apply to a scratch copy · flag "likely upstreamed"</text>
 
 <!-- left column -->
-<path d="M400 376 V438" class="lg" marker-end="url(#ag)"/>
-<text x="410" y="414" class="lbl" style="fill:#1a7f37">all anchors fit</text>
-<rect x="150" y="440" width="500" height="150" rx="10" class="det"/>
-<text x="400" y="468" text-anchor="middle" class="t">2 · Install X</text>
-<text x="400" y="494" text-anchor="middle" class="s">patch: pnpm · npm ≥12 · bun · yarn berry (native)</text>
-<text x="400" y="515" text-anchor="middle" class="s">or graft postinstall (npm &lt;12, yarn classic) · vendor (upm)</text>
-<text x="400" y="536" text-anchor="middle" class="s">fork: rebase → build → npm pack → vendored tarball</text>
-<text x="400" y="557" text-anchor="middle" class="s">fork repo mode: nothing installed</text>
-<text x="400" y="578" text-anchor="middle" class="s">(static failure? nothing is installed)</text>
-<path d="M400 590 V632" class="ln" marker-end="url(#a)"/>
-<rect x="150" y="634" width="500" height="96" rx="10" class="det"/>
-<text x="400" y="662" text-anchor="middle" class="t">3 · Record</text>
-<text x="400" y="688" text-anchor="middle" class="s">Graft checks fit, not behavior: no tests run here</text>
-<text x="400" y="709" text-anchor="middle" class="s">repo mode: materialize the rebased checkout</text>
-<path d="M400 730 V782" class="lg" marker-end="url(#ag)"/>
-<text x="410" y="762" class="lbl" style="fill:#1a7f37">fits</text>
-<rect x="150" y="784" width="500" height="106" rx="10" class="ok"/>
-<text x="400" y="812" text-anchor="middle" class="t">✓ Green · exit 0</text>
-<text x="400" y="838" text-anchor="middle" class="s">rootstock.verified := X, History entry added</text>
-<text x="400" y="859" text-anchor="middle" class="s">repo mode: local branch graft/&lt;id&gt;/X</text>
-<text x="400" y="878" text-anchor="middle" class="s">your CI checks behavior on the PR</text>
+<path d="M350 378 V438" class="lg" marker-end="url(#ag)"/>
+<text x="360" y="414" class="lbl" style="fill:#1a7f37">all anchors fit</text>
+<rect x="80" y="440" width="540" height="168" rx="10" class="det"/>
+<text x="350" y="468" text-anchor="middle" class="t">2 · Install X</text>
+<text x="350" y="494" text-anchor="middle" class="s">npm: pnpm · npm ≥12 · bun · yarn berry · graft postinstall · vendor</text>
+<text x="350" y="515" text-anchor="middle" class="s">Cargo: cargo-vendor · Go: go-replace · PyPI: wheel-vendor</text>
+<text x="350" y="536" text-anchor="middle" class="s">fork: rebase → build → npm pack · repo mode: nothing installed</text>
+<text x="350" y="557" text-anchor="middle" class="s">or project upgrade command (with siblings &amp; needsAgentIf)</text>
+<text x="350" y="578" text-anchor="middle" class="s">(static failure? nothing is installed)</text>
+
+<!-- needsAgentIf handoff from Install X to Needs-agent -->
+<path d="M620 584 H718" class="lr" marker-end="url(#ar)"/>
+<text x="669" y="575" text-anchor="middle" class="lbl" style="fill:#bc4c00">needsAgentIf</text>
+
+<path d="M350 608 V646" class="ln" marker-end="url(#a)"/>
+<rect x="80" y="648" width="540" height="94" rx="10" class="det"/>
+<text x="350" y="676" text-anchor="middle" class="t">3 · Record</text>
+<text x="350" y="702" text-anchor="middle" class="s">Graft checks fit, not behavior: no tests run here</text>
+<text x="350" y="723" text-anchor="middle" class="s">repo mode: materialize the rebased checkout</text>
+<path d="M350 742 V788" class="lg" marker-end="url(#ag)"/>
+<text x="360" y="771" class="lbl" style="fill:#1a7f37">fits</text>
+<rect x="80" y="790" width="540" height="106" rx="10" class="ok"/>
+<text x="350" y="818" text-anchor="middle" class="t">✓ Green · exit 0</text>
+<text x="350" y="844" text-anchor="middle" class="s">rootstock.verified := X, History entry added</text>
+<text x="350" y="865" text-anchor="middle" class="s">repo mode: local branch graft/&lt;id&gt;/X</text>
+<text x="350" y="884" text-anchor="middle" class="s">your CI checks behavior on the PR</text>
 
 <!-- right column -->
-<path d="M860 376 V418" class="lr" marker-end="url(#ar)"/>
-<text x="870" y="402" class="lbl" style="fill:#bc4c00">anchor miss / won't apply</text>
-<polygon points="860,420 950,460 860,500 770,460" class="box"/>
-<text x="860" y="456" text-anchor="middle" class="lbl">generator</text>
-<text x="860" y="472" text-anchor="middle" class="lbl">set?</text>
-<path d="M950 460 H1028" class="ln" marker-end="url(#a)"/>
-<text x="972" y="452" class="lbl">yes</text>
-<rect x="1030" y="424" width="250" height="72" rx="10" class="det"/>
-<text x="1155" y="452" text-anchor="middle" class="t" style="font-size:15px">Regenerate variant</text>
-<text x="1155" y="474" text-anchor="middle" class="s">rolled back if any step fails</text>
-<path d="M1155 424 V320 H942" class="ln" marker-end="url(#a)"/>
-<text x="1165" y="380" class="lbl">re-check</text>
-<path d="M860 500 V560" class="lr" marker-end="url(#ar)"/>
-<text x="870" y="536" class="lbl" style="fill:#bc4c00">no</text>
+<path d="M890 378 V418" class="lr" marker-end="url(#ar)"/>
+<text x="900" y="402" class="lbl" style="fill:#bc4c00">anchor miss / won't apply</text>
+<polygon points="890,420 980,460 890,500 800,460" class="box"/>
+<text x="890" y="456" text-anchor="middle" class="lbl">generator</text>
+<text x="890" y="472" text-anchor="middle" class="lbl">set?</text>
+<path d="M980 460 H1058" class="ln" marker-end="url(#a)"/>
+<text x="1002" y="452" class="lbl">yes</text>
+<rect x="1060" y="424" width="240" height="72" rx="10" class="det"/>
+<text x="1180" y="452" text-anchor="middle" class="t" style="font-size:15px">Regenerate variant</text>
+<text x="1180" y="474" text-anchor="middle" class="s">rolled back if any step fails</text>
+<path d="M1180 424 V320 H982" class="ln" marker-end="url(#a)"/>
+<text x="1190" y="380" class="lbl">re-check</text>
+<path d="M890 500 V560" class="lr" marker-end="url(#ar)"/>
+<text x="900" y="536" class="lbl" style="fill:#bc4c00">no</text>
 
-<rect x="700" y="562" width="420" height="120" rx="10" class="agent"/>
-<text x="910" y="590" text-anchor="middle" class="t">Needs-agent · exit 1</text>
-<text x="910" y="616" text-anchor="middle" class="s">.grafts/.report/sync.md: reasons, missed anchors</text>
-<text x="910" y="637" text-anchor="middle" class="s">scoped diff: only upstream changes near the graft</text>
-<text x="910" y="658" text-anchor="middle" class="s">plus a "likely upstreamed" hint when it applies</text>
-<path d="M910 682 V728" class="lr" marker-end="url(#ar)"/>
+<rect x="720" y="562" width="460" height="124" rx="10" class="agent"/>
+<text x="950" y="590" text-anchor="middle" class="t">Needs-agent · exit 1</text>
+<text x="950" y="616" text-anchor="middle" class="s">.grafts/.report/sync.md: reasons, missed anchors</text>
+<text x="950" y="637" text-anchor="middle" class="s">scoped diff: upstream changes near the graft (tracks chunk renames)</text>
+<text x="950" y="658" text-anchor="middle" class="s">plus a "likely upstreamed" hint when it applies</text>
+<path d="M950 686 V732" class="lr" marker-end="url(#ar)"/>
 
-<rect x="700" y="730" width="420" height="160" rx="10" class="agent"/>
-<text x="910" y="758" text-anchor="middle" class="t">Agent (graft-sync skill)</text>
-<text x="910" y="784" text-anchor="middle" class="s">graft show → Why · Invariants · Where to look</text>
-<text x="910" y="805" text-anchor="middle" class="s">write a NEW variant (never edit old ones)</text>
-<text x="910" y="826" text-anchor="middle" class="s">patch: new .patch · fork: new branch on the new tag</text>
-<text x="910" y="847" text-anchor="middle" class="m">graft variant add … --verify-version X</text>
-<text x="910" y="870" text-anchor="middle" class="s">verify Invariants with the project's tests</text>
-<path d="M1120 810 H1300 V202 H842" class="lr" marker-end="url(#ar)"/>
-<text x="1240" y="196" class="lbl" style="fill:#bc4c00">re-run sync</text>
+<rect x="720" y="734" width="460" height="162" rx="10" class="agent"/>
+<text x="950" y="762" text-anchor="middle" class="t">Agent (graft-sync skill)</text>
+<text x="950" y="788" text-anchor="middle" class="s">graft show → Why · Invariants · Where to look</text>
+<text x="950" y="809" text-anchor="middle" class="s">write a NEW variant (never edit old ones)</text>
+<text x="950" y="830" text-anchor="middle" class="s">patch: new .patch · fork: new branch on the new tag</text>
+<text x="950" y="851" text-anchor="middle" class="m">graft variant add … --verify-version X</text>
+<text x="950" y="874" text-anchor="middle" class="s">verify Invariants with the project's tests</text>
+<path d="M1180 815 H1316 V203 H912" class="lr" marker-end="url(#ar)"/>
+<text x="1250" y="196" class="lbl" style="fill:#bc4c00">re-run sync</text>
 
 <!-- CI -->
-<path d="M400 890 V938" class="ln" marker-end="url(#a)"/>
-<rect x="150" y="940" width="970" height="64" rx="10" class="box"/>
-<text x="635" y="967" text-anchor="middle" class="t"><tspan class="m" style="font-size:15px;font-weight:600">graft check</tspan> in CI</text>
-<text x="635" y="990" text-anchor="middle" class="s">variants still fit · installed files really are patched · exit 2 on tooling errors</text>
+<path d="M350 896 V950" class="ln" marker-end="url(#a)"/>
+<rect x="80" y="952" width="1100" height="68" rx="10" class="box"/>
+<text x="630" y="980" text-anchor="middle" class="t"><tspan class="m" style="font-size:15px;font-weight:600">graft check</tspan> in CI</text>
+<text x="630" y="1004" text-anchor="middle" class="s">variants still fit · installed files (incl. nested copies) really are patched · exit 1 on mismatch · exit 2 on tooling errors</text>
 </svg>
 </body></html>
