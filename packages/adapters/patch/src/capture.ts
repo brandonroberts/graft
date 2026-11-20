@@ -20,6 +20,8 @@ import { applyFilePatch, parsePatchFile, patchTarget } from './patchfile.js';
 /** Directories and files that are never part of the package as published. */
 const SKIP_DIRS = new Set(['node_modules', '__pycache__', 'target']);
 const skipFile = (name: string) => name === '.cargo-ok' || name.endsWith('.pyc');
+/** Publish-generated metadata inside a .crate archive (and cargo vendor), never a user patch. */
+const CARGO_METADATA = new Set(['.cargo_vcs_info.json', 'Cargo.toml.orig', '.cargo-checksum.json']);
 
 /** Files of a package directory, relative and sorted (build output and caches left out). */
 async function packageFiles(dir: string, rel = ''): Promise<string[]> {
@@ -113,10 +115,13 @@ export async function captureInstalledChanges(ctx: GraftContext, version: string
       'capture/read-only',
     );
   }
-  const { before, after } =
+  const raw =
     ecosystem === 'pypi'
       ? await wheelFiles(pristineDir, installed.dir)
       : { before: await packageFiles(pristineDir), after: await packageFiles(installed.dir) };
+  const keep = (f: string) => ecosystem !== 'cargo' || !CARGO_METADATA.has(f);
+  const before = raw.before.filter(keep);
+  const after = raw.after.filter(keep);
   const files = [...new Set([...before, ...after])].sort();
   const parts: string[] = [];
   const binary: string[] = [];

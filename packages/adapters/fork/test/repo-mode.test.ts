@@ -9,6 +9,7 @@ import path from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { addGraft, outdated, Project, sync } from '@graftsync/core';
 import { forkAdapter, resetFetchCache } from '../src/index.js';
+import { mergeToBranch } from '../src/git.js';
 
 const gitIn = (cwd: string, ...args: string[]) =>
   execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'init.defaultBranch=main', ...args], {
@@ -433,5 +434,39 @@ describe('graft add for repo mode', () => {
     expect(md).toContain('upstream: https://example.com/tool.git');
     expect(md).toContain('track: main');
     expect(md).toContain('install: none');
+  });
+
+  it('mergeToBranch falls back without --merge-base (git 2.38–2.39) (#60)', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'graft-merge-fallback-'));
+    gitIn(dir, 'init', '-q');
+    // Unrelated histories: base, ours, and theirs share no commit ancestry.
+    await writeFile(path.join(dir, 'a.txt'), 'line 1\nline 2\n');
+    await writeFile(path.join(dir, 'b.txt'), 'keep\n');
+    gitIn(dir, 'add', '.');
+    gitIn(dir, 'commit', '-q', '-m', 'base');
+    const base = gitIn(dir, 'rev-parse', 'HEAD').trim();
+
+    gitIn(dir, 'checkout', '--orphan', 'ours-side');
+    await writeFile(path.join(dir, 'a.txt'), 'line 1\nupstream edit\n');
+    await writeFile(path.join(dir, 'b.txt'), 'keep\n');
+    gitIn(dir, 'add', '.');
+    gitIn(dir, 'commit', '-q', '-m', 'ours');
+    const ours = gitIn(dir, 'rev-parse', 'HEAD').trim();
+
+    gitIn(dir, 'checkout', '--orphan', 'theirs-side');
+    await writeFile(path.join(dir, 'a.txt'), 'line 1\nfork edit\n');
+    await writeFile(path.join(dir, 'b.txt'), 'fork clean change\n');
+    gitIn(dir, 'add', '.');
+    gitIn(dir, 'commit', '-q', '-m', 'theirs');
+    const theirs = gitIn(dir, 'rev-parse', 'HEAD').trim();
+
+    const conflicts = await mergeToBranch(dir, base, ours, theirs, 'result-fallback', 'merge', { useMergeBase: false });
+    expect(conflicts).toEqual(['a.txt']);
+    const mergedA = gitIn(dir, 'show', 'result-fallback:a.txt');
+    expect(mergedA).toContain('<<<<<<<');
+    expect(mergedA).toContain('upstream edit');
+    expect(mergedA).toContain('fork edit');
+    expect(gitIn(dir, 'show', 'result-fallback:b.txt')).toBe('fork clean change\n');
+    expect(gitIn(dir, 'rev-parse', 'result-fallback^').trim()).toBe(ours);
   });
 });

@@ -235,10 +235,22 @@ export async function mergeToBranch(
   theirs: string,
   branch: string,
   message: string,
+  options: { useMergeBase?: boolean } = {},
 ): Promise<string[]> {
-  const r = await git(dir, ['merge-tree', '--write-tree', '--name-only', '--no-messages', `--merge-base=${base}`, ours, theirs], {
-    allowFail: true,
-  });
+  let r =
+    options.useMergeBase === false
+      ? { ok: false, stdout: '', stderr: 'unknown option `merge-base' }
+      : await git(dir, ['merge-tree', '--write-tree', '--name-only', '--no-messages', `--merge-base=${base}`, ours, theirs], {
+          allowFail: true,
+        });
+  if (!r.ok && /unknown option.*merge-base/i.test(r.stderr)) {
+    // git 2.38–2.39 supports `merge-tree --write-tree` but not `--merge-base` (added in 2.40).
+    // Two ephemeral commits sharing `base` as their sole parent give the same three-way merge.
+    const baseCommit = (await git(dir, ['rev-parse', `${base}^{commit}`])).stdout.trim();
+    const fakeOurs = (await git(dir, [...IDENTITY, 'commit-tree', `${ours}^{tree}`, '-p', baseCommit, '-m', 'ours'])).stdout.trim();
+    const fakeTheirs = (await git(dir, [...IDENTITY, 'commit-tree', `${theirs}^{tree}`, '-p', baseCommit, '-m', 'theirs'])).stdout.trim();
+    r = await git(dir, ['merge-tree', '--write-tree', '--name-only', '--no-messages', fakeOurs, fakeTheirs], { allowFail: true });
+  }
   const [tree, ...rest] = r.stdout.split('\n');
   if (!tree || !/^[0-9a-f]{40,64}$/.test(tree.trim()))
     throw new GraftError(`git merge-tree failed: ${r.stderr.trim() || r.stdout.trim()}`, 'fork/git');
