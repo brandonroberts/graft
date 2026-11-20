@@ -151,13 +151,72 @@ describe('packages released with the rootstock (siblings)', () => {
     expect([await version('lib'), await version('plugin')]).toEqual(['1.1.0', '1.0.0']);
   });
 
-  it('fails loudly, installing nothing, when a sibling is not published at the target', async () => {
-    const { project, version } = await fixture({ lib: ['1.0.0', '1.1.0'], plugin: ['1.0.0'] });
+  it('fails loudly, installing nothing and leaving package-manager config untouched, when a sibling is not published at the target (#89)', async () => {
+    const { project, root, version } = await fixture({ lib: ['1.0.0', '1.1.0'], plugin: ['1.0.0'] });
+    const manifestBefore = await readFile(path.join(root, 'package.json'), 'utf8');
     const report = await sync(project, { version: '1.1.0', install: true, writeReport: false });
     expect(report.exitCode).toBe(2);
     expect(report.grafts[0]!.reasons.join('\n')).toMatch(
       /plugin is released with lib \(same repository, installed at 1\.0\.0\) but not published at 1\.1\.0/,
     );
     expect([await version('lib'), await version('plugin')]).toEqual(['1.0.0', '1.0.0']);
+    // beforeInstall must not have mutated package.json (e.g. adding postinstall) before sibling validation failed.
+    expect(await readFile(path.join(root, 'package.json'), 'utf8')).toBe(manifestBefore);
+  });
+
+  it('resolves workspace sibling candidates from resolveFrom and ignores unrelated multi-version pnpm store entries (#89)', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'graft-siblings-pnpm-'));
+    const wsPkg = path.join(root, 'packages/app');
+    await mkdir(path.join(wsPkg, 'node_modules/lib'), { recursive: true });
+    await mkdir(path.join(wsPkg, 'node_modules/plugin'), { recursive: true });
+    await mkdir(path.join(wsPkg, 'node_modules/trace'), { recursive: true });
+    await mkdir(path.join(root, 'node_modules/.pnpm/trace@0.3.31/node_modules/trace'), { recursive: true });
+    await mkdir(path.join(root, 'node_modules/.pnpm/trace@0.3.9/node_modules/trace'), { recursive: true });
+    await mkdir(path.join(root, 'node_modules/.pnpm/other@1.0.0/node_modules/other'), { recursive: true });
+    await mkdir(path.join(root, 'node_modules/.pnpm/other@2.0.0/node_modules/other'), { recursive: true });
+
+    await writeFile(
+      path.join(root, 'package.json'),
+      JSON.stringify({ name: 'monorepo', private: true, devDependencies: { other: '^1.0.0' } }),
+    );
+    await writeFile(path.join(root, 'pnpm-workspace.yaml'), 'packages:\n  - packages/*\n');
+    await writeFile(
+      path.join(wsPkg, 'package.json'),
+      JSON.stringify({ name: 'app', dependencies: { lib: '1.0.0', plugin: '1.0.0', trace: '0.3.31' } }),
+    );
+    await writeFile(
+      path.join(wsPkg, 'node_modules/lib/package.json'),
+      JSON.stringify({ name: 'lib', version: '1.0.0', repository: 'acme/kit' }),
+    );
+    await writeFile(
+      path.join(wsPkg, 'node_modules/plugin/package.json'),
+      JSON.stringify({ name: 'plugin', version: '1.0.0', repository: 'github:acme/kit' }),
+    );
+    await writeFile(
+      path.join(wsPkg, 'node_modules/trace/package.json'),
+      JSON.stringify({ name: 'trace', version: '0.3.31', repository: 'acme/trace' }),
+    );
+    await writeFile(
+      path.join(root, 'node_modules/.pnpm/trace@0.3.31/node_modules/trace/package.json'),
+      JSON.stringify({ name: 'trace', version: '0.3.31' }),
+    );
+    await writeFile(
+      path.join(root, 'node_modules/.pnpm/trace@0.3.9/node_modules/trace/package.json'),
+      JSON.stringify({ name: 'trace', version: '0.3.9' }),
+    );
+    await writeFile(
+      path.join(root, 'node_modules/.pnpm/other@1.0.0/node_modules/other/package.json'),
+      JSON.stringify({ name: 'other', version: '1.0.0' }),
+    );
+    await writeFile(
+      path.join(root, 'node_modules/.pnpm/other@2.0.0/node_modules/other/package.json'),
+      JSON.stringify({ name: 'other', version: '2.0.0' }),
+    );
+
+    await mkdir(path.join(root, '.grafts'), { recursive: true });
+    await writeFile(path.join(root, '.grafts/config.json'), JSON.stringify({ resolveFrom: { lib: 'packages/app' } }));
+
+    const project = await Project.open({ root, adapters: [patchAdapter] });
+    expect(await findSiblings(project, 'lib')).toEqual(['plugin']);
   });
 });
