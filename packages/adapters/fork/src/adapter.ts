@@ -561,38 +561,50 @@ export function createForkAdapter(): MechanismAdapter {
         if (oid === b.refOid) evidence.push(`${b.file}: upstream ${targetLabel(cfg, version)} already has the fork's version`);
       }
       if (absorbed && report.anchors.some((a) => !a.matched)) report.upstreamed = { evidence };
+      report.ok = report.errors.length === 0 && report.anchors.every((a) => a.matched);
+      return report;
+    },
 
-      const installed = isStandalone(graft) ? undefined : await project.upstream.installed(pkg);
-      if (installed?.version === version && report.anchors.every((a) => a.matched)) {
-        const vctx = vendorContext(project);
-        report.errors.push(
-          ...(await vendoredTarballProblems(
-            vctx,
-            pkg,
-            version,
-            tarballBuilder(project, graft, version, change),
-            `the fork's ${change.variant.ref} rebased onto ${targetLabel(cfg, version)}`,
-          )),
-        );
-        // Whatever the configuration says, the installed files must be the vendored package's.
-        const tarball = path.join(vctx.graftRoot, VENDOR_DIR, vendorFileName(pkg, version));
-        if (existsSync(tarball)) {
-          const expected = await tarballContents(tarball);
-          // package.json is skipped: some package managers rewrite it on install (the version is
-          // already checked); every other packed file must be byte-identical.
-          const files = [...expected.keys()]
-            .filter((k) => k.startsWith('package/') && k !== 'package/package.json')
-            .map((k) => k.slice('package/'.length));
-          const actual = await readInstalledFiles(installed, files);
-          for (const f of files) {
-            if (actual[f] !== expected.get(`package/${f}`)!.toString('utf8')) {
-              report.errors.push(`installed ${pkg}@${version} ${f} is not the vendored fork build; run \`graft apply\` (or reinstall)`);
-            }
+    async checkInstalled(ctx: GraftContext, version: string) {
+      const { project, graft } = ctx;
+      if (isStandalone(graft)) return { errors: [] };
+      const pkg = graft.frontmatter.rootstock.package;
+      const installed = await project.upstream.installed(pkg);
+      if (installed?.version !== version) return { errors: [] };
+      const variant = project.selectVariant(graft, version);
+      if (!variant) return { errors: [] };
+      let change: ForkChange;
+      try {
+        change = await forkChange(project, graft, variant);
+      } catch {
+        return { errors: [] };
+      }
+      const cfg = forkConfig(graft);
+      const vctx = vendorContext(project);
+      const errors = await vendoredTarballProblems(
+        vctx,
+        pkg,
+        version,
+        tarballBuilder(project, graft, version, change),
+        `the fork's ${change.variant.ref} rebased onto ${targetLabel(cfg, version)}`,
+      );
+      // Whatever the configuration says, the installed files must be the vendored package's.
+      const tarball = path.join(vctx.graftRoot, VENDOR_DIR, vendorFileName(pkg, version));
+      if (existsSync(tarball)) {
+        const expected = await tarballContents(tarball);
+        // package.json is skipped: some package managers rewrite it on install (the version is
+        // already checked); every other packed file must be byte-identical.
+        const files = [...expected.keys()]
+          .filter((k) => k.startsWith('package/') && k !== 'package/package.json')
+          .map((k) => k.slice('package/'.length));
+        const actual = await readInstalledFiles(installed, files);
+        for (const f of files) {
+          if (actual[f] !== expected.get(`package/${f}`)!.toString('utf8')) {
+            errors.push(`installed ${pkg}@${version} ${f} is not the vendored fork build; run \`graft apply\` (or reinstall)`);
           }
         }
       }
-      report.ok = report.errors.length === 0 && report.anchors.every((a) => a.matched);
-      return report;
+      return { errors };
     },
 
     async apply(ctx: GraftContext, options = {}): Promise<ApplyResult> {

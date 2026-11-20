@@ -292,11 +292,45 @@ export async function sync(project: Project, options: SyncOptions = {}): Promise
           installError = (err as Error).message;
         }
       }
+    } else if (!standalone && installedBefore === version && ready.length && ready.some((s) => s.result.regenerated) && options.install) {
+      // A generator produced a new variant for the already-installed version: wire the package
+      // manager to it and reinstall so the installed tree uses the new variant.
+      try {
+        for (const s of ready) await project.adapterFor(s.graft).beforeInstall?.(project.context(s.graft), version);
+        target.installCommand = await eco.reinstall(project);
+        for (const s of ready) await project.adapterFor(s.graft).afterInstall?.(project.context(s.graft), version);
+      } catch (err) {
+        installError = (err as Error).message;
+      }
     }
     if (installError) {
       for (const s of ready) {
         s.result.outcome = 'error';
         s.result.reasons.push(installError);
+      }
+    }
+
+    // Verify that the installed configuration and files actually apply the selected variant when
+    // verifying the already-installed version (skipped on dry-run regeneration, which doesn't install).
+    const checkInstalledNow = !standalone && !installError && installedBefore === version;
+    if (checkInstalledNow) {
+      for (const s of ready.filter((s) => s.result.outcome === 'green')) {
+        if (s.result.regenerated && options.dryRun) continue;
+        const adapter = project.adapterFor(s.graft);
+        if (!adapter.checkInstalled) continue;
+        const installed = await adapter.checkInstalled(project.context(s.graft), version);
+        if (installed.warnings?.length && s.result.anchors) {
+          (s.result.anchors.warnings ??= []).push(...installed.warnings);
+        }
+        if (installed.errors.length) {
+          if (s.result.anchors) {
+            s.result.anchors.errors.push(...installed.errors);
+            s.result.anchors.ok = false;
+          }
+          s.result.reasons.push(`anchors: ${installed.errors.join('; ')}`);
+          s.result.outcome = 'needs-agent';
+          await markNeedsAgent(project, s.graft, s.result);
+        }
       }
     }
 

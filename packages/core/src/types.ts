@@ -227,13 +227,27 @@ export interface Workspace {
   dispose(): Promise<void>;
 }
 
+export interface InstalledCheckReport {
+  /** Configuration or installed-copy problems (fail `graft check` and `sync` at the installed version). */
+  errors: string[];
+  /** Checks that could not be made (e.g. installed files unreadable under PnP); they do not fail the check. */
+  warnings?: string[];
+}
+
 /** A mechanism (build transform, patch file, vendored copy, fork) that applies grafts. */
 export interface MechanismAdapter {
   name: string;
   /** Apply the matching variant for the resolved upstream version. */
   apply(ctx: GraftContext, options?: ApplyOptions): Promise<ApplyResult>;
-  /** Report which anchors match/miss in the target upstream version. */
+  /** Report which anchors match/miss in the pristine upstream at `version` (static checks only). */
   checkAnchors(ctx: GraftContext, version: string): Promise<AnchorReport>;
+  /**
+   * Verify that the project's configuration and installed copy at `version` actually apply the
+   * selected variant (e.g. package-manager patch config and installed files vs pristine + variant).
+   * Separate from `checkAnchors` so static callers (`replay`, `variant add --verify-version`)
+   * never fail on local install state.
+   */
+  checkInstalled?(ctx: GraftContext, version: string): Promise<InstalledCheckReport>;
   /** Diff only the upstream regions this graft targets, between two versions. */
   scopeDiff(ctx: GraftContext, from: string, to: string): Promise<ScopedDiff>;
   /**

@@ -2,7 +2,14 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { detectPackageManager, DirectoryUpstreamSource, findInstalledPackage, Project, readInstalledFiles } from '@graftsync/core';
+import {
+  checkAnchors,
+  detectPackageManager,
+  DirectoryUpstreamSource,
+  findInstalledPackage,
+  Project,
+  readInstalledFiles,
+} from '@graftsync/core';
 import { graftApplier, patchAdapter, patchPackageApplier, selectApplier, vendorApplier, yarnApplier, yarnPatchSpec } from '../src/index.js';
 
 const VARIANT = 'diff --git a/index.js b/index.js\nindex 111..222 100644\n--- a/index.js\n+++ b/index.js\n@@ -1,2 +1,3 @@\n a\n+b\n c\n';
@@ -169,12 +176,14 @@ describe("Plug'n'Play", () => {
 
   it('checks the installed copy inside PnP storage', async () => {
     const good = await graftProject('a\nb\nc\n');
-    const ok = await patchAdapter.checkAnchors(good.project.context(good.graft), '1.0.0');
+    const ok = await checkAnchors(good.project, 'g', '1.0.0');
     expect(ok.errors).toEqual([]);
     expect(ok.ok).toBe(true);
 
     const bad = await graftProject('a\nc\n');
-    const report = await patchAdapter.checkAnchors(bad.project.context(bad.graft), '1.0.0');
+    // Static checkAnchors still passes (the variant fits pristine 1.0.0).
+    expect((await patchAdapter.checkAnchors(bad.project.context(bad.graft), '1.0.0')).ok).toBe(true);
+    const report = await checkAnchors(bad.project, 'g', '1.0.0');
     expect(report.ok).toBe(false);
     expect(report.errors.join('\n')).toMatch(/installed lib@1\.0\.0 index\.js is not patched/);
   });
@@ -186,7 +195,7 @@ describe("Plug'n'Play", () => {
     await writeFile(path.join(p.root, '.pnp.cjs'), 'throw new Error("broken runtime")');
     const source = p.project.upstream as DirectoryUpstreamSource;
     source.installed = async () => installed;
-    const report = await patchAdapter.checkAnchors(p.project.context(p.graft), '1.0.0');
+    const report = await checkAnchors(p.project, 'g', '1.0.0');
     expect(report.errors).toEqual([]);
     expect(report.warnings?.join('\n')).toMatch(/cannot verify installed files of lib@1\.0\.0 under Plug'n'Play/);
     expect(report.ok).toBe(true);

@@ -457,6 +457,7 @@ interface MechanismAdapter {
   name: string;
   apply(ctx: GraftContext, options?: ApplyOptions): Promise<ApplyResult>;
   checkAnchors(ctx: GraftContext, version: string): Promise<AnchorReport>;
+  checkInstalled?(ctx: GraftContext, version: string): Promise<InstalledCheckReport>;
   scopeDiff(ctx: GraftContext, from: string, to: string): Promise<ScopedDiff>;
   beforeInstall?(ctx: GraftContext, version: string): Promise<void | { install?: 'reinstall' }>;
   afterInstall?(ctx: GraftContext, version: string): Promise<void>;

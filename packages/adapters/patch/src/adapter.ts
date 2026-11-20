@@ -154,39 +154,53 @@ export function createPatchAdapter(): MechanismAdapter {
         const evidence = await upstreamedEvidence(dir, patches);
         if (evidence) report.upstreamed = { evidence };
       }
+      report.ok = report.errors.length === 0 && report.anchors.every((a) => a.matched);
+      return report;
+    },
+
+    async checkInstalled(ctx: GraftContext, version: string) {
+      const { project, graft } = ctx;
+      const pkg = graft.frontmatter.rootstock.package;
+      const variant = project.selectVariant(graft, version);
+      if (!variant) return { errors: [] };
       const upstream = project.upstreamFor(graft);
       const installed = await upstream.installed(pkg);
-      if (installed?.version === version) {
-        report.errors.push(
-          ...(await applierFor(project, graft).problems(project.root, pkg, version, report.variant.path, { upstream, project })),
-        );
-        // Whatever the configuration says, check what actually got installed: each patched file
-        // must equal pristine upstream + this variant. Catches patches dropped silently.
-        // Under Plug'n'Play the installed copy lives in a zip archive, read through the PnP runtime.
-        if (report.anchors.every((a) => a.matched) && installed.dir !== dir) {
-          const targets = patches.filter((p) => p.newFile).map((p) => p.newFile!);
-          let actual: Record<string, string | undefined> | undefined;
-          try {
-            actual = await readInstalledFiles(installed, targets);
-          } catch (err) {
-            (report.warnings ??= []).push(
-              `cannot verify installed files of ${pkg}@${version}${installed.pnp ? " under Plug'n'Play" : ''} (${(err as Error).message}); the package-manager configuration was checked, the installed contents were not`,
+      if (installed?.version !== version) return { errors: [] };
+      const errors = await applierFor(project, graft).problems(project.root, pkg, version, variant.path, { upstream, project });
+      const warnings: string[] = [];
+      // Whatever the configuration says, check what actually got installed: each patched file
+      // must equal pristine upstream + this variant. Catches patches dropped silently.
+      // Under Plug'n'Play the installed copy lives in a zip archive, read through the PnP runtime.
+      let patches: FilePatch[];
+      let dir: string;
+      try {
+        patches = await loadPatch(graft, variant);
+        dir = await upstream.resolve(pkg, version);
+      } catch {
+        return { errors };
+      }
+      if (installed.dir !== dir) {
+        const targets = patches.filter((p) => p.newFile).map((p) => p.newFile!);
+        let actual: Record<string, string | undefined> | undefined;
+        try {
+          actual = await readInstalledFiles(installed, targets);
+        } catch (err) {
+          warnings.push(
+            `cannot verify installed files of ${pkg}@${version}${installed.pnp ? " under Plug'n'Play" : ''} (${(err as Error).message}); the package-manager configuration was checked, the installed contents were not`,
+          );
+        }
+        for (const p of actual ? patches : []) {
+          if (!p.newFile) continue;
+          const pristine = p.oldFile ? await readIn(dir, p.oldFile) : '';
+          const expected = pristine === undefined ? false : applyFilePatch(pristine, p);
+          if (expected !== false && actual![p.newFile] !== expected) {
+            errors.push(
+              `installed ${pkg}@${version} ${p.newFile} is not patched with ${variant.module}; run \`graft apply\` (or reinstall)`,
             );
-          }
-          for (const p of actual ? patches : []) {
-            if (!p.newFile) continue;
-            const pristine = p.oldFile ? await readIn(dir, p.oldFile) : '';
-            const expected = pristine === undefined ? false : applyFilePatch(pristine, p);
-            if (expected !== false && actual![p.newFile] !== expected) {
-              report.errors.push(
-                `installed ${pkg}@${version} ${p.newFile} is not patched with ${report.variant.module}; run \`graft apply\` (or reinstall)`,
-              );
-            }
           }
         }
       }
-      report.ok = report.errors.length === 0 && report.anchors.every((a) => a.matched);
-      return report;
+      return { errors, ...(warnings.length ? { warnings } : {}) };
     },
 
     async apply(ctx: GraftContext, options = {}): Promise<ApplyResult> {

@@ -30,10 +30,27 @@ export async function resolveVersion(project: Project, graft: Graft, version?: s
   return installed;
 }
 
+/**
+ * Run `adapter.checkAnchors` and, when the adapter implements `checkInstalled`, merge installed
+ * configuration and installed-copy verification into the report.
+ */
+export async function checkGraftWithInstalled(project: Project, graft: Graft, version: string): Promise<AnchorReport> {
+  const adapter = project.adapterFor(graft);
+  const ctx = project.context(graft);
+  const report = await adapter.checkAnchors(ctx, version);
+  if (adapter.checkInstalled && report.ok) {
+    const installed = await adapter.checkInstalled(ctx, version);
+    if (installed.errors.length) report.errors.push(...installed.errors);
+    if (installed.warnings?.length) (report.warnings ??= []).push(...installed.warnings);
+    report.ok = report.errors.length === 0 && report.anchors.every((a) => a.matched);
+  }
+  return report;
+}
+
 export async function checkAnchors(project: Project, id: string, version?: string): Promise<AnchorReport> {
   const graft = await project.get(id);
   const v = await resolveVersion(project, graft, version);
-  return project.adapterFor(graft).checkAnchors(project.context(graft), v);
+  return checkGraftWithInstalled(project, graft, v);
 }
 
 export async function applyGraft(project: Project, id: string, options: ApplyOptions = {}): Promise<ApplyResult> {
@@ -236,7 +253,7 @@ export async function projectStatus(project: Project): Promise<{
     };
     if (entry.installed && (fm.status === 'applied' || fm.status === 'conflicted')) {
       try {
-        entry.anchors = await project.adapterFor(graft).checkAnchors(project.context(graft), entry.installed);
+        entry.anchors = await checkGraftWithInstalled(project, graft, entry.installed);
       } catch (err) {
         entry.error = (err as Error).message;
       }
@@ -300,7 +317,7 @@ export async function applyToProject(project: Project, options: { ids?: string[]
   }
   for (const c of result.configured) {
     const graft = await project.get(c.id);
-    result.anchors.push(await project.adapterFor(graft).checkAnchors(project.context(graft), c.version));
+    result.anchors.push(await checkGraftWithInstalled(project, graft, c.version));
   }
   return result;
 }
