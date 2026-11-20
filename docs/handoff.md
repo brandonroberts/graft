@@ -99,7 +99,8 @@ There is no oracle (removed in 0.2): sync checks that a graft still fits and ins
 interface MechanismAdapter {
   name: string;
   apply(ctx, options?): Promise<ApplyResult>;                 // apply to pristine upstream (optionally write files)
-  checkAnchors(ctx, version): Promise<AnchorReport>;           // + config and installed-copy checks at the installed version
+  checkAnchors(ctx, version): Promise<AnchorReport>;           // strictly static: pristine upstream only
+  checkInstalled?(ctx, version): Promise<InstalledCheckReport>;// config and installed-copy checks at the installed version
   scopeDiff(ctx, from, to): Promise<ScopedDiff>;               // upstream diff narrowed to anchors; candidates for removed files
   beforeInstall?(ctx, version): Promise<void | { install?: 'reinstall' }>;
   afterInstall?(ctx, version): Promise<void>;
@@ -313,7 +314,6 @@ Graft keeps three of its own CommonJS dependencies converted to native ESM, as r
 - **#26, ecosystems beyond npm:** cargo, go and pypi are implemented for the `patch` mechanism (§6, [`ecosystems.md`](ecosystems.md)). Not yet: poetry (refused with a reason), uv for transitive dependencies (`[tool.uv.sources]` applies to direct ones only), the `fork` mechanism's package mode outside npm (`cargo package`, a module copy, a wheel build), and freezing `rootstock.ecosystem` into spec v1 (#6).
 - **#17:** waiting for yaml 3.0.0 stable (retire `yaml-esm`).
 - **Known gaps:**
-  - regeneration when the target is already installed under pnpm falls back to an agent;
   - the built-in and patch-package appliers are untested on yarn 2+ with node-modules;
   - the skills-folder list in `graft init --agent` comes from my knowledge, not each agent's docs;
   - the Action's Claude Code `agent-command` example is untested;

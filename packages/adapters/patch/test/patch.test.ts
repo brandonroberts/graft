@@ -5,11 +5,13 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   addGraft,
+  checkAnchors,
   DirectoryUpstreamSource,
   Project,
   projectStatus,
   recordVariant,
   renderSyncMarkdown,
+  replay,
   sync,
   updateGraft,
   type MechanismAdapter,
@@ -429,5 +431,37 @@ describe('two grafts on the same package', () => {
     const { grafts, invalid } = await p2.loadAll();
     expect(invalid).toEqual([]);
     expect(grafts.map((g) => g.id)).toEqual(['add-c', 'add-d']);
+  });
+});
+
+describe('checkInstalled separation (#61)', () => {
+  it('replay and recordVariant --verify-version stay static on the installed version, while check and sync still fail loudly', async () => {
+    const { project, root } = await fixture('1.1.0');
+    // Break the local pnpm wiring so the installed 1.1.0 copy is NOT configured for the patch.
+    await writeFile(path.join(root, 'pnpm-workspace.yaml'), 'packages: []\n');
+
+    // Static replay passes 1.0.0 and 1.1.0 (fails 2.0.0 on the real anchor miss).
+    const entries = await replay(project, 'add-c');
+    expect(entries.map((e) => [e.version, e.ok])).toEqual([
+      ['1.0.0', true],
+      ['1.1.0', true],
+      ['2.0.0', false],
+    ]);
+
+    // Registering a new variant verified against the already-installed 1.1.0 succeeds before `graft apply`.
+    await writeFile(path.join(root, '.grafts/add-c/variants/v1.1.patch'), PATCH);
+    await expect(
+      recordVariant(project, 'add-c', { range: '>=1.1.0', module: './variants/v1.1.patch' }, { verifyVersion: '1.1.0' }),
+    ).resolves.toBeDefined();
+
+    // `graft check` and `graft sync` at the installed version still fail loudly via checkInstalled.
+    const checked = await checkAnchors(project, 'add-c');
+    expect(checked.ok).toBe(false);
+    expect(checked.errors.join('\n')).toMatch(/ignorePatchFailures/);
+
+    const synced = await sync(project, { writeReport: false });
+    expect(synced.exitCode).toBe(1);
+    expect(synced.grafts[0]?.outcome).toBe('needs-agent');
+    expect(synced.grafts[0]?.reasons.join('\n')).toMatch(/ignorePatchFailures/);
   });
 });

@@ -325,7 +325,8 @@ under the name used in `mechanism`.
 |---|---|---|
 | `name` | yes | The mechanism name. |
 | `apply(ctx, { version?, outDir? })` | yes | Apply the variant selected for `version` (default: installed) to the pristine upstream; write modified files under `outDir` when given. Report per-file results and `ok`. |
-| `checkAnchors(ctx, version)` | yes | Report which anchors of the selected variant match or miss in the pristine upstream at `version`, with errors for a missing variant or target. |
+| `checkAnchors(ctx, version)` | yes | Report which anchors of the selected variant match or miss in the pristine upstream at `version`, with errors for a missing variant or target. Static checks only (never fails on local install state). |
+| `checkInstalled?(ctx, version)` | no | Verify that the project's configuration and installed copy at `version` actually apply the selected variant (returns `{ errors, warnings? }`). Called by `graft check`, `graft status`, `graft apply`, and `sync` at the installed version, not by static callers (`replay`, `variant add --verify-version`). |
 | `scopeDiff(ctx, from, to)` | yes | Diff the upstream between two versions, narrowed to the regions the graft targets. |
 | `beforeInstall?(ctx, version)` | no | Point the package manager at the variant for `version` before `sync` installs it. May return `{ install: 'reinstall' }` to request a bare reinstall instead of a targeted install. |
 | `afterInstall?(ctx, version)` | no | Run right after `sync` installs `version`, for mechanisms that apply themselves. |

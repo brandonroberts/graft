@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { addGraft, DirectoryUpstreamSource, Project, sync } from '@graftsync/core';
+import { addGraft, checkAnchors, DirectoryUpstreamSource, Project, sync } from '@graftsync/core';
 import { tarballContents } from '@graftsync/adapter-patch';
 import { forkAdapter, resetFetchCache } from '../src/index.js';
 
@@ -152,14 +152,16 @@ describe('fork mechanism: rebase, build, pack and install', () => {
   it('at the installed version, checks the vendored build and the installed files', async () => {
     const { project, graft, app } = await setup();
     const ctx = project.context(graft);
-    const before = await forkAdapter.checkAnchors(ctx, '1.0.0');
+    // Static anchor check passes even before the vendored tarball is built.
+    expect((await forkAdapter.checkAnchors(ctx, '1.0.0')).ok).toBe(true);
+    const before = await checkAnchors(project, graft.id, '1.0.0');
     expect(before.errors.join('\n')).toMatch(/lib-1\.0\.0\.tgz is missing/);
     await forkAdapter.beforeInstall!(ctx, '1.0.0');
-    const after = await forkAdapter.checkAnchors(ctx, '1.0.0');
+    const after = await checkAnchors(project, graft.id, '1.0.0');
     // Configured, but node_modules still holds the pristine copy.
     expect(after.errors.join('\n')).toMatch(/installed lib@1\.0\.0 index\.js is not the vendored fork build/);
     await writeFile(path.join(app, 'node_modules/lib/index.js'), V1.replace('const b = 2\n', 'const b = 2\nconst c = 3\n'));
-    expect((await forkAdapter.checkAnchors(ctx, '1.0.0')).ok).toBe(true);
+    expect((await checkAnchors(project, graft.id, '1.0.0')).ok).toBe(true);
   });
 });
 
