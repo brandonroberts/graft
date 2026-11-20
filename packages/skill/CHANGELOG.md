@@ -1,5 +1,11 @@
 # @graftsync/skill
 
+## 0.3.2
+
+### Patch Changes
+
+- 52333b5: Support opt-in version-pinned `patchedDependencies` keys (`mechanisms.patch.pinKeys: true` in `.grafts/config.json`) for the `pnpm` and `npm` (>= 12) patch appliers, and reject `allowUnusedPatches: true` / `allowNonAppliedPatches: true` in `pnpm` configs whenever keys are version-pinned (#83).
+
 ## 0.3.1
 
 No changes in this release.

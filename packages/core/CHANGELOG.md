@@ -1,5 +1,12 @@
 # @graftsync/core
 
+## 0.3.2
+
+### Patch Changes
+
+- 724daa3: Report invalid `graft.md` files and unknown graft IDs as errors in `applyToProject` (`graft apply`) and `applyInstalled` (`graft apply --installed`) instead of silently skipping them (#85).
+- @graftsync/spec@0.3.2
+
 ## 0.3.1
 
 ### Patch Changes
