@@ -52,6 +52,12 @@ inputs:
   labels:
     description: Comma-separated labels to add to PRs (they must already exist).
     default: ''
+  issue-title:
+    description: >
+      Title template for issues opened by the action. Supports literal {package}, {version}, and
+      {status} (expands to " (needs attention)" when grafts need attention, otherwise empty).
+      Defaults to "build: graft sync {package} to {version}{status}".
+    default: ''
   commit-author:
     description: Commit author, as "Name <email>".
     default: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>

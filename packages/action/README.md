@@ -160,6 +160,7 @@ The agent must not commit, push or open PRs. The action does that after re-verif
 | `base-branch` | checked-out branch | PR base |
 | `branch-prefix` | `graft/sync-` | |
 | `labels` | — | Labels for PRs and issues; they must already exist |
+| `issue-title` | `build: graft sync {package} to {version}{status}` | Title template for opened issues (`{package}`, `{version}`, and `{status}`, which expands to ` (needs attention)` when grafts need attention) |
 | `commit-author` | `github-actions[bot]` | |
 | `skill-path` | bundled `SKILL.md` | |
 | `dry-run` | `false` | Run sync without pushing or opening anything |

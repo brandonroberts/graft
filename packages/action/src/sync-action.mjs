@@ -8,6 +8,21 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 const DEFAULT_AUTHOR = 'github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>';
+const DEFAULT_ISSUE_TITLE = 'build: graft sync {package} to {version}{status}';
+const LEGACY_ISSUE_TITLE = 'graft: sync {package} to {version}{status}';
+
+/** Format an issue title from a template using literal `{package}`, `{version}`, and `{status}` placeholders. */
+export function formatIssueTitle(template, { candidate, outcome }) {
+  const raw = (template || DEFAULT_ISSUE_TITLE).replace(/\{(package|version|status)\}/g, (_, key) => {
+    if (key === 'package') return packageLabel(candidate);
+    if (key === 'version') return candidate.version;
+    return outcome === 'needs-agent' ? ' (needs attention)' : '';
+  });
+  return raw
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 /** Normalize raw action inputs (strings from action.yml) into options. */
 export function parseInputs(raw = {}) {
@@ -32,6 +47,7 @@ export function parseInputs(raw = {}) {
     baseBranch: str('base-branch'),
     branchPrefix: str('branch-prefix', 'graft/sync-'),
     labels: list('labels'),
+    issueTitle: str('issue-title'),
     onNeedsAgent,
     author: str('commit-author', DEFAULT_AUTHOR),
     dryRun: bool('dry-run'),
@@ -243,13 +259,23 @@ export async function runAction(options, deps) {
     if (r.code !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr || r.stdout}`);
     return r.stdout.trim();
   };
-  /** Open an issue once per title. Returns { url, existing }. */
-  const openIssue = async (title, body, file) => {
-    const existing = await run(`gh issue list --state open --search ${quote(`in:title "${title}"`)} --json title,url`);
-    const open = existing.code === 0 ? JSON.parse(existing.stdout || '[]').find((i) => i.title === title) : undefined;
-    if (open) return { url: open.url, existing: true };
+  const titleSearch = (s) => `in:title "${s.replaceAll('"', ' ').replace(/\s+/g, ' ').trim()}"`;
+  const issueMarker = (branch) => (branch ? `<!-- graft-sync: ${branch} -->` : '');
+  /** Open an issue once per title (or legacy title / branch marker). Returns { url, existing }. */
+  const openIssue = async (title, body, file, branch, legacyTitles = []) => {
+    const marker = issueMarker(branch);
+    const matches = new Set([title, ...legacyTitles]);
+    for (const q of [...matches].map(titleSearch)) {
+      const existing = await run(`gh issue list --state open --search ${quote(q)} --json title,url,body`);
+      const open =
+        existing.code === 0
+          ? JSON.parse(existing.stdout || '[]').find((i) => matches.has(i.title) || (marker && i.body?.includes(marker)))
+          : undefined;
+      if (open) return { url: open.url, existing: true };
+    }
     const bodyFile = path.join(deps.tmpDir, file);
-    await writeFile(bodyFile, body);
+    const fullBody = marker && !body.includes(marker) ? `${body.trimEnd()}\n\n${marker}\n` : body;
+    await writeFile(bodyFile, fullBody);
     const issue = await run(
       [`gh issue create --title ${quote(title)} --body-file ${quote(bodyFile)}`, ...options.labels.map((l) => `--label ${quote(l)}`)].join(
         ' ',
@@ -263,7 +289,7 @@ export async function runAction(options, deps) {
    * issue with a one-click link instead. Any other `gh pr create` failure throws; the branch stays
    * pushed and the next run resumes it (see the existing-branch check).
    */
-  const proposeBranch = async (result, { branch, base, title, body, draft, file }) => {
+  const proposeBranch = async (result, { branch, base, title, issueTitle, legacyTitles, body, draft, file }) => {
     const bodyFile = path.join(deps.tmpDir, `body-${file}.md`);
     await writeFile(bodyFile, body);
     const pr = await run(
@@ -293,7 +319,7 @@ export async function runAction(options, deps) {
         '> To let the action open pull requests itself, allow it under Settings → Actions → General, or pass a GitHub App token or a fine-grained PAT as `github-token` (PRs opened with those also trigger CI).',
         '',
       ].join('\n');
-      const issue = await openIssue(title, `${note}\n${body}`, `pr-refused-${file}.md`);
+      const issue = await openIssue(issueTitle || title, `${note}\n${body}`, `pr-refused-${file}.md`, branch, legacyTitles);
       result.issue = issue.url;
       result.compareUrl = compare;
       result.outcome = 'pr-refused-issue';
@@ -308,16 +334,25 @@ export async function runAction(options, deps) {
     result.pullRequest = pr.stdout.trim().split('\n').pop();
     result.outcome = draft ? 'draft-pr' : 'pr';
   };
-  /** The URL of a pull request (any state) from `branch`, or of an open issue whose title starts with `titlePrefix`. Throws if gh fails. */
-  const findProposal = async (branch, titlePrefix) => {
+  /** The URL of a pull request (any state) from `branch`, or of an open issue matching `titlePrefixes` / `customTitles`. Throws if gh fails. */
+  const findProposal = async (branch, titlePrefixes, customTitles = []) => {
     const prs = await run(`gh pr list --head ${quote(branch)} --state all --json url --limit 1`);
     if (prs.code !== 0) throw new Error(`gh pr list failed: ${prs.stderr || prs.stdout}`);
     const pr = JSON.parse(prs.stdout || '[]')[0];
     if (pr) return pr.url;
-    const issues = await run(`gh issue list --state open --search ${quote(`in:title "${titlePrefix}"`)} --json title,url`);
-    if (issues.code !== 0) throw new Error(`gh issue list failed: ${issues.stderr || issues.stdout}`);
-    const issue = JSON.parse(issues.stdout || '[]').find((i) => i.title === titlePrefix || i.title.startsWith(`${titlePrefix} (`));
-    return issue?.url;
+    const marker = issueMarker(branch);
+    const exact = new Set(customTitles);
+    const prefixes = Array.isArray(titlePrefixes) ? titlePrefixes : [titlePrefixes];
+    const queries = [...new Set([...customTitles, ...prefixes])].map(titleSearch);
+    for (const q of queries) {
+      const issues = await run(`gh issue list --state open --search ${quote(q)} --json title,url,body`);
+      if (issues.code !== 0) throw new Error(`gh issue list failed: ${issues.stderr || issues.stdout}`);
+      const issue = JSON.parse(issues.stdout || '[]').find(
+        (i) => exact.has(i.title) || prefixes.some((p) => i.title === p || i.title.startsWith(`${p} (`)) || i.body?.includes(marker),
+      );
+      if (issue) return issue.url;
+    }
+    return undefined;
   };
   const [authorName, authorEmail] = (() => {
     const m = /^(.*?)\s*<(.+)>$/.exec(options.author);
@@ -417,7 +452,15 @@ export async function runAction(options, deps) {
         // The branch alone doesn't mean it was handled: an earlier run may have pushed it and then
         // failed to open its pull request (#33). Skip it only when it has a pull request (in any
         // state) or an open issue for this package@version; otherwise resume by proposing it.
-        const handled = await findProposal(branch, `graft: sync ${packageLabel(candidate)} to ${candidate.version}`);
+        const defaultPrefix = `build: graft sync ${packageLabel(candidate)} to ${candidate.version}`;
+        const legacyPrefix = `graft: sync ${packageLabel(candidate)} to ${candidate.version}`;
+        const customTitles = options.issueTitle
+          ? [
+              formatIssueTitle(options.issueTitle, { candidate, outcome: 'green' }),
+              formatIssueTitle(options.issueTitle, { candidate, outcome: 'needs-agent' }),
+            ]
+          : [];
+        const handled = await findProposal(branch, [defaultPrefix, legacyPrefix], customTitles);
         if (handled) {
           result.outcome = 'skipped-existing';
           result.reasons.push(`branch ${branch} already exists on origin: ${handled}`);
@@ -431,9 +474,11 @@ export async function runAction(options, deps) {
           continue;
         }
         await git('fetch', '--quiet', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`);
-        const title =
-          (await git('log', '-1', '--format=%s', `refs/remotes/origin/${branch}`)) ||
-          `graft: sync ${packageLabel(candidate)} to ${candidate.version}`;
+        const title = (await git('log', '-1', '--format=%s', `refs/remotes/origin/${branch}`)) || defaultPrefix;
+        const draft = title.endsWith('(needs attention)');
+        const resumeOutcome = draft ? 'needs-agent' : 'green';
+        const issueTitle = formatIssueTitle(options.issueTitle, { candidate, outcome: resumeOutcome });
+        const legacyTitles = [formatIssueTitle(LEGACY_ISSUE_TITLE, { candidate, outcome: resumeOutcome })];
         const body = [
           `## Graft sync: ${packageLabel(candidate)} ${candidate.verified} → ${candidate.version}`,
           '',
@@ -446,8 +491,10 @@ export async function runAction(options, deps) {
           branch,
           base,
           title,
+          issueTitle,
+          legacyTitles,
           body,
-          draft: title.endsWith('(needs attention)'),
+          draft,
           file: slug(candidate.package),
         });
         continue;
@@ -585,7 +632,9 @@ export async function runAction(options, deps) {
         (await git('status', '--porcelain'))
           .split('\n')
           .filter((l) => l.trim() && !(tmpRel && !tmpRel.startsWith('..') && l.slice(3).startsWith(tmpRel.split('/')[0]))).length > 0;
-      const title = `graft: sync ${packageLabel(candidate)} to ${candidate.version}${outcome === 'needs-agent' ? ' (needs attention)' : ''}`;
+      const title = formatIssueTitle('', { candidate, outcome });
+      const issueTitle = formatIssueTitle(options.issueTitle, { candidate, outcome });
+      const legacyTitles = [formatIssueTitle(LEGACY_ISSUE_TITLE, { candidate, outcome })];
       const body = renderPrBody({ candidate, report, agentBody, outcome });
       if (!changed && outcome === 'green') {
         result.outcome = 'no-changes';
@@ -600,7 +649,7 @@ export async function runAction(options, deps) {
           result.body = body;
           continue;
         }
-        const issue = await openIssue(title, body, `issue-${slug(candidate.package)}.md`);
+        const issue = await openIssue(issueTitle, body, `issue-${slug(candidate.package)}.md`, branch, legacyTitles);
         result.issue = issue.url;
         if (issue.existing) {
           result.outcome = 'skipped-existing';
@@ -626,7 +675,16 @@ export async function runAction(options, deps) {
           if (r.code !== 0) throw new Error(`git commit failed: ${r.stderr}`);
         });
       await git('push', '-u', 'origin', branch);
-      await proposeBranch(result, { branch, base, title, body, draft: outcome === 'needs-agent', file: slug(candidate.package) });
+      await proposeBranch(result, {
+        branch,
+        base,
+        title,
+        issueTitle,
+        legacyTitles,
+        body,
+        draft: outcome === 'needs-agent',
+        file: slug(candidate.package),
+      });
     } catch (err) {
       result.outcome = 'error';
       result.reasons.push(err.message);
