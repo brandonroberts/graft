@@ -227,22 +227,12 @@ export async function sync(project: Project, options: SyncOptions = {}): Promise
         installError = `${pkg}@${version} is not installed (installed: ${installedBefore ?? 'none'}); rerun with --install to install it and record the graft against it (or --dry-run for the static checks only)`;
       } else {
         try {
-          let bare = false;
-          for (const s of ready) {
-            const r = await project.adapterFor(s.graft).beforeInstall?.(project.context(s.graft), version);
-            if (r && r.install === 'reinstall') bare = true;
-          }
-          // The project's own upgrade command (e.g. one that also moves companion packages and
-          // runs migrations) replaces Graft's install, sibling handling included.
+          // Resolve any custom upgrade command and validate siblings BEFORE beforeInstall mutates
+          // package-manager config (e.g. pnpm-workspace.yaml), so pre-install errors never leave
+          // the workspace config out of sync with the installed tree (#89).
           const upgrade = resolveUpgrade(project.config, ecosystem, pkg, version);
-          if (upgrade && bare) {
-            throw new GraftError(
-              `.grafts/config.json sets an upgrade command for ${pkg}, but its graft installs ${pkg} from a vendored build (fork package mode); remove the upgrade command`,
-              'config/upgrade-unsupported',
-            );
-          }
-          // Otherwise packages released together with this one move with it, or the project ends up
-          // with mismatched versions (e.g. `nx` upgraded, `@nx/angular` left behind).
+          // Without an upgrade command, packages released together with this one move with it, or
+          // the project ends up with mismatched versions (e.g. `nx` upgraded, `@nx/angular` left behind).
           const siblings = upgrade ? [] : ((await eco.siblings?.(project, pkg)) ?? []);
           if (siblings.length) {
             target.siblings = siblings;
@@ -255,6 +245,17 @@ export async function sync(project: Project, options: SyncOptions = {}): Promise
                 'install/sibling-unpublished',
               );
             }
+          }
+          let bare = false;
+          for (const s of ready) {
+            const r = await project.adapterFor(s.graft).beforeInstall?.(project.context(s.graft), version);
+            if (r && r.install === 'reinstall') bare = true;
+          }
+          if (upgrade && bare) {
+            throw new GraftError(
+              `.grafts/config.json sets an upgrade command for ${pkg}, but its graft installs ${pkg} from a vendored build (fork package mode); remove the upgrade command`,
+              'config/upgrade-unsupported',
+            );
           }
           let upgradeOutput = '';
           if (upgrade) {
