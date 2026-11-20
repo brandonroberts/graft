@@ -80,11 +80,20 @@ export interface PnpmPatchState {
   /** Value of patchedDependencies keys that apply to `pkg` (name-only or name@version). */
   entries: { key: string; path: string }[];
   ignorePatchFailures: unknown;
+  allowUnusedPatches: unknown;
+  allowNonAppliedPatches: unknown;
   /**
    * Entries for `pkg` in the root package.json's `pnpm.patchedDependencies` (where
    * `pnpm patch-commit` writes when that field exists). pnpm honors these too.
    */
   manifestEntries: { key: string; path: string }[];
+  manifestAllowUnusedPatches: unknown;
+  manifestAllowNonAppliedPatches: unknown;
+}
+
+export interface PnpmPatchOptions {
+  /** Always pin `patchedDependencies` keys to `<pkg>@<version>` (`mechanisms.patch.pinKeys`). */
+  pinKeys?: boolean;
 }
 
 async function readManifest(workspaceRoot: string): Promise<{ file: string; text: string; json: Record<string, any> } | undefined> {
@@ -96,12 +105,22 @@ async function readManifest(workspaceRoot: string): Promise<{ file: string; text
 
 const keyMatches = (key: string, pkg: string) => key === pkg || (key.startsWith(`${pkg}@`) && key.length > pkg.length + 1);
 
-function pnpmPatchKey(workspaceRoot: string, pkg: string, version?: string): { key: string; otherVersions: string[] } {
+function pnpmPatchKey(
+  workspaceRoot: string,
+  pkg: string,
+  version?: string,
+  pinKeys = false,
+): { key: string; otherVersions: string[]; pinnedByConfig: boolean } {
   const installed = version ? installedPnpmVersions(workspaceRoot, pkg) : [];
-  if (version && installed.length > 1) {
-    return { key: `${pkg}@${version}`, otherVersions: installed.filter((v) => v !== version) };
+  const multiVersion = Boolean(version && installed.length > 1);
+  if (version && (pinKeys || multiVersion)) {
+    return {
+      key: `${pkg}@${version}`,
+      otherVersions: multiVersion ? installed.filter((v) => v !== version) : [],
+      pinnedByConfig: pinKeys && !multiVersion,
+    };
   }
-  return { key: pkg, otherVersions: [] };
+  return { key: pkg, otherVersions: [], pinnedByConfig: false };
 }
 
 export async function readPnpmPatchState(root: string, pkg: string): Promise<PnpmPatchState | undefined> {
@@ -119,14 +138,24 @@ export async function readPnpmPatchState(root: string, pkg: string): Promise<Pnp
       .filter(([key]) => keyMatches(key, pkg))
       .map(([key, p]) => ({ key, path: p })),
     ignorePatchFailures: doc.get('ignorePatchFailures'),
+    allowUnusedPatches: doc.get('allowUnusedPatches'),
+    allowNonAppliedPatches: doc.get('allowNonAppliedPatches'),
     manifestEntries: Object.entries(fromManifest)
       .filter(([key]) => keyMatches(key, pkg))
       .map(([key, p]) => ({ key, path: p })),
+    manifestAllowUnusedPatches: manifest?.json.pnpm?.allowUnusedPatches,
+    manifestAllowNonAppliedPatches: manifest?.json.pnpm?.allowNonAppliedPatches,
   };
 }
 
 /** Problems that would make pnpm apply something other than `variantPath` to `pkg`, or fail silently. */
-export async function pnpmConfigProblems(root: string, pkg: string, variantPath: string, version?: string): Promise<string[]> {
+export async function pnpmConfigProblems(
+  root: string,
+  pkg: string,
+  variantPath: string,
+  version?: string,
+  options?: PnpmPatchOptions,
+): Promise<string[]> {
   const state = await readPnpmPatchState(root, pkg);
   if (!state) return [`no ${WORKSPACE_FILE} found; pnpm applies grafts through its patchedDependencies — run \`graft apply\` to create it`];
   const problems: string[] = [];
@@ -135,13 +164,37 @@ export async function pnpmConfigProblems(root: string, pkg: string, variantPath:
   if ((major === undefined || major < PNPM_STRICT_PATCH_MAJOR) && state.ignorePatchFailures !== false) {
     problems.push(`${WORKSPACE_FILE} must set \`ignorePatchFailures: false\`, otherwise pnpm only warns when a patch stops applying`);
   }
-  const { key: expectedKey, otherVersions } = pnpmPatchKey(state.workspaceRoot, pkg, version);
+  const { key: expectedKey, otherVersions, pinnedByConfig } = pnpmPatchKey(state.workspaceRoot, pkg, version, options?.pinKeys);
   const pinned = expectedKey !== pkg;
+  if (pinned) {
+    if (state.allowUnusedPatches === true) {
+      problems.push(
+        `${WORKSPACE_FILE} sets \`allowUnusedPatches: true\`, so pnpm silently skips version-pinned patch "${expectedKey}" if ${pkg} changes version; remove it or set \`allowUnusedPatches: false\` — run \`graft apply\``,
+      );
+    }
+    if (state.allowNonAppliedPatches === true) {
+      problems.push(
+        `${WORKSPACE_FILE} sets \`allowNonAppliedPatches: true\`, so pnpm silently skips version-pinned patch "${expectedKey}" if ${pkg} changes version; remove it or set \`allowNonAppliedPatches: false\` — run \`graft apply\``,
+      );
+    }
+    if (state.manifestAllowUnusedPatches === true) {
+      problems.push(
+        `package.json pnpm.allowUnusedPatches is true, so pnpm silently skips version-pinned patch "${expectedKey}" if ${pkg} changes version; remove it or set it to false — run \`graft apply\``,
+      );
+    }
+    if (state.manifestAllowNonAppliedPatches === true) {
+      problems.push(
+        `package.json pnpm.allowNonAppliedPatches is true, so pnpm silently skips version-pinned patch "${expectedKey}" if ${pkg} changes version; remove it or set it to false — run \`graft apply\``,
+      );
+    }
+  }
   if (!state.entries.length) {
     problems.push(
-      pinned
+      otherVersions.length > 0
         ? `patchedDependencies has no entry for ${expectedKey} (expected ${expectedKey}: ${expected}); other versions of ${pkg} (${otherVersions.join(', ')}) are also installed in this workspace`
-        : `patchedDependencies has no entry for ${pkg} (expected ${pkg}: ${expected})`,
+        : pinned
+          ? `patchedDependencies has no entry for ${expectedKey} (expected ${expectedKey}: ${expected})`
+          : `patchedDependencies has no entry for ${pkg} (expected ${pkg}: ${expected})`,
     );
   }
   for (const e of state.manifestEntries) {
@@ -153,12 +206,16 @@ export async function pnpmConfigProblems(root: string, pkg: string, variantPath:
     if (e.key !== expectedKey) {
       if (pinned && e.key === pkg) {
         problems.push(
-          `patchedDependencies["${pkg}"] is a name-only key, but other versions of ${pkg} (${otherVersions.join(', ')}) are installed in this workspace; pin it as "${expectedKey}" — run \`graft apply\``,
+          pinnedByConfig
+            ? `patchedDependencies["${pkg}"] is a name-only key, but mechanisms.patch.pinKeys is enabled; pin it as "${expectedKey}" — run \`graft apply\``
+            : `patchedDependencies["${pkg}"] is a name-only key, but other versions of ${pkg} (${otherVersions.join(', ')}) are installed in this workspace; pin it as "${expectedKey}" — run \`graft apply\``,
         );
       } else if (pinned) {
         problems.push(`patchedDependencies["${e.key}"] does not match ${expectedKey}; run \`graft apply\` to update it`);
       } else {
-        problems.push(`patchedDependencies["${e.key}"] is version-pinned; graft manages ${pkg} with a name-only key`);
+        problems.push(
+          `patchedDependencies["${e.key}"] is version-pinned; graft manages ${pkg} with a name-only key (set \`mechanisms.patch.pinKeys: true\` in .grafts/config.json to keep version-pinned keys)`,
+        );
       }
     } else if (path.resolve(state.workspaceRoot, e.path) !== path.resolve(variantPath)) {
       problems.push(`patchedDependencies["${expectedKey}"] points to ${e.path}, but the selected variant is ${expected}`);
@@ -168,15 +225,17 @@ export async function pnpmConfigProblems(root: string, pkg: string, variantPath:
 }
 
 /**
- * Point patchedDependencies at `variantPath` (using a name-only key, or `pkg@version` when other
- * versions of `pkg` are installed in the workspace) and enforce `ignorePatchFailures: false` on
- * pnpm < 11. Preserves comments.
+ * Point patchedDependencies at `variantPath` (using a name-only key, or `pkg@version` when
+ * `mechanisms.patch.pinKeys` is enabled or other versions of `pkg` are installed in the workspace)
+ * and enforce `ignorePatchFailures: false` on pnpm < 11 (and clear `allowUnusedPatches: true` when
+ * keys are pinned). Preserves comments.
  */
 export async function configurePnpmPatch(
   root: string,
   pkg: string,
   variantPath: string,
   version?: string,
+  options?: PnpmPatchOptions,
 ): Promise<{ file: string; changed: boolean }> {
   // A project can be pnpm (e.g. via packageManager) without a workspace file yet.
   // pnpm 10+ accepts a settings-only pnpm-workspace.yaml for a single-package project.
@@ -184,7 +243,8 @@ export async function configurePnpmPatch(
   const file = path.join(workspaceRoot, WORKSPACE_FILE);
   const before = existsSync(file) ? await readFile(file, 'utf8') : '';
   const doc = parseDocument(before);
-  const { key: expectedKey } = pnpmPatchKey(workspaceRoot, pkg, version);
+  const { key: expectedKey } = pnpmPatchKey(workspaceRoot, pkg, version, options?.pinKeys);
+  const pinned = expectedKey !== pkg;
   const patched = doc.get('patchedDependencies', true) as { items?: { key: unknown }[] } | undefined;
   for (const item of patched?.items ?? []) {
     const key = String((item.key as { value?: unknown })?.value ?? item.key);
@@ -197,22 +257,39 @@ export async function configurePnpmPatch(
   } else if (doc.get('ignorePatchFailures') === false) {
     doc.delete('ignorePatchFailures');
   }
+  if (pinned) {
+    if (doc.get('allowUnusedPatches') === true) doc.delete('allowUnusedPatches');
+    if (doc.get('allowNonAppliedPatches') === true) doc.delete('allowNonAppliedPatches');
+  }
   const after = doc.toString();
   if (after !== before) await writeFile(file, after);
 
-  // Remove competing entries `pnpm patch-commit` may have written to package.json.
+  // Remove competing entries `pnpm patch-commit` may have written to package.json, and clear
+  // allowUnusedPatches / allowNonAppliedPatches there when keys are version-pinned.
   let manifestChanged = false;
   const manifest = await readManifest(workspaceRoot);
-  const patchedInManifest = manifest?.json.pnpm?.patchedDependencies as Record<string, string> | undefined;
-  if (manifest && patchedInManifest) {
-    for (const key of Object.keys(patchedInManifest)) {
-      if (keyMatches(key, pkg)) {
-        delete patchedInManifest[key];
+  if (manifest?.json.pnpm && typeof manifest.json.pnpm === 'object') {
+    const patchedInManifest = manifest.json.pnpm.patchedDependencies as Record<string, string> | undefined;
+    if (patchedInManifest) {
+      for (const key of Object.keys(patchedInManifest)) {
+        if (keyMatches(key, pkg)) {
+          delete patchedInManifest[key];
+          manifestChanged = true;
+        }
+      }
+      if (manifestChanged && !Object.keys(patchedInManifest).length) delete manifest.json.pnpm.patchedDependencies;
+    }
+    if (pinned) {
+      if (manifest.json.pnpm.allowUnusedPatches === true) {
+        delete manifest.json.pnpm.allowUnusedPatches;
+        manifestChanged = true;
+      }
+      if (manifest.json.pnpm.allowNonAppliedPatches === true) {
+        delete manifest.json.pnpm.allowNonAppliedPatches;
         manifestChanged = true;
       }
     }
     if (manifestChanged) {
-      if (!Object.keys(patchedInManifest).length) delete manifest.json.pnpm.patchedDependencies;
       if (!Object.keys(manifest.json.pnpm).length) delete manifest.json.pnpm;
       const indent = /^[ \t]+/m.exec(manifest.text)?.[0] ?? '  ';
       await writeFile(manifest.file, `${JSON.stringify(manifest.json, null, indent)}\n`);

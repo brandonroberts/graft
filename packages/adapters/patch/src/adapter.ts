@@ -30,19 +30,21 @@ import {
   reverseFilePatch,
   type FilePatch,
 } from './patchfile.js';
-import { selectApplier, type ApplierConfig } from './appliers.js';
+import { readPinKeys, selectApplier, type ApplierConfig } from './appliers.js';
 import { applyToInstalledCopy, findInstalledCopies } from './installed.js';
 import { captureInstalledChanges } from './capture.js';
 import { pnpmPackageExtensionWarnings } from './pnpm.js';
 import type { Project } from '@graftsync/core';
 
 /** The applier for a graft (config `mechanisms.patch.applier`, else from its ecosystem's tooling). */
-const applierFor = (project: Project, graft: Graft) =>
-  selectApplier(
+const applierFor = (project: Project, graft: Graft) => {
+  readPinKeys(project);
+  return selectApplier(
     project.root,
     project.config.mechanisms?.patch?.applier as ApplierConfig | undefined,
     graft.frontmatter.rootstock.ecosystem,
   );
+};
 
 export const MECHANISM = 'patch';
 
@@ -177,6 +179,7 @@ export function createPatchAdapter(): MechanismAdapter {
         const applier = applierFor(project, graft);
         if (applier.maxHunkOffset !== undefined) maxOffset = { limit: applier.maxHunkOffset, applier: applier.name };
       } catch (err) {
+        if (err instanceof GraftError && err.code === 'config/invalid') throw err;
         report.errors.push((err as Error).message);
         return report;
       }
@@ -278,6 +281,7 @@ export function createPatchAdapter(): MechanismAdapter {
         const applier = applierFor(project, graft);
         if (applier.maxHunkOffset !== undefined) maxOffset = { limit: applier.maxHunkOffset, applier: applier.name };
       } catch (err) {
+        if (err instanceof GraftError && err.code === 'config/invalid') throw err;
         result.errors.push((err as Error).message);
         return result;
       }

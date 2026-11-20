@@ -14,6 +14,7 @@ export {
   GRAFT_POSTINSTALL,
   patchPackageApplier,
   pnpmApplier,
+  readPinKeys,
   selectApplier,
   toPatchPackageFormat,
   patchPackageFileName,

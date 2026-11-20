@@ -944,3 +944,79 @@ The parseArgs return statement.
     expect(diff.patch).not.toContain('const top0 = 999');
   });
 });
+
+describe('version-pinned patchedDependencies keys (mechanisms.patch.pinKeys, #83)', () => {
+  it('pins pnpm patchedDependencies to pkg@version when mechanisms.patch.pinKeys is true (#83)', async () => {
+    const { root, upstream } = await fixture('1.0.0');
+    await writeFile(path.join(root, '.grafts/config.json'), JSON.stringify({ mechanisms: { patch: { pinKeys: true } } }, null, 2));
+    const project = await Project.open({ root, adapters: [patchAdapter], upstream });
+    const graft = await project.get('add-c');
+
+    // Name-only key is flagged when pinKeys is enabled.
+    const nameOnlyCheck = await checkAnchors(project, 'add-c');
+    expect(nameOnlyCheck.ok).toBe(false);
+    expect(nameOnlyCheck.errors.join('\n')).toMatch(/name-only key.*mechanisms\.patch\.pinKeys.*lib@1\.0\.0/);
+
+    // beforeInstall / apply rewrites the key to lib@1.0.0.
+    await patchAdapter.beforeInstall!(project.context(graft), '1.0.0');
+    const ws1 = await readFile(path.join(root, 'pnpm-workspace.yaml'), 'utf8');
+    expect(ws1).toContain('lib@1.0.0: .grafts/add-c/variants/v1.patch');
+    expect(ws1).not.toMatch(/\n\s*lib:/);
+    expect((await checkAnchors(project, 'add-c')).ok).toBe(true);
+
+    // Sync at the installed version passes with the pinned key.
+    const synced = await sync(project, { writeReport: false });
+    expect(synced.exitCode).toBe(0);
+
+    // Upgrading to 1.1.0 flags the old lib@1.0.0 key and beforeInstall re-keys it to lib@1.1.0.
+    const variant = path.join(root, '.grafts/add-c/variants/v1.patch');
+    expect((await pnpmApplier.problems(root, 'lib', '1.1.0', variant, { project })).join('\n')).toMatch(/does not match lib@1\.1\.0/);
+    await patchAdapter.beforeInstall!(project.context(graft), '1.1.0');
+    const ws2 = await readFile(path.join(root, 'pnpm-workspace.yaml'), 'utf8');
+    expect(ws2).toContain('lib@1.1.0: .grafts/add-c/variants/v1.patch');
+    expect(ws2).not.toContain('lib@1.0.0');
+    expect(await pnpmApplier.problems(root, 'lib', '1.1.0', variant, { project })).toEqual([]);
+  });
+
+  it('flags and clears allowUnusedPatches / allowNonAppliedPatches when pnpm keys are version-pinned (#83)', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'graft-pnpm-unused-'));
+    const variant = path.join(root, '.grafts/fix/variants/v1.patch');
+    await writeFile(
+      path.join(root, 'package.json'),
+      JSON.stringify({
+        name: 'app',
+        packageManager: 'pnpm@11.28.6',
+        pnpm: { allowUnusedPatches: true, allowNonAppliedPatches: true, overrides: { x: '1' } },
+      }),
+    );
+    await writeFile(
+      path.join(root, 'pnpm-workspace.yaml'),
+      'packages:\n  - .\nallowUnusedPatches: true\nallowNonAppliedPatches: true\npatchedDependencies:\n  lib@1.0.0: .grafts/fix/variants/v1.patch\n',
+    );
+
+    const problems = (await pnpmConfigProblems(root, 'lib', variant, '1.0.0', { pinKeys: true })).join('\n');
+    expect(problems).toMatch(/pnpm-workspace\.yaml sets `allowUnusedPatches: true`/);
+    expect(problems).toMatch(/pnpm-workspace\.yaml sets `allowNonAppliedPatches: true`/);
+    expect(problems).toMatch(/package\.json pnpm\.allowUnusedPatches is true/);
+    expect(problems).toMatch(/package\.json pnpm\.allowNonAppliedPatches is true/);
+
+    await configurePnpmPatch(root, 'lib', variant, '1.0.0', { pinKeys: true });
+    expect(await pnpmConfigProblems(root, 'lib', variant, '1.0.0', { pinKeys: true })).toEqual([]);
+    const ws = await readFile(path.join(root, 'pnpm-workspace.yaml'), 'utf8');
+    expect(ws).not.toContain('allowUnusedPatches');
+    expect(ws).not.toContain('allowNonAppliedPatches');
+    const manifest = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
+    expect(manifest.pnpm).toEqual({ overrides: { x: '1' } });
+  });
+
+  it('rejects non-boolean mechanisms.patch.pinKeys with config/invalid (#83)', async () => {
+    const { root, upstream } = await fixture('1.0.0');
+    await writeFile(path.join(root, '.grafts/config.json'), JSON.stringify({ mechanisms: { patch: { pinKeys: 'yes' } } }));
+    const project = await Project.open({ root, adapters: [patchAdapter], upstream });
+    await expect(checkAnchors(project, 'add-c')).rejects.toMatchObject({ code: 'config/invalid' });
+    const report = await sync(project, { version: '1.1.0', dryRun: true, writeReport: false });
+    expect(report.exitCode).toBe(2);
+    expect(report.grafts[0]).toMatchObject({ outcome: 'error' });
+    expect(report.grafts[0]!.reasons.join('\n')).toMatch(/mechanisms\.patch\.pinKeys must be a boolean/);
+  });
+});

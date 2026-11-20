@@ -24,7 +24,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { detectPackageManager, findPnpRuntime, type Project, type UpstreamSource } from '@graftsync/core';
+import { detectPackageManager, findPnpRuntime, GraftError, type Project, type UpstreamSource } from '@graftsync/core';
 import { cargoVendorApplier } from './cargo.js';
 import { goReplaceApplier } from './go.js';
 import { wheelVendorApplier } from './pypi.js';
@@ -45,6 +45,16 @@ export type ApplierName =
 
 /** `mechanisms.patch.applier`: a name (npm), or a name per ecosystem (`{ "npm": "vendor", "cargo": "cargo-vendor" }`). */
 export type ApplierConfig = string | Partial<Record<string, string>>;
+
+/** Read `mechanisms.patch.pinKeys` (default false); throw `config/invalid` on non-boolean values. */
+export function readPinKeys(project?: Project): boolean {
+  const raw = project?.config.mechanisms?.patch?.pinKeys;
+  if (raw === undefined) return false;
+  if (typeof raw !== 'boolean') {
+    throw new GraftError('.grafts/config.json: mechanisms.patch.pinKeys must be a boolean', 'config/invalid');
+  }
+  return raw;
+}
 
 export interface ApplierContext {
   /** Pristine upstream contents, for appliers that build the patched package themselves. */
@@ -141,9 +151,10 @@ async function writeManifest(m: { file: string; text: string; json: Record<strin
 export const pnpmApplier: PatchApplier = {
   name: 'pnpm',
   maxHunkOffset: 20,
-  problems: (root, pkg, version, variantPath) => pnpmConfigProblems(root, pkg, variantPath, version),
-  async configure(root, pkg, version, variantPath) {
-    const r = await configurePnpmPatch(root, pkg, variantPath, version);
+  problems: (root, pkg, version, variantPath, ctx) =>
+    pnpmConfigProblems(root, pkg, variantPath, version, { pinKeys: readPinKeys(ctx?.project) }),
+  async configure(root, pkg, version, variantPath, ctx) {
+    const r = await configurePnpmPatch(root, pkg, variantPath, version, { pinKeys: readPinKeys(ctx?.project) });
     return { files: [r.file] };
   },
 };
@@ -179,13 +190,15 @@ export function npmMajor(root: string): number | undefined {
 }
 
 /**
- * npm 12+ native patches: root package.json `patchedDependencies[<pkg>]` (name-only key) →
- * variant. npm applies patches during install (also with --ignore-scripts), records their hash
- * in package-lock.json, and fails the install on a patch that does not apply or matches nothing.
+ * npm 12+ native patches: root package.json `patchedDependencies[<pkg>]` (name-only key, or
+ * `<pkg>@<installed>` when `mechanisms.patch.pinKeys` is enabled) → variant. npm applies patches
+ * during install (also with --ignore-scripts), records their hash in package-lock.json, and fails
+ * the install on a patch that does not apply or matches nothing.
  */
 export const npmApplier: PatchApplier = {
   name: 'npm',
-  async problems(root, pkg, _version, variantPath) {
+  async problems(root, pkg, version, variantPath, ctx) {
+    const pinKeys = readPinKeys(ctx?.project);
     const installRoot = manifestRoot(root);
     const problems: string[] = [];
     const major = npmMajor(root);
@@ -196,18 +209,31 @@ export const npmApplier: PatchApplier = {
     }
     const { json } = await readManifest(installRoot);
     const entries = Object.entries((json.patchedDependencies ?? {}) as Record<string, string>).filter(([k]) => keyIsFor(k, pkg));
+    const expectedKey = pinKeys ? `${pkg}@${version}` : pkg;
     const expected = posix(path.relative(installRoot, variantPath));
-    if (!entries.some(([k]) => k === pkg))
-      problems.push(`package.json patchedDependencies has no "${pkg}" entry (expected "${pkg}": "${expected}")`);
+    if (!entries.some(([k]) => k === expectedKey))
+      problems.push(`package.json patchedDependencies has no "${expectedKey}" entry (expected "${expectedKey}": "${expected}")`);
     for (const [k, p] of entries) {
-      if (k !== pkg)
-        problems.push(`package.json patchedDependencies["${k}"] is version-specific; graft manages ${pkg} with a name-only key`);
-      else if (path.resolve(installRoot, p) !== path.resolve(variantPath))
-        problems.push(`package.json patchedDependencies["${pkg}"] points to ${p}, but the selected variant is ${expected}`);
+      if (k !== expectedKey) {
+        if (pinKeys && k === pkg) {
+          problems.push(
+            `package.json patchedDependencies["${pkg}"] is a name-only key, but mechanisms.patch.pinKeys is enabled; pin it as "${expectedKey}" — run \`graft apply\``,
+          );
+        } else if (pinKeys) {
+          problems.push(`package.json patchedDependencies["${k}"] does not match ${expectedKey}; run \`graft apply\` to update it`);
+        } else {
+          problems.push(
+            `package.json patchedDependencies["${k}"] is version-specific; graft manages ${pkg} with a name-only key (set \`mechanisms.patch.pinKeys: true\` in .grafts/config.json to keep version-pinned keys)`,
+          );
+        }
+      } else if (path.resolve(installRoot, p) !== path.resolve(variantPath)) {
+        problems.push(`package.json patchedDependencies["${expectedKey}"] points to ${p}, but the selected variant is ${expected}`);
+      }
     }
     return problems;
   },
-  async configure(root, pkg, _version, variantPath) {
+  async configure(root, pkg, version, variantPath, ctx) {
+    const pinKeys = readPinKeys(ctx?.project);
     const major = npmMajor(root);
     if (major === undefined || major < NPM_NATIVE_PATCH_MAJOR) {
       throw new Error(
@@ -218,7 +244,8 @@ export const npmApplier: PatchApplier = {
     const m = await readManifest(installRoot);
     const patched = (m.json.patchedDependencies ??= {}) as Record<string, string>;
     for (const k of Object.keys(patched)) if (keyIsFor(k, pkg)) delete patched[k];
-    patched[pkg] = posix(path.relative(installRoot, variantPath));
+    const expectedKey = pinKeys ? `${pkg}@${version}` : pkg;
+    patched[expectedKey] = posix(path.relative(installRoot, variantPath));
     await writeManifest(m);
     return { files: [m.file] };
   },
