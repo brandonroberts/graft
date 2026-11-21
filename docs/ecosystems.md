@@ -295,12 +295,22 @@ Python (`site-packages`). Go's module cache is read-only, so there's nothing to 
 
 ## 8. What implementation changed
 
-- **The uv / pip question (§5.3)** was tested first. uv pins a path wheel's hash in `uv.lock`
-  and fails `uv sync` loudly on a changed wheel, but a plain `uv lock` keeps the old hash, so
-  reinstall runs `uv lock --upgrade-package <name>`. pip treats a changed wheel of the same name
-  and version as "already satisfied", exits 0 and keeps the old code: a silent failure, so
-  reinstall force-reinstalls the vendored wheels, and the installed-files check catches the
-  rest. The wheel keeps its published filename (no hash in the name was needed).
+- **The uv / pip question (§5.3)** was tested first, then re-validated on `pallets/flask` and Linux
+  ext4 CI (#95). uv pins a path wheel's hash in `uv.lock` and fails `uv sync` loudly on a changed
+  wheel, a plain `uv lock` keeps the old hash, `uv sync` skips reinstalling an unchanged-version
+  wheel without `--reinstall-package`, and on same-filesystem installs uv hardlinks `.venv` files
+  directly to its global archive cache (so an in-place edit in `site-packages` mutates the cached
+  inode until cleared). Reinstall therefore runs `uv cache clean <name...>`,
+  `uv lock --upgrade-package <name...>`, and `uv sync --reinstall-package <name...>`. pip treats a
+  changed wheel of the same name and version as "already satisfied", exits 0 and keeps the old
+  code: a silent failure, so reinstall force-reinstalls the vendored wheels, and the installed-files
+  check catches the rest. The wheel keeps its published filename (no hash in the name was needed).
+- **Cargo transitive lockstep siblings (#93)** surfaced during live validation on `BurntSushi/ripgrep`:
+  `serde` pins `serde_core = "=1.0.228"` (transitive) which pins `serde_derive = "=1.0.228"`.
+  `findCargoSiblings` follows non-dev exact-version (`=<version>`) same-repository dependencies,
+  `orderCargoUpdates` ignores dev-dep cycles, `cargo-vendor`'s `beforeInstall` drops `install: 'reinstall'`
+  so `cargo update` actually runs, and `cargoEcosystem.install` updates all crates atomically in one
+  `cargo update -p <c>@<old> … --precise <new>` (falling back per-crate) followed by `cargo fetch`.
 - **Go's vendored directory** is `<module, / as +>-<version>`, not `…@<version>`: in `go.work`,
   `go work edit` reads the `@` as a version.
 - **Go installs with `go get`**, not a bare reinstall: for a new version the `require` must move,

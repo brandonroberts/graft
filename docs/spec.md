@@ -525,8 +525,9 @@ it.
   `https://index.crates.io`); yanked versions are skipped.
 - **Installed copy:** `cargo metadata` for `ecosystems.cargo.manifest` (default `Cargo.toml`):
   the copy from a path source (the vendored crate) if there is one, else the newest.
-- **Install:** `cargo update -p <crate>@<installed> --precise <version>`; reinstall:
-  `cargo fetch`.
+- **Install:** `cargo update -p <crate>@<installed> … --precise <version>` (all siblings
+  atomically, falling back to per-crate dependency order when needed) followed by `cargo fetch`;
+  reinstall: `cargo fetch`.
 - **Applier `cargo-vendor` (the default and only one):** pristine + variant is written to
   `.grafts/.vendor/<crate>-<version>/` (committed), and the workspace root manifest (from
   `cargo locate-project --workspace`) gets
