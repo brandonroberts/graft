@@ -7,46 +7,13 @@
 //     setups), so files are replaced by rename (new inode), never edited in place;
 //   - strict: anything that does not fit fails the install.
 import { existsSync } from 'node:fs';
-import { chmod, lstat, mkdir, readdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { InstalledCopyResult } from '@graftsync/core';
+import { findInstalledCopies, type InstalledCopyResult, type InstalledPackage } from '@graftsync/core';
 import { applyFilePatch, patchTarget, reverseFilePatch, type FilePatch } from './patchfile.js';
 
-export interface InstalledCopy {
-  dir: string;
-  version: string;
-}
-
-/**
- * Every installed copy of `pkg` under `root`'s node_modules tree (hoisted and nested),
- * deduplicated by real path. pnpm's virtual store (`.pnpm`) is skipped: pnpm patches natively.
- */
-export async function findInstalledCopies(root: string, pkg: string, maxDepth = 12): Promise<InstalledCopy[]> {
-  const copies = new Map<string, InstalledCopy>();
-  const visited = new Set<string>();
-  const visit = async (nodeModules: string, depth: number): Promise<void> => {
-    if (depth > maxDepth || !existsSync(nodeModules)) return;
-    const real = await realpath(nodeModules);
-    if (visited.has(real)) return;
-    visited.add(real);
-    const candidate = path.join(nodeModules, pkg, 'package.json');
-    if (existsSync(candidate)) {
-      const dir = await realpath(path.dirname(candidate));
-      const { version } = JSON.parse(await readFile(candidate, 'utf8')) as { version?: string };
-      if (version && !copies.has(dir)) copies.set(dir, { dir, version });
-    }
-    const entries = await readdir(nodeModules, { withFileTypes: true }).catch(() => []);
-    for (const e of entries) {
-      if (e.name.startsWith('.')) continue; // .bin, .cache, .pnpm, .package-lock.json …
-      const names = e.name.startsWith('@')
-        ? (await readdir(path.join(nodeModules, e.name)).catch(() => [])).map((n) => `${e.name}/${n}`)
-        : [e.name];
-      for (const name of names) await visit(path.join(nodeModules, name, 'node_modules'), depth + 1);
-    }
-  };
-  await visit(path.join(root, 'node_modules'), 0);
-  return [...copies.values()];
-}
+export type InstalledCopy = Pick<InstalledPackage, 'dir' | 'version'>;
+export { findInstalledCopies };
 
 /** Replace `file` with `content` through a new inode (never writes into a hardlinked store file). */
 export async function writeNewInode(file: string, content: string): Promise<void> {

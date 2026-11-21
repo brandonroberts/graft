@@ -32,7 +32,7 @@ import {
   type FilePatch,
 } from './patchfile.js';
 import { readPinKeys, selectApplier, type ApplierConfig } from './appliers.js';
-import { applyToInstalledCopy, findInstalledCopies } from './installed.js';
+import { applyToInstalledCopy } from './installed.js';
 import { captureInstalledChanges } from './capture.js';
 import { pnpmPackageExtensionWarnings } from './pnpm.js';
 import type { Project } from '@graftsync/core';
@@ -315,11 +315,9 @@ export function createPatchAdapter(): MechanismAdapter {
       // Graft's built-in applier patches every copy under node_modules (including nested copies
       // at other versions, e.g. jest-environment-jsdom/node_modules/jsdom), so verify them too (#87).
       if (applier.name === 'graft' && graft.frontmatter.rootstock.ecosystem === 'npm' && !installed.pnp) {
-        const primaryReal = await realpath(installed.dir).catch(() => path.resolve(installed.dir));
-        const copies = await findInstalledCopies(project.root, pkg);
-        for (const copy of copies) {
+        const copies = await project.installedCopies(pkg, 'npm');
+        for (const copy of copies.slice(1)) {
           const copyReal = await realpath(copy.dir).catch(() => path.resolve(copy.dir));
-          if (copyReal === primaryReal) continue;
           const rel = path.relative(project.root, copy.dir).split(path.sep).join('/');
           const nestedVariant = project.selectVariant(graft, copy.version);
           if (!nestedVariant) {
@@ -344,7 +342,7 @@ export function createPatchAdapter(): MechanismAdapter {
             variant: nestedVariant,
             patches: nestedPatches,
             pristineDir: nestedPristineDir,
-            installed: { version: copy.version, dir: copy.dir },
+            installed: copy,
             label: ` (nested: ${rel})`,
             remediation: 'run `graft apply --installed`',
             failOnUnapplicable: true,
@@ -491,7 +489,8 @@ export function createPatchAdapter(): MechanismAdapter {
         );
         return report;
       }
-      const primary = await project.upstreamFor(graft).installed(pkg);
+      const copies = await project.installedCopies(pkg, 'npm');
+      const primary = copies[0];
       if (!primary) {
         report.warnings.push(`${pkg} is not installed; nothing to apply`);
         return report;
@@ -502,11 +501,8 @@ export function createPatchAdapter(): MechanismAdapter {
         );
         return report;
       }
-      const primaryReal = await realpath(primary.dir).catch(() => path.resolve(primary.dir));
-      const copies = await findInstalledCopies(project.root, pkg);
-      if (!copies.some((c) => c.dir === primaryReal)) copies.unshift({ dir: primary.dir, version: primary.version });
-      for (const copy of copies) {
-        const isPrimary = copy.dir === primary.dir || copy.dir === primaryReal;
+      for (const [index, copy] of copies.entries()) {
+        const isPrimary = index === 0;
         const variant = project.selectVariant(graft, copy.version);
         const base = { dir: copy.dir, version: copy.version, primary: isPrimary, files: [] as string[] };
         if (!variant) {

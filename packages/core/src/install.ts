@@ -134,7 +134,7 @@ function findUp(from: string, filename: string): string | undefined {
 }
 
 /** Nearest workspace/install root at or above `from` (pnpm-workspace.yaml, lockfile, or package.json). */
-function workspaceRoot(from: string): string {
+export function workspaceRoot(from: string): string {
   const pnpm = findUp(from, 'pnpm-workspace.yaml');
   if (pnpm) return pnpm;
   let dir = path.resolve(from);
@@ -164,7 +164,7 @@ async function manifestDeclares(dir: string, pkg: string): Promise<boolean> {
   }
 }
 
-async function workspaceManifestDirs(root: string, extraDirs: string[] = []): Promise<string[]> {
+export async function workspaceManifestDirs(root: string, extraDirs: string[] = []): Promise<string[]> {
   const wsRoot = workspaceRoot(root);
   const dirs = new Set<string>([path.resolve(root), wsRoot, ...extraDirs.map((d) => path.resolve(d))]);
 

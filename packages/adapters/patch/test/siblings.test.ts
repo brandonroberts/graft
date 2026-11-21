@@ -216,7 +216,23 @@ describe('packages released with the rootstock (siblings)', () => {
     await mkdir(path.join(root, '.grafts'), { recursive: true });
     await writeFile(path.join(root, '.grafts/config.json'), JSON.stringify({ resolveFrom: { lib: 'packages/app' } }));
 
+    // Even if another workspace installs plugin@0.9.0 in pnpm's virtual store (making root lookup
+    // of `plugin` ambiguous), resolving `plugin` relative to `resolveFrom.lib` finds 1.0.0 cleanly.
+    await mkdir(path.join(root, 'node_modules/.pnpm/plugin@1.0.0/node_modules/plugin'), { recursive: true });
+    await mkdir(path.join(root, 'node_modules/.pnpm/plugin@0.9.0/node_modules/plugin'), { recursive: true });
+    await writeFile(
+      path.join(root, 'node_modules/.pnpm/plugin@1.0.0/node_modules/plugin/package.json'),
+      JSON.stringify({ name: 'plugin', version: '1.0.0', repository: 'github:acme/kit' }),
+    );
+    await writeFile(
+      path.join(root, 'node_modules/.pnpm/plugin@0.9.0/node_modules/plugin/package.json'),
+      JSON.stringify({ name: 'plugin', version: '0.9.0', repository: 'github:acme/kit' }),
+    );
+
     const project = await Project.open({ root, adapters: [patchAdapter] });
     expect(await findSiblings(project, 'lib')).toEqual(['plugin']);
+    // Unscoped lookup of `plugin` fails loudly with ambiguity, while workspace-scoped lookup finds 1.0.0.
+    await expect(project.installedVersion('plugin')).rejects.toThrow(/multiple versions of plugin/);
+    expect(await project.installedVersion('plugin', 'npm', { from: wsPkg })).toBe('1.0.0');
   });
 });

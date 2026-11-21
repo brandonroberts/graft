@@ -4,9 +4,8 @@
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { GraftError } from './errors.js';
 import type { Project } from './project.js';
-import { findInstalledPackage, readInstalledFiles, type InstalledPackage, type UpstreamSource } from './upstream.js';
+import { npmResolveFrom, readInstalledFiles, type InstalledPackage } from './upstream.js';
 
 type Manifest = { repository?: string | { url?: string }; [field: string]: unknown };
 
@@ -47,34 +46,6 @@ async function manifestOf(installed: InstalledPackage): Promise<Manifest | undef
 }
 
 /**
- * Resolve a sibling candidate's installed copy: when declared in `fromDir` (`resolveFrom[pkg]`),
- * resolve from that directory first so isolated pnpm workspaces find the exact copy `fromDir`
- * depends on instead of falling back to an ambiguous `.pnpm` scan (#89). Unrelated candidates that
- * remain ambiguous in `.pnpm` are skipped rather than aborting another package's upgrade.
- */
-async function resolveCandidate(
-  upstream: UpstreamSource,
-  name: string,
-  fromDir: string | undefined,
-  inFrom: boolean,
-): Promise<InstalledPackage | undefined> {
-  if (inFrom && fromDir) {
-    try {
-      const local = await findInstalledPackage(name, fromDir);
-      if (local) return local;
-    } catch (err) {
-      if (!(err instanceof GraftError && err.code === 'upstream/ambiguous-installed')) throw err;
-    }
-  }
-  try {
-    return await upstream.installed(name);
-  } catch (err) {
-    if (err instanceof GraftError && err.code === 'upstream/ambiguous-installed') return undefined;
-    throw err;
-  }
-}
-
-/**
  * The npm packages released together with `pkg`: declared by the project (its root manifest, and
  * the `resolveFrom` directory's for `pkg`), installed at `pkg`'s installed version, with the same
  * repository. Empty when `pkg` isn't installed or has no repository field.
@@ -85,15 +56,16 @@ export async function findSiblings(project: Project, pkg: string): Promise<strin
   if (!root) return [];
   const key = repositoryKey((await manifestOf(root))?.repository);
   if (!key) return [];
-  const own = (project.config.ecosystems?.npm as { resolveFrom?: Record<string, string> } | undefined)?.resolveFrom?.[pkg];
-  const from = own ?? project.config.resolveFrom?.[pkg];
-  const fromDir = from ? path.resolve(project.root, from) : undefined;
+  const fromDir = npmResolveFrom(project.config, project.root)[pkg];
   const fromNames = new Set(fromDir ? await declared(fromDir) : []);
   const names = new Set([...(await declared(project.root)), ...fromNames]);
   names.delete(pkg);
   const siblings: string[] = [];
   for (const name of [...names].sort()) {
-    const installed = await resolveCandidate(upstream, name, fromDir, fromNames.has(name));
+    const installed = await upstream.installed(name, {
+      ...(fromNames.has(name) && fromDir ? { from: fromDir } : {}),
+      allowAmbiguous: true,
+    });
     if (installed?.version !== root.version) continue;
     if (repositoryKey((await manifestOf(installed))?.repository) === key) siblings.push(name);
   }

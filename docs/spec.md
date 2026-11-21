@@ -213,8 +213,11 @@ Grafts are grouped by `(rootstock.ecosystem, rootstock.package)`, so an npm `ms`
    `.grafts/.report/<id>/applied/`. Any failure marks the graft `needs-agent`.
 2. **Install.** If `T` isn't installed and every graft on the package passed step 1, install
    `T` (only when installing was requested; otherwise the grafts get `error`, except in a dry run,
-   which then reports the result of the static checks, with a reason saying so). The adapter's
-   `beforeInstall` runs first and `afterInstall` after. When `.grafts/config.json` sets an
+   which then reports the result of the static checks, with a reason saying so). The tooling
+   snapshots the project's manifests, package-manager configuration, lockfiles and graft-owned
+   applier artifacts before `beforeInstall` runs, and restores them if any install step fails so
+   a failed install never leaves workspace config half-mutated. The adapter's `beforeInstall` runs
+   first and `afterInstall` after. When `.grafts/config.json` sets an
    `upgrade` command for the package (§7), the tooling runs that command from the project root
    instead of its own install. It MUST fail (`install/failed`, with the command's output) when the
    command fails, and either way the package MUST then be installed at `T`, or the grafts get
@@ -222,10 +225,10 @@ Grafts are grouped by `(rootstock.ecosystem, rootstock.package)`, so an npm `ms`
    escapes) in the report as the target's `installOutput`, and in `sync.md`: a command can exit 0
    and still leave work for an agent. When the upgrade entry declares `needsAgentIf` (§7) and any
    configured check matches after the command succeeds, the grafts become `needs-agent` (exit code
-   1, `verified` not updated) instead of `green`, pointing the agent at the remaining work. An
-   `upgrade` command for a package whose adapter asks for a bare reinstall (the `fork` mechanism's
-   package mode) is an error (`config/upgrade-unsupported`). If some grafts on the package need an
-   agent, nothing is installed and the passing ones are `skipped`.
+   1, `verified` not updated, workspace left as upgraded for the agent) instead of `green`, pointing
+   the agent at the remaining work. An `upgrade` command for a package whose adapter asks for a bare
+   reinstall (the `fork` mechanism's package mode) is an error (`config/upgrade-unsupported`). If
+   some grafts on the package need an agent, nothing is installed and the passing ones are `skipped`.
    **Siblings:** the project's declared dependencies installed at the package's installed version
    from the same repository are released with it and MUST be installed at `T` in the same install:
    - npm: same `repository` (`host/owner/repo`), e.g. `@nx/angular` with `nx`.
