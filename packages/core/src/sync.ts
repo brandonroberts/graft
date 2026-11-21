@@ -7,7 +7,9 @@ import { runCommand } from './command.js';
 import { checkUpgradeNeedsAgent, resolveUpgrade, runUpgrade } from './install.js';
 import { recordVariant, summarizeMisses, updateGraft } from './operations.js';
 import type { Project } from './project.js';
+import { snapshotInstallConfig, type WorkspaceSnapshot } from './snapshot.js';
 import type { AgentStart, AnchorReport, ApplyResult, FetchableRef, Graft, GraftUpdate, ResolvedVariant } from './types.js';
+import { npmResolveFrom } from './upstream.js';
 
 export type SyncOutcome = 'green' | 'needs-agent' | 'skipped' | 'error';
 
@@ -209,6 +211,8 @@ export async function sync(project: Project, options: SyncOptions = {}): Promise
 
     // Phase 2: install the target version if needed.
     let installError: string | undefined;
+    let installSnapshot: WorkspaceSnapshot | undefined;
+    let workspaceRolledBack = false;
     if (!standalone && installedBefore !== version && ready.length) {
       if (ready.length !== staged.length) {
         for (const s of ready) {
@@ -246,6 +250,9 @@ export async function sync(project: Project, options: SyncOptions = {}): Promise
               );
             }
           }
+          // Snapshot manifests, package-manager config, lockfiles, and applier artifacts before
+          // any mutation so a failure at any step leaves the workspace config clean.
+          installSnapshot = await snapshotInstallConfig(project, ecosystem);
           let bare = false;
           for (const s of ready) {
             const r = await project.adapterFor(s.graft).beforeInstall?.(project.context(s.graft), version);
@@ -280,9 +287,10 @@ export async function sync(project: Project, options: SyncOptions = {}): Promise
             target.installCommand = commands.join(' && ');
           }
           const now = await project.installedVersion(pkg, ecosystem);
+          const siblingFrom = ecosystem === 'npm' ? npmResolveFrom(project.config, project.root)[pkg] : undefined;
           const behind: string[] = [];
           for (const s of siblings) {
-            const v = await project.installedVersion(s, ecosystem);
+            const v = await project.installedVersion(s, ecosystem, siblingFrom ? { from: siblingFrom } : undefined);
             if (v !== version) behind.push(`${s}@${v ?? 'none'}`);
           }
           if (now !== version) installError = `installed ${pkg} but found version ${now ?? 'none'}, expected ${version}`;
@@ -315,6 +323,7 @@ export async function sync(project: Project, options: SyncOptions = {}): Promise
       // A generator produced a new variant for the already-installed version: wire the package
       // manager to it and reinstall so the installed tree uses the new variant.
       try {
+        installSnapshot = await snapshotInstallConfig(project, ecosystem);
         for (const s of ready) await project.adapterFor(s.graft).beforeInstall?.(project.context(s.graft), version);
         target.installCommand = await eco.reinstall(project);
         for (const s of ready) await project.adapterFor(s.graft).afterInstall?.(project.context(s.graft), version);
@@ -323,6 +332,15 @@ export async function sync(project: Project, options: SyncOptions = {}): Promise
       }
     }
     if (installError) {
+      if (installSnapshot) {
+        try {
+          const restored = await installSnapshot.restore();
+          workspaceRolledBack = true;
+          if (restored.length) log(`rolled back ${restored.length} modified file(s) after install failure`);
+        } catch (err) {
+          installError += `; rollback failed: ${(err as Error).message}`;
+        }
+      }
       for (const s of ready) {
         s.result.outcome = 'error';
         s.result.reasons.push(installError);
@@ -365,7 +383,7 @@ export async function sync(project: Project, options: SyncOptions = {}): Promise
 
     // A regenerated variant that did not end green is never left registered.
     for (const s of staged.filter((s) => s.rollback && s.result.outcome !== 'green')) {
-      s.result.reasons.push(await s.rollback!(target.installCommand !== undefined));
+      s.result.reasons.push(await s.rollback!(target.installCommand !== undefined && !workspaceRolledBack));
       if (s.result.regenerated) s.result.regenerated.rolledBack = true;
     }
     results.push(...staged.map((s) => s.result));

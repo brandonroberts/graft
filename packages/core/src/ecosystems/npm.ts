@@ -1,4 +1,3 @@
-import path from 'node:path';
 import { semverScheme } from '@graftsync/spec';
 import type { Ecosystem } from '../ecosystem.js';
 import { runCommand } from '../command.js';
@@ -16,7 +15,7 @@ import {
   updatePnpmPackageExtensions,
 } from '../install.js';
 import { findSiblings } from '../siblings.js';
-import { NpmUpstreamSource } from '../upstream.js';
+import { npmResolveFrom, NpmUpstreamSource } from '../upstream.js';
 
 /** npm packages, installed by pnpm, npm, yarn, bun or upm (spec §8). */
 export const npmEcosystem: Ecosystem = {
@@ -24,29 +23,32 @@ export const npmEcosystem: Ecosystem = {
   scheme: semverScheme,
   createUpstream(project) {
     // `ecosystems.npm` wins; the top-level `upstream` / `resolveFrom` keys are its aliases.
-    const own = (project.config.ecosystems?.npm ?? {}) as { upstream?: Record<string, string>; resolveFrom?: Record<string, string> };
+    const own = (project.config.ecosystems?.npm ?? {}) as { upstream?: Record<string, string> };
     const specs = { ...project.config.upstream, ...own.upstream };
-    const resolveFrom = { ...project.config.resolveFrom, ...own.resolveFrom };
     return new NpmUpstreamSource({
       root: project.root,
       cacheDir: project.cacheDir,
       specs,
       specBase: project.graftsDir,
-      resolveFrom: Object.fromEntries(Object.entries(resolveFrom).map(([pkg, dir]) => [pkg, path.resolve(project.root, dir)])),
+      resolveFrom: npmResolveFrom(project.config, project.root),
     });
   },
   detect: (root) => detectPackageManager(root),
   async install(project, pkg, version, siblings = []) {
     const upstream = project.upstreamFor('npm');
     const pm = detectPackageManager(project.root);
-    const own = (project.config.ecosystems?.npm ?? {}) as { resolveFrom?: Record<string, string> };
-    const resolveFrom = { ...project.config.resolveFrom, ...own.resolveFrom };
+    const resolveFrom = npmResolveFrom(project.config, project.root);
+    const pkgFrom = resolveFrom[pkg];
+    const extraFor = (name: string) => {
+      const dirs = [resolveFrom[name], name !== pkg ? pkgFrom : undefined].filter((d): d is string => Boolean(d));
+      return [...new Set(dirs)];
+    };
     let names = [pkg, ...siblings];
     const steps: string[] = [];
 
     const installedVersions = new Map<string, string>();
     for (const name of names) {
-      const from = (await upstream.installed(name))?.version;
+      const from = (await upstream.installed(name, name !== pkg && pkgFrom ? { from: pkgFrom } : undefined))?.version;
       if (from) installedVersions.set(name, from);
     }
     const updates = names.filter((n) => installedVersions.has(n)).map((n) => ({ pkg: n, from: installedVersions.get(n)!, to: version }));
@@ -72,8 +74,7 @@ export const npmEcosystem: Ecosystem = {
       const unmovedCatalog: string[] = [];
       for (const name of names) {
         if (wouldMove.includes(name)) continue;
-        const extra = resolveFrom[name] ? [path.resolve(project.root, resolveFrom[name])] : [];
-        const refs = await findPnpmCatalogReferences(project.root, name, extra);
+        const refs = await findPnpmCatalogReferences(project.root, name, extraFor(name));
         if (!refs.length) continue;
         const detail = await Promise.all(
           refs.map(async (r) => {
@@ -110,8 +111,7 @@ export const npmEcosystem: Ecosystem = {
     if (names.length) {
       const transitive = new Set<string>();
       for (const name of names) {
-        const extra = resolveFrom[name] ? [path.resolve(project.root, resolveFrom[name])] : [];
-        if (!(await isDeclaredNpmDependency(project.root, name, extra))) transitive.add(name);
+        if (!(await isDeclaredNpmDependency(project.root, name, extraFor(name)))) transitive.add(name);
       }
       const overrideUpdates = names
         .filter((n) => installedVersions.has(n))
@@ -121,9 +121,7 @@ export const npmEcosystem: Ecosystem = {
         steps.push(`set ${moved.map((n) => `${n}@${version}`).join(', ')} in ${locations.join(' and ')}`);
         const directMoved = moved.filter((n) => !transitive.has(n));
         if (directMoved.length) {
-          const extraDirs = directMoved
-            .map((n) => (resolveFrom[n] ? path.resolve(project.root, resolveFrom[n]) : undefined))
-            .filter((d): d is string => Boolean(d));
+          const extraDirs = [...new Set(directMoved.flatMap((n) => extraFor(n)))];
           const manifestUpdates = directMoved
             .filter((n) => installedVersions.has(n))
             .map((n) => ({ pkg: n, from: installedVersions.get(n)!, to: version }));

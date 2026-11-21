@@ -16,7 +16,13 @@ import type { Ecosystem } from './ecosystem.js';
 import { BUILTIN_ECOSYSTEMS } from './ecosystems/index.js';
 import { GraftError } from './errors.js';
 import type { Graft, GraftContext, InvalidGraft, MechanismAdapter, ResolvedVariant } from './types.js';
-import type { UpstreamSource } from './upstream.js';
+import {
+  mergeInstalledCopies,
+  npmResolveFrom,
+  type InstalledLookupOptions,
+  type InstalledPackage,
+  type UpstreamSource,
+} from './upstream.js';
 
 export const GRAFTS_DIR = '.grafts';
 export const GRAFT_FILE = 'graft.md';
@@ -286,7 +292,24 @@ export class Project {
   }
 
   /** The installed version of `pkg` in an ecosystem (default npm). */
-  async installedVersion(pkg: string, ecosystem: string = DEFAULT_ECOSYSTEM): Promise<string | undefined> {
-    return (await this.upstreamFor(ecosystem).installed(pkg))?.version;
+  async installedVersion(
+    pkg: string,
+    ecosystem: string = DEFAULT_ECOSYSTEM,
+    options?: InstalledLookupOptions,
+  ): Promise<string | undefined> {
+    return (await this.upstreamFor(ecosystem).installed(pkg, options))?.version;
+  }
+
+  /**
+   * Every installed copy of `pkg` across the project (primary first, then any nested copies),
+   * deduplicated by real path. Falls back to `[primary]` for ecosystems without nested copies.
+   */
+  async installedCopies(pkg: string, ecosystem: string = DEFAULT_ECOSYSTEM, options?: InstalledLookupOptions): Promise<InstalledPackage[]> {
+    const upstream = this.upstreamFor(ecosystem);
+    if (upstream.installedCopies) return upstream.installedCopies(pkg, options);
+    const primary = await upstream.installed(pkg, options);
+    if (!primary) return [];
+    if (ecosystem !== 'npm') return [primary];
+    return mergeInstalledCopies(primary, [this.root, npmResolveFrom(this.config, this.root)[pkg], options?.from], pkg);
   }
 }

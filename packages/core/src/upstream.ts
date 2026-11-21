@@ -20,6 +20,19 @@ export interface InstalledPackage {
   pnp?: string;
 }
 
+export interface InstalledLookupOptions {
+  /**
+   * Directory to resolve `pkg` from before falling back to `resolveFrom[pkg]` / project root.
+   * Used when resolving a sibling or workspace-local dependency relative to a rootstock's directory.
+   */
+  from?: string;
+  /**
+   * When true, return `undefined` instead of throwing `upstream/ambiguous-installed` if pnpm's
+   * virtual store contains multiple active versions and no direct `node_modules` copy matched.
+   */
+  allowAmbiguous?: boolean;
+}
+
 export interface PackageVersions {
   versions: string[];
   distTags: Record<string, string>;
@@ -30,11 +43,29 @@ export interface UpstreamSource {
   /** Directory containing the pristine published contents of `pkg@version` (package.json at its root). */
   resolve(pkg: string, version: string): Promise<string>;
   /** The version installed in the project, if any. */
-  installed(pkg: string): Promise<InstalledPackage | undefined>;
+  installed(pkg: string, options?: InstalledLookupOptions): Promise<InstalledPackage | undefined>;
+  /**
+   * Every installed copy of `pkg` across the project (primary copy first, then any nested copies),
+   * deduplicated by real path. Ecosystems without nested copy trees omit this.
+   */
+  installedCopies?(pkg: string, options?: InstalledLookupOptions): Promise<InstalledPackage[]>;
   /** Published versions and dist-tags. */
   versions(pkg: string): Promise<PackageVersions>;
   /** Spec to pass to a package manager to install `pkg@version` (e.g. `pkg@1.2.3`). */
   installSpec(pkg: string, version: string): string;
+}
+
+/**
+ * Merge `resolveFrom` and `ecosystems.npm.resolveFrom` (`ecosystems.npm` wins), resolving
+ * every path against `root`. Single source of truth for workspace-scoped npm resolution.
+ */
+export function npmResolveFrom(
+  config: { resolveFrom?: Record<string, string>; ecosystems?: Partial<Record<string, Record<string, unknown>>> },
+  root: string,
+): Record<string, string> {
+  const own = (config.ecosystems?.npm as { resolveFrom?: Record<string, string> } | undefined)?.resolveFrom;
+  const merged = { ...config.resolveFrom, ...own };
+  return Object.fromEntries(Object.entries(merged).map(([pkg, dir]) => [pkg, path.resolve(root, dir)]));
 }
 
 export interface NpmUpstreamOptions {
@@ -165,9 +196,9 @@ export function activePnpmLockVersions(storeDir: string, pkg: string): Set<strin
  * Look up a transitive package inside pnpm's virtual store (`node_modules/.pnpm/`), walking up
  * from `from` to the nearest `.pnpm` directory. Returns the package when one distinct version is
  * installed; throws `upstream/ambiguous-installed` when multiple distinct versions are present
- * so Graft never silently picks the wrong one.
+ * (unless `allowAmbiguous` is set, in which case returns `undefined`).
  */
-async function findInPnpmStore(pkg: string, from: string): Promise<InstalledPackage | undefined> {
+async function findInPnpmStore(pkg: string, from: string, allowAmbiguous = false): Promise<InstalledPackage | undefined> {
   let dir = path.resolve(from);
   let pnpmDir: string | undefined;
   for (;;) {
@@ -201,6 +232,7 @@ async function findInPnpmStore(pkg: string, from: string): Promise<InstalledPack
   }
   if (byVersion.size === 0) return undefined;
   if (byVersion.size > 1) {
+    if (allowAmbiguous) return undefined;
     const versions = [...byVersion.keys()].sort().join(', ');
     throw new GraftError(
       `multiple versions of ${pkg} are installed in pnpm's store (${versions}); set resolveFrom["${pkg}"] in .grafts/config.json to the directory that resolves the copy you want`,
@@ -212,11 +244,10 @@ async function findInPnpmStore(pkg: string, from: string): Promise<InstalledPack
 }
 
 /**
- * Finds the installed `pkg` as seen from `from`: through the Plug'n'Play runtime when the
- * project has one (yarn 2+ `.pnp.cjs`), otherwise `node_modules/<pkg>/package.json` walking up,
- * falling back to pnpm's virtual store (`node_modules/.pnpm/`) for unhoisted transitive packages.
+ * Resolve `pkg` directly from `from` (via Yarn Plug'n'Play or walking up `node_modules/<pkg>/package.json`)
+ * without falling back to pnpm's virtual store.
  */
-export async function findInstalledPackage(pkg: string, from: string): Promise<InstalledPackage | undefined> {
+export async function findDirectInstalledPackage(pkg: string, from: string): Promise<InstalledPackage | undefined> {
   const pnp = findPnpRuntime(from);
   if (pnp) {
     const probe = await probePnp(pnp, { pkg, issuer: `${path.resolve(from)}${path.sep}` }).catch(() => null);
@@ -233,7 +264,69 @@ export async function findInstalledPackage(pkg: string, from: string): Promise<I
     if (parent === dir) break;
     dir = parent;
   }
-  return findInPnpmStore(pkg, from);
+  return undefined;
+}
+
+/**
+ * Finds the installed `pkg` as seen from `from`: through the Plug'n'Play runtime when the
+ * project has one (yarn 2+ `.pnp.cjs`), otherwise `node_modules/<pkg>/package.json` walking up,
+ * falling back to pnpm's virtual store (`node_modules/.pnpm/`) for unhoisted transitive packages.
+ */
+export async function findInstalledPackage(
+  pkg: string,
+  from: string,
+  options?: { allowAmbiguous?: boolean },
+): Promise<InstalledPackage | undefined> {
+  return (await findDirectInstalledPackage(pkg, from)) ?? findInPnpmStore(pkg, from, options?.allowAmbiguous);
+}
+
+/**
+ * Every installed copy of `pkg` under one or more roots' `node_modules` trees (hoisted and nested),
+ * deduplicated by real path. pnpm's virtual store (`.pnpm`) is skipped: pnpm patches natively.
+ */
+export async function findInstalledCopies(roots: string | string[], pkg: string, maxDepth = 12): Promise<InstalledPackage[]> {
+  const rootList = Array.isArray(roots) ? roots : [roots];
+  const copies = new Map<string, InstalledPackage>();
+  const visited = new Set<string>();
+  const visit = async (nodeModules: string, depth: number): Promise<void> => {
+    if (depth > maxDepth || !existsSync(nodeModules)) return;
+    const real = await realpath(nodeModules);
+    if (visited.has(real)) return;
+    visited.add(real);
+    const candidate = path.join(nodeModules, pkg, 'package.json');
+    if (existsSync(candidate)) {
+      try {
+        const dir = await realpath(path.dirname(candidate));
+        const { version } = JSON.parse(await readFile(candidate, 'utf8')) as { version?: string };
+        if (version && !copies.has(dir)) copies.set(dir, { dir, version });
+      } catch {
+        // ignore unreadable manifests
+      }
+    }
+    const entries = await readdir(nodeModules, { withFileTypes: true }).catch(() => []);
+    for (const e of entries) {
+      if (e.name.startsWith('.')) continue; // .bin, .cache, .pnpm, .package-lock.json …
+      const names = e.name.startsWith('@')
+        ? (await readdir(path.join(nodeModules, e.name)).catch(() => [])).map((n) => `${e.name}/${n}`)
+        : [e.name];
+      for (const name of names) await visit(path.join(nodeModules, name, 'node_modules'), depth + 1);
+    }
+  };
+  for (const root of rootList) await visit(path.join(path.resolve(root), 'node_modules'), 0);
+  return [...copies.values()];
+}
+
+function uniqueDirs(dirs: (string | undefined)[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const d of dirs) {
+    if (!d) continue;
+    const resolved = path.resolve(d);
+    if (seen.has(resolved)) continue;
+    seen.add(resolved);
+    out.push(resolved);
+  }
+  return out;
 }
 
 /**
@@ -278,6 +371,29 @@ async function npm(args: string[], cwd: string): Promise<string> {
 const npmJson = (stdout: string): unknown =>
   JSON.parse(stdout.slice(Math.min(...['[', '{'].map((c) => stdout.indexOf(c)).filter((i) => i >= 0))));
 
+/**
+ * Combine a primary installed copy with every copy found under `roots`' `node_modules` trees,
+ * keeping `primary` first and deduplicating by real path.
+ */
+export async function mergeInstalledCopies(
+  primary: InstalledPackage,
+  roots: (string | undefined)[],
+  pkg: string,
+): Promise<InstalledPackage[]> {
+  if (primary.pnp) return [primary];
+  const primaryReal = await realpath(primary.dir).catch(() => path.resolve(primary.dir));
+  const copies = await findInstalledCopies(uniqueDirs(roots), pkg);
+  const seen = new Set<string>([primaryReal]);
+  const rest: InstalledPackage[] = [];
+  for (const copy of copies) {
+    const real = await realpath(copy.dir).catch(() => path.resolve(copy.dir));
+    if (seen.has(real)) continue;
+    seen.add(real);
+    rest.push(copy);
+  }
+  return [primary, ...rest];
+}
+
 /** Default source: pristine package contents from the npm registry (fetched by npm), cached per version. */
 export class NpmUpstreamSource implements UpstreamSource {
   constructor(private readonly options: NpmUpstreamOptions) {}
@@ -298,8 +414,19 @@ export class NpmUpstreamSource implements UpstreamSource {
     return spec.startsWith('file:') ? `${pkg}@${spec}` : spec;
   }
 
-  async installed(pkg: string): Promise<InstalledPackage | undefined> {
-    return findInstalledPackage(pkg, this.options.resolveFrom?.[pkg] ?? this.options.root);
+  async installed(pkg: string, options?: InstalledLookupOptions): Promise<InstalledPackage | undefined> {
+    const roots = uniqueDirs([options?.from, this.options.resolveFrom?.[pkg], this.options.root]);
+    for (const dir of roots) {
+      const direct = await findDirectInstalledPackage(pkg, dir);
+      if (direct) return direct;
+    }
+    return findInPnpmStore(pkg, roots[0] ?? this.options.root, options?.allowAmbiguous);
+  }
+
+  async installedCopies(pkg: string, options?: InstalledLookupOptions): Promise<InstalledPackage[]> {
+    const primary = await this.installed(pkg, options);
+    if (!primary) return [];
+    return mergeInstalledCopies(primary, [this.options.root, this.options.resolveFrom?.[pkg], options?.from], pkg);
   }
 
   async resolve(pkg: string, version: string): Promise<string> {

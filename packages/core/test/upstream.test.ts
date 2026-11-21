@@ -117,6 +117,57 @@ describe('findInstalledPackage (pnpm virtual store fallback, #59)', () => {
     );
     await expect(findInstalledPackage('acorn', root)).rejects.toThrow(/multiple versions of acorn .*8\.11\.3, 8\.12\.0/);
   });
+
+  it('NpmUpstreamSource.installed supports workspace-scoped { from } and { allowAmbiguous }', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'graft-upstream-opts-'));
+    const app = path.join(root, 'packages/app');
+    const appPlugin = path.join(app, 'node_modules/plugin');
+    const p1 = path.join(root, 'node_modules/.pnpm/plugin@1.0.0/node_modules/plugin');
+    const p2 = path.join(root, 'node_modules/.pnpm/plugin@2.0.0/node_modules/plugin');
+    const o1 = path.join(root, 'node_modules/.pnpm/other@1.0.0/node_modules/other');
+    const o2 = path.join(root, 'node_modules/.pnpm/other@2.0.0/node_modules/other');
+    for (const d of [appPlugin, p1, p2, o1, o2]) await mkdir(d, { recursive: true });
+    await writeFile(path.join(appPlugin, 'package.json'), JSON.stringify({ name: 'plugin', version: '1.0.0' }));
+    await writeFile(path.join(p1, 'package.json'), JSON.stringify({ name: 'plugin', version: '1.0.0' }));
+    await writeFile(path.join(p2, 'package.json'), JSON.stringify({ name: 'plugin', version: '2.0.0' }));
+    await writeFile(path.join(o1, 'package.json'), JSON.stringify({ name: 'other', version: '1.0.0' }));
+    await writeFile(path.join(o2, 'package.json'), JSON.stringify({ name: 'other', version: '2.0.0' }));
+
+    const source = new NpmUpstreamSource({ root, cacheDir: path.join(root, 'cache') });
+    // Default lookup from root hits pnpm store ambiguity.
+    await expect(source.installed('plugin')).rejects.toThrow(/multiple versions of plugin/);
+    // Workspace-scoped `from` resolves the exact local copy cleanly.
+    expect(await source.installed('plugin', { from: app })).toEqual({ version: '1.0.0', dir: await realpath(appPlugin) });
+    // `allowAmbiguous` returns undefined for ambiguous store-only packages instead of throwing.
+    expect(await source.installed('other', { from: app, allowAmbiguous: true })).toBeUndefined();
+    await expect(source.installed('other', { from: app })).rejects.toThrow(/multiple versions of other/);
+  });
+
+  it('NpmUpstreamSource.installedCopies returns primary first and discovers nested copies across root and resolveFrom', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'graft-upstream-copies-'));
+    const ws = path.join(root, 'packages/app');
+    const primary = path.join(ws, 'node_modules/jsdom');
+    const wsNested = path.join(ws, 'node_modules/jest-env/node_modules/jsdom');
+    const rootNested = path.join(root, 'node_modules/legacy/node_modules/jsdom');
+    for (const d of [primary, wsNested, rootNested]) await mkdir(d, { recursive: true });
+    await writeFile(path.join(primary, 'package.json'), JSON.stringify({ name: 'jsdom', version: '27.4.0' }));
+    await writeFile(path.join(wsNested, 'package.json'), JSON.stringify({ name: 'jsdom', version: '26.1.0' }));
+    await writeFile(path.join(rootNested, 'package.json'), JSON.stringify({ name: 'jsdom', version: '25.0.0' }));
+
+    const source = new NpmUpstreamSource({
+      root,
+      cacheDir: path.join(root, 'cache'),
+      resolveFrom: { jsdom: ws },
+    });
+    const copies = await source.installedCopies('jsdom');
+    expect(copies[0]).toEqual({ version: '27.4.0', dir: await realpath(primary) });
+    expect(
+      copies
+        .slice(1)
+        .map((c) => c.version)
+        .sort(),
+    ).toEqual(['25.0.0', '26.1.0']);
+  });
 });
 
 describe('release-age cooldown filtering (.npmrc min-release-age / pnpm minimumReleaseAge, #75)', () => {
