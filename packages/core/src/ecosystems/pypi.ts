@@ -344,15 +344,23 @@ export const pypiEcosystem: Ecosystem = {
     const which = detectPythonTool(project.root);
     const wheels = await vendoredWheels(project);
     if (which === 'uv') {
-      // uv pins a path wheel's hash in uv.lock and skips reinstalling a wheel at the same version
-      // unless --reinstall-package is passed (which also implies --refresh-package, #95).
-      const upgrade = wheels.flatMap((w) => ['--upgrade-package', w.name]);
-      const reinstall = wheels.flatMap((w) => ['--reinstall-package', w.name]);
+      // uv pins a path wheel's hash in uv.lock, skips reinstalling a wheel at the same version
+      // unless --reinstall-package is passed, and hardlinks .venv files to its global cache on
+      // same-filesystem installs (so an in-place edit in site-packages can corrupt the cached
+      // archive until it is cleared with `uv cache clean`, #95).
+      const names = [...new Set(wheels.map((w) => w.name))];
+      const upgrade = names.flatMap((n) => ['--upgrade-package', n]);
+      const reinstall = names.flatMap((n) => ['--reinstall-package', n]);
+      const commands: string[] = [];
+      if (names.length) {
+        await tool('uv', ['cache', 'clean', ...names], { cwd: project.root, code: 'install/failed' });
+        commands.push(['uv', 'cache', 'clean', ...names].join(' '));
+      }
       await tool('uv', ['lock', ...upgrade], { cwd: project.root, code: 'install/failed' });
+      commands.push(['uv', 'lock', ...upgrade].join(' '));
       await tool('uv', ['sync', ...reinstall], { cwd: project.root, code: 'install/failed' });
-      const lockCmd = ['uv', 'lock', ...upgrade].join(' ');
-      const syncCmd = ['uv', 'sync', ...reinstall].join(' ');
-      return `${lockCmd} && ${syncCmd}`;
+      commands.push(['uv', 'sync', ...reinstall].join(' '));
+      return commands.join(' && ');
     }
     if (which === 'poetry') {
       await tool('poetry', ['install'], { cwd: project.root, code: 'install/failed' });

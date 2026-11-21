@@ -127,7 +127,9 @@ describe.skipIf(!hasUv)('wheel-vendor applier with uv (real uv, PyPI)', () => {
     expect(before.errors.join('\n')).toMatch(/no \[tool\.uv\.sources\] entry for packaging/);
     const applied = await applyToProject(project);
     expect(applied.errors).toEqual([]);
-    expect(applied.installCommand).toBe('uv lock --upgrade-package packaging && uv sync --reinstall-package packaging');
+    expect(applied.installCommand).toBe(
+      'uv cache clean packaging && uv lock --upgrade-package packaging && uv sync --reinstall-package packaging',
+    );
     expect(applied.anchors[0]!.ok).toBe(true);
     expect(await readFile(path.join(root, 'pyproject.toml'), 'utf8')).toContain(
       '[tool.uv.sources]\npackaging = { path = ".grafts/.vendor/packaging-24.0-py3-none-any.whl" }',
@@ -147,7 +149,7 @@ describe.skipIf(!hasUv)('wheel-vendor applier with uv (real uv, PyPI)', () => {
     expect((await checkAnchors(project, 'packaging-grafted')).ok).toBe(false);
     const repaired = await applyToProject(project);
     expect(repaired.errors).toEqual([]);
-    expect(repaired.anchors[0]!.ok).toBe(true);
+    expect(repaired.anchors[0]!.ok, repaired.anchors[0]!.errors.join('\n')).toBe(true);
     expect(grafted(root)).toBe('grafted 24.1');
 
     // A wheel rebuilt by hand: stale, and uv.lock pins the old build's hash.

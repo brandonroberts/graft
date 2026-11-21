@@ -592,9 +592,10 @@ it.
   directory (`importlib.metadata`); wheel paths are relative to it.
 - **Tool:** uv when `uv.lock` exists, poetry when `poetry.lock` exists, else pip.
 - **Install:** uv: `uv lock --upgrade-package <name>==<version>` and `uv sync`; pip:
-  `python -m pip install <name>==<version>`. Reinstall: uv: `uv lock --upgrade-package` and
-  `uv sync --reinstall-package` for each vendored wheel; pip: `pip install -r` the requirements
-  file, then `pip install --force-reinstall --no-deps` the vendored wheels.
+  `python -m pip install <name>==<version>`. Reinstall: uv: `uv cache clean`,
+  `uv lock --upgrade-package` and `uv sync --reinstall-package` for each vendored wheel; pip:
+  `pip install -r` the requirements file, then `pip install --force-reinstall --no-deps` the
+  vendored wheels.
 - **Applier `wheel-vendor` (the default and only one):** pristine wheel + variant is repacked,
   with `RECORD` regenerated and the published wheel's filename and version (a `+local` label
   would be another version to resolvers), as `.grafts/.vendor/<wheel>` (committed). uv projects
