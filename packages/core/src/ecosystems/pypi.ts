@@ -344,11 +344,15 @@ export const pypiEcosystem: Ecosystem = {
     const which = detectPythonTool(project.root);
     const wheels = await vendoredWheels(project);
     if (which === 'uv') {
-      // uv pins a path wheel's hash in uv.lock; a rebuilt wheel needs its entry refreshed.
+      // uv pins a path wheel's hash in uv.lock and skips reinstalling a wheel at the same version
+      // unless --reinstall-package is passed (which also implies --refresh-package, #95).
       const upgrade = wheels.flatMap((w) => ['--upgrade-package', w.name]);
+      const reinstall = wheels.flatMap((w) => ['--reinstall-package', w.name]);
       await tool('uv', ['lock', ...upgrade], { cwd: project.root, code: 'install/failed' });
-      await tool('uv', ['sync'], { cwd: project.root, code: 'install/failed' });
-      return `uv lock ${upgrade.join(' ')} && uv sync`.replace('  ', ' ');
+      await tool('uv', ['sync', ...reinstall], { cwd: project.root, code: 'install/failed' });
+      const lockCmd = ['uv', 'lock', ...upgrade].join(' ');
+      const syncCmd = ['uv', 'sync', ...reinstall].join(' ');
+      return `${lockCmd} && ${syncCmd}`;
     }
     if (which === 'poetry') {
       await tool('poetry', ['install'], { cwd: project.root, code: 'install/failed' });
