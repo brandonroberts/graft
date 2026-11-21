@@ -55,7 +55,14 @@ describe('siblings outside npm: Cargo, Go, PyPI (#56)', () => {
     };
     const crates = path.join(root, 'vendor');
     await makeCrate(path.join(crates, 'kit-internal'), 'kit-internal', '1.0.0', 'https://github.com/acme/kit');
-    await makeCrate(path.join(crates, 'kit'), 'kit', '1.0.0', 'https://github.com/acme/kit', 'kit-internal = { path = "../kit-internal" }');
+    await makeCrate(path.join(crates, 'kit-core'), 'kit-core', '1.0.0', 'https://github.com/acme/kit');
+    await makeCrate(
+      path.join(crates, 'kit'),
+      'kit',
+      '1.0.0',
+      'https://github.com/acme/kit',
+      'kit-internal = { path = "../kit-internal" }\nkit-core = { version = "=1.0.0", path = "../kit-core" }',
+    );
     await makeCrate(path.join(crates, 'kit-macros'), 'kit-macros', '1.0.0', 'https://github.com/acme/kit.git');
     await makeCrate(path.join(crates, 'kit-old'), 'kit-old', '0.9.0', 'https://github.com/acme/kit');
     await makeCrate(path.join(crates, 'other'), 'other', '1.0.0', 'https://github.com/acme/other');
@@ -78,9 +85,10 @@ other = { path = "vendor/other" }
     await writeFile(path.join(root, 'src/lib.rs'), '');
 
     const project = await Project.open({ root, adapters: [] });
-    // kit-macros matches (declared, same repo, same version); kit-old (different version),
-    // other (different repo), and kit-internal (transitive only) are excluded.
-    expect(await findCargoSiblings(project, 'kit')).toEqual(['kit-macros']);
+    // kit-macros (declared, same repo, same version) and kit-core (transitive exact-version
+    // `=1.0.0` lockstep dep, #93) match; kit-old (different version), other (different repo),
+    // and kit-internal (loose transitive helper) are excluded.
+    expect(await findCargoSiblings(project, 'kit')).toEqual(['kit-core', 'kit-macros']);
     expect(await findCargoSiblings(project, 'other')).toEqual([]);
   });
 
@@ -224,13 +232,14 @@ dev = ["kit-old==0.9.0"]
     expect((await readFile(pipLog, 'utf8')).trim()).toBe('-m pip install kit==1.1.0 kit-ext==1.1.0');
   });
 
-  it('orders Cargo sibling updates dependents-first and skips siblings already at the target version', async () => {
+  it('updates Cargo siblings atomically dependents-first (ignoring dev-dep cycles) with per-crate fallback (#56, #93)', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'graft-cargo-install-'));
     await writeFile(path.join(root, 'Cargo.toml'), '[package]\nname = "app"\nversion = "0.1.0"\n');
     const binDir = path.join(root, 'fake-bin');
     const logFile = path.join(root, 'cargo.log');
     await mkdir(binDir, { recursive: true });
-    // Fake cargo: `metadata` reports `kit` depending on `kit-macros` (both at 1.0.0); `update` logs args.
+    // Fake cargo: `metadata` reports `kit` depending on `kit-macros`, and `kit-macros` having a
+    // dev-dependency back on `kit` (which must not break dependents-first ordering).
     const metaJson = JSON.stringify({
       workspace_root: root,
       workspace_members: ['app#0.1.0'],
@@ -249,7 +258,7 @@ dev = ["kit-old==0.9.0"]
           version: '1.0.0',
           source: 'registry+x',
           manifest_path: '/r/kit/Cargo.toml',
-          dependencies: [{ name: 'kit-macros' }],
+          dependencies: [{ name: 'kit-macros', req: '=1.0.0', kind: null }],
         },
         {
           id: 'kit-macros#1.0.0',
@@ -257,7 +266,7 @@ dev = ["kit-old==0.9.0"]
           version: '1.0.0',
           source: 'registry+x',
           manifest_path: '/r/kit-macros/Cargo.toml',
-          dependencies: [],
+          dependencies: [{ name: 'kit', req: '^1', kind: 'dev' }],
         },
       ],
     });
@@ -272,13 +281,31 @@ dev = ["kit-old==0.9.0"]
     const prevPath = process.env.PATH ?? '';
     process.env.PATH = `${binDir}${path.delimiter}${prevPath}`;
     try {
-      // Pass kit-macros first; cargoEcosystem.install should still update `kit` before `kit-macros`.
+      // Pass kit-macros first; atomic update lists `kit` before `kit-macros` and follows with `fetch`.
       await cargoEcosystem.install(project, 'kit-macros', '1.1.0', ['kit']);
+      const calls = (await readFile(logFile, 'utf8')).trim().split('\n');
+      expect(calls[0]).toContain('-p kit@1.0.0 -p kit-macros@1.0.0 --precise 1.1.0');
+      expect(calls[1]).toMatch(/^fetch --manifest-path /);
+
+      // When multi-`-p` fails (older Cargo), falls back to per-crate dependents-first updates.
+      await writeFile(logFile, '');
+      await writeFile(
+        path.join(binDir, 'cargo'),
+        [
+          '#!/bin/sh',
+          `if [ "$1" = "metadata" ]; then cat "${path.join(root, 'meta.json')}"; exit 0; fi`,
+          'case "$*" in *"-p kit@1.0.0 -p kit-macros@1.0.0"*) echo "multiple -p unsupported" >&2; exit 1 ;; esac',
+          `echo "$@" >> "${logFile}"`,
+        ].join('\n') + '\n',
+        { mode: 0o755 },
+      );
+      await cargoEcosystem.install(project, 'kit-macros', '1.1.0', ['kit']);
+      const fallback = (await readFile(logFile, 'utf8')).trim().split('\n');
+      expect(fallback[0]).toContain('-p kit@1.0.0 --precise 1.1.0');
+      expect(fallback[1]).toContain('-p kit-macros@1.0.0 --precise 1.1.0');
+      expect(fallback[2]).toMatch(/^fetch --manifest-path /);
     } finally {
       process.env.PATH = prevPath;
     }
-    const calls = (await readFile(logFile, 'utf8')).trim().split('\n');
-    expect(calls[0]).toContain('-p kit@1.0.0 --precise 1.1.0');
-    expect(calls[1]).toContain('-p kit-macros@1.0.0 --precise 1.1.0');
   });
 });

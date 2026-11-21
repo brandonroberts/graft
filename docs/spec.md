@@ -232,8 +232,9 @@ Grafts are grouped by `(rootstock.ecosystem, rootstock.package)`, so an npm `ms`
    **Siblings:** the project's declared dependencies installed at the package's installed version
    from the same repository are released with it and MUST be installed at `T` in the same install:
    - npm: same `repository` (`host/owner/repo`), e.g. `@nx/angular` with `nx`.
-   - cargo: workspace member dependencies with the same `repository` in `cargo metadata`, e.g.
-     `serde_derive` with `serde`.
+   - cargo: workspace member dependencies (plus transitive exact-version `=<version>` lockstep
+     dependencies of the package or its siblings) with the same `repository` in `cargo metadata`,
+     e.g. `serde_core` and `serde_derive` with `serde`.
    - go: direct `go.mod` requirements under the same module repository prefix, e.g.
      `go.opentelemetry.io/otel/sdk` with `go.opentelemetry.io/otel`.
    - pypi: dependencies declared in `pyproject.toml` or requirements with the same `Project-URL`
