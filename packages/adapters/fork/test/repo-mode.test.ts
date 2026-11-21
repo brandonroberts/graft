@@ -357,7 +357,7 @@ describe('fork repo mode, in place (@worktree / @verified)', () => {
     expect(await readFile(path.join(fork, 'content/guide.md'), 'utf8')).toContain('olayları');
   });
 
-  it('refuses a fork checkout that is a partial clone, saying so instead of git\'s "corruption" error (#23)', async () => {
+  it('refuses a fork checkout that is a partial clone as a tooling error (exit 2), saying so instead of git\'s "corruption" error (#23)', async () => {
     const { root, fork } = await setup({ inPlace: true });
     gitIn(fork, 'config', 'uploadpack.allowFilter', 'true');
     const partial = path.join(root, 'partial');
@@ -365,12 +365,33 @@ describe('fork repo mode, in place (@worktree / @verified)', () => {
     expect(gitIn(partial, 'config', '--get', 'remote.origin.promisor').trim()).toBe('true');
     const project = await Project.open({ root: partial, adapters: [forkAdapter] });
     const report = await sync(project, { version: '1.0.1' });
-    expect(report.exitCode).not.toBe(0);
-    expect(report.grafts[0]?.outcome).not.toBe('green');
+    expect(report.exitCode).toBe(2);
+    expect(report.grafts[0]?.outcome).toBe('error');
+    expect(report.grafts[0]?.agentStart).toBeUndefined();
+    expect(report.grafts[0]?.diffPath).toBeUndefined();
     const reasons = report.grafts[0]!.reasons.join('\n');
     expect(reasons).toMatch(/the fork repository .*partial is a partial clone \(--filter=blob:none\)/);
     expect(reasons).toMatch(/Use a full clone \(a shallow one is fine\)/);
     expect(reasons).not.toMatch(/corruption/);
+    // Also rejects directly in checkAnchors and apply with code fork/partial-clone.
+    const graft = await project.get('tr');
+    await expect(forkAdapter.checkAnchors(project.context(graft), '1.0.1')).rejects.toMatchObject({ code: 'fork/partial-clone' });
+    await expect(forkAdapter.apply(project.context(graft), { version: '1.0.1' })).rejects.toMatchObject({ code: 'fork/partial-clone' });
+  });
+
+  it('reports remote git fetch failures as tooling error (exit 2), not needs-agent', async () => {
+    const { fork } = await setup({ inPlace: true });
+    const md = path.join(fork, '.grafts/tr/graft.md');
+    const missing = path.join(fork, 'does-not-exist-upstream.git');
+    await writeFile(md, (await readFile(md, 'utf8')).replace(/file:\/\/[^"]+/, `file://${missing}`));
+    const project = await Project.open({ root: fork, adapters: [forkAdapter] });
+    const report = await sync(project, { version: '1.0.1' });
+    expect(report.exitCode).toBe(2);
+    expect(report.grafts[0]?.outcome).toBe('error');
+    expect(report.grafts[0]?.agentStart).toBeUndefined();
+    expect(report.grafts[0]!.reasons.join('\n')).toMatch(/git fetch .* upstream failed/);
+    const graft = await project.get('tr');
+    await expect(forkAdapter.checkAnchors(project.context(graft), '1.0.1')).rejects.toMatchObject({ code: 'fork/git' });
   });
 
   it('a shallow fork checkout still syncs', async () => {

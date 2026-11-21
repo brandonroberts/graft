@@ -660,6 +660,17 @@ async function finish(project: Project, graft: Graft, result: SyncGraftResult, o
       result.materialized = { description: ws.result, fetch: ws.fetch };
       await ws.dispose();
     } catch (err) {
+      if (
+        err instanceof GraftError &&
+        (err.code === 'fork/partial-clone' ||
+          err.code === 'fork/git' ||
+          err.code === 'fork/config' ||
+          err.code === 'fork/ecosystem' ||
+          err.code === 'config/invalid' ||
+          err.code === 'upstream/fetch')
+      ) {
+        throw err;
+      }
       result.reasons.push(`could not materialize ${fm.rootstock.package}@${version} with the graft applied: ${(err as Error).message}`);
       await markNeedsAgent(project, graft, result);
       return;

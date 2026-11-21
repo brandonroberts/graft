@@ -501,6 +501,13 @@ function hunkAnchors(patch: FilePatch, content: string | undefined): AnchorResul
   });
 }
 
+/**
+ * Environment, fetch, git, or config failures that an agent cannot fix by editing a variant.
+ * Rethrowing them lets `sync` report `outcome: 'error'` (exit 2) instead of `needs-agent` (exit 1).
+ */
+const FORK_TOOLING_ERRORS = new Set(['fork/partial-clone', 'fork/git', 'fork/config', 'fork/ecosystem']);
+const isForkToolingError = (err: unknown): boolean => !(err instanceof GraftError) || FORK_TOOLING_ERRORS.has(err.code);
+
 export function createForkAdapter(): MechanismAdapter {
   const adapter: MechanismAdapter = {
     name: MECHANISM,
@@ -522,6 +529,7 @@ export function createForkAdapter(): MechanismAdapter {
         change = await forkChange(project, graft, report.variant);
         targetRev = await upstreamRev(repoDir(project, graft), forkConfig(graft), version);
       } catch (err) {
+        if (isForkToolingError(err)) throw err;
         report.errors.push((err as Error).message);
         return report;
       }
@@ -576,7 +584,8 @@ export function createForkAdapter(): MechanismAdapter {
       let change: ForkChange;
       try {
         change = await forkChange(project, graft, variant);
-      } catch {
+      } catch (err) {
+        if (isForkToolingError(err)) throw err;
         return { errors: [] };
       }
       const cfg = forkConfig(graft);
@@ -638,6 +647,7 @@ export function createForkAdapter(): MechanismAdapter {
           await tree.dispose();
         }
       } catch (err) {
+        if (isForkToolingError(err)) throw err;
         result.errors.push((err as Error).message);
       }
       result.ok = result.errors.length === 0 && result.files.length > 0;

@@ -191,4 +191,41 @@ describe('fork mechanism: sync, scoped diffs, validation', () => {
     expect(scaffolded).toMatch(/fork:\n {2}repo: "?TODO/);
     expect(existsSync(path.join(app, '.grafts/other/variants/v2.json'))).toBe(true);
   });
+
+  it('reports file:// partial clones and unreachable remotes as tooling errors (exit 2) in package mode', async () => {
+    const { root, fork, app, g } = await setup();
+    gitIn(fork, 'config', 'uploadpack.allowFilter', 'true');
+    const partialFork = path.join(root, 'partial-fork');
+    gitIn(root, 'clone', '-q', '--filter=blob:none', '--branch', 'graft-1.x', `file://${fork}`, partialFork);
+    const mdPath = path.join(g, 'graft.md');
+    const origMd = await readFile(mdPath, 'utf8');
+    await writeFile(mdPath, origMd.replace(`file://${fork}`, `file://${partialFork}`));
+
+    const partialProject = await Project.open({
+      root: app,
+      adapters: [forkAdapter],
+      upstream: new DirectoryUpstreamSource({ lib: { '1.0.0': path.join(app, 'node_modules/lib') } }, { lib: '1.0.0' }),
+    });
+    const partialReport = await sync(partialProject, { version: '1.1.0', writeReport: false });
+    expect(partialReport.exitCode).toBe(2);
+    expect(partialReport.grafts[0]?.outcome).toBe('error');
+    expect(partialReport.grafts[0]!.reasons.join('\n')).toMatch(/is a partial clone \(--filter=blob:none\)/);
+    const partialGraft = await partialProject.get('add-c');
+    await expect(forkAdapter.checkInstalled!(partialProject.context(partialGraft), '1.0.0')).rejects.toMatchObject({
+      code: 'fork/partial-clone',
+    });
+
+    // Unreachable remote URL reports fork/git as exit 2 (error), never needs-agent.
+    resetFetchCache();
+    await writeFile(mdPath, origMd.replace(`file://${fork}`, `file://${path.join(root, 'missing-fork.git')}`));
+    const missingProject = await Project.open({
+      root: app,
+      adapters: [forkAdapter],
+      upstream: new DirectoryUpstreamSource({ lib: { '1.0.0': path.join(app, 'node_modules/lib') } }, { lib: '1.0.0' }),
+    });
+    const missingReport = await sync(missingProject, { version: '1.1.0', writeReport: false });
+    expect(missingReport.exitCode).toBe(2);
+    expect(missingReport.grafts[0]?.outcome).toBe('error');
+    expect(missingReport.grafts[0]!.reasons.join('\n')).toMatch(/git fetch .* fork .*failed/);
+  });
 });

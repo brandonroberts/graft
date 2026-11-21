@@ -5,6 +5,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import semver from 'semver';
 import { GraftError } from '@graftsync/core';
 
@@ -81,20 +82,28 @@ export async function ensureRepo(dir: string, forkUrl: string, upstreamUrl: stri
  * Say what it is instead. (A shallow clone is fine.)
  */
 async function refusePartialClone(name: string, url: string): Promise<void> {
-  if (!path.isAbsolute(url) || !existsSync(url)) return;
+  let local = url;
+  if (url.startsWith('file://')) {
+    try {
+      local = fileURLToPath(url);
+    } catch {
+      return;
+    }
+  }
+  if (!path.isAbsolute(local) || !existsSync(local)) return;
   // `extensions.partialClone` names the promisor remote; git also marks it `remote.<name>.promisor`
   // (the only mark older clones carry).
-  const ext = (await git(url, ['config', '--get', 'extensions.partialClone'], { allowFail: true })).stdout.trim();
-  const marked = (await git(url, ['config', '--bool', '--get-regexp', '^remote\\..*\\.promisor$'], { allowFail: true })).stdout
+  const ext = (await git(local, ['config', '--get', 'extensions.partialClone'], { allowFail: true })).stdout.trim();
+  const marked = (await git(local, ['config', '--bool', '--get-regexp', '^remote\\..*\\.promisor$'], { allowFail: true })).stdout
     .split('\n')
     .map((l) => l.trim().split(/\s+/))
     .find(([, v]) => v === 'true')?.[0]
     ?.replace(/^remote\.|\.promisor$/g, '');
   const promisor = ext || marked;
   if (!promisor) return;
-  const filter = (await git(url, ['config', '--get', `remote.${promisor}.partialCloneFilter`], { allowFail: true })).stdout.trim();
+  const filter = (await git(local, ['config', '--get', `remote.${promisor}.partialCloneFilter`], { allowFail: true })).stdout.trim();
   throw new GraftError(
-    `the ${name} repository ${url} is a partial clone${filter ? ` (--filter=${filter})` : ''}, so it is missing objects the cache clone needs, and git can't fetch them from it. Use a full clone (a shallow one is fine): with actions/checkout, drop \`filter\``,
+    `the ${name} repository ${local} is a partial clone${filter ? ` (--filter=${filter})` : ''}, so it is missing objects the cache clone needs, and git can't fetch them from it. Use a full clone (a shallow one is fine): with actions/checkout, drop \`filter\``,
     'fork/partial-clone',
   );
 }
