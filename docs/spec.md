@@ -387,7 +387,7 @@ npm ≥ 12, bun and yarn 2+ natively; a built-in `postinstall` applier; patch-pa
 vendored tarball). With the built-in `graft` applier, `checkInstalled` MUST also verify every
 nested copy of the package under `node_modules` whose version matches a variant (failing loudly
 if a nested copy is unpatched or its variant no longer applies, and warning on uncovered nested
-copies). Details: the README's *Mechanisms* section.
+copies). Details: [`mechanisms.md`](mechanisms.md).
 
 ### 9.2 The `fork` mechanism
 
