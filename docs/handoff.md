@@ -189,7 +189,7 @@ Verified against the real `vercel/ms` repo, with a local fork, on npm and pnpm:
 - Hunks at the start or end of a file miss when upstream added lines right against them, matching git's merge.
 - Targets can be upstream commits (`X+<sha>`, semver build metadata); a green result carries the fork's own `.grafts/`; a needs-agent sync prepares `graft/<id>/<version>-agent`, git's merge with conflict markers (new hooks `afterVerified` / `prepareAgent`).
 - In place: one permanent variant `{ "ref": "@worktree", "base": "@verified" }`; a green sync records the verification in the result only (`recordsInResult`), and the `-agent` branch's graft.md is at the target (status conflicted), so it verifies in place. `outdated` lists repo-mode grafts from upstream tags or `fork.track` (`newerVersion`). The Action adopts results and agent branches into PRs, as a **merge** of the upstream commit the result sits on (named as `upstream` in the report), so the fork keeps upstream in its history (#22).
-- A local `fork.repo` (or `upstream`) that is a partial clone is refused with `fork/partial-clone` instead of git's "repository corruption" error (#23). Like other fetch failures it reports as `needs-agent`, not as a tooling error.
+- A local `fork.repo` (or `upstream`) that is a partial clone (including `file://` URLs) is refused with `fork/partial-clone` instead of git's "repository corruption" error (#23). Fetch and partial-clone failures report as tooling errors (`error`, exit 2), not `needs-agent`.
 - Scaffold: `graft add <id> --package <name> --mechanism fork --in-place --version <X[+sha]>` from the fork's checkout (upstream from its `upstream` remote).
 - On angular-tr's real trees: a byte-identical result at its base, and exactly git's 7 conflicting files onto `v22.3.0-next.3`, with a 364-line scoped diff for the agent.
 - [`examples/angular-tr`](../examples/angular-tr) is a drop-in setup, tested with the published CLI on a shallow clone against real angular/angular. Its `check-pages.mjs` (run by the agent, and in PR checks) fails when a translated page reverts to English, gains English headings or prose, loses upstream structure, or keeps conflict markers, baselined on the fork's last commit. It caught a careless conflict resolution (English merged cleanly into `deploy.md`, sections dropped from `ssr.md` and `locale-id.md`). What no check catches: an upstream wording change inside a paragraph replaced by stale Turkish.
@@ -318,7 +318,6 @@ Graft keeps three of its own CommonJS dependencies converted to native ESM, as r
   - the skills-folder list in `graft init --agent` comes from my knowledge, not each agent's docs;
   - the Action's Claude Code `agent-command` example is untested;
   - repo mode fetches the whole upstream (angular/angular: ~680 MB, ~1 min) on every Action run; a cache or a partial clone would help;
-  - fetch failures in the fork adapter (including `fork/partial-clone`) report as `needs-agent`, not `error`, so the Action may hand an environment problem to the agent;
   - the angular-tr example's `check-pages.mjs` doesn't run the docs build (it needs a full install).
 - **Open questions carried over:**
   - Can one graft target several packages, or is that two grafts? (Today: one package per graft, one patch graft per package.)

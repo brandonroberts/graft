@@ -442,7 +442,8 @@ a tool run from source), not a dependency:
 - The cache clone fetches every object of `fork.repo` and `fork.upstream`. When either is a
   local partial clone (`remote.<name>.promisor` or `extensions.partialClone`), the tooling MUST
   refuse it with a reason naming the cause (`fork/partial-clone`), not git's "repository
-  corruption" error. A shallow clone is fine.
+  corruption" error, and report fetch and partial-clone failures as tooling errors (`error`,
+  exit code 2) rather than `needs-agent`. A shallow clone is fine.
 - When the graft lives in the fork (`fork.repo` is the project's own checkout), a green
   result also carries the project's `.grafts/` (without `.cache`, `.report` and `.vendor`),
   including the just-recorded verification, so adopting the result keeps the graft files.
