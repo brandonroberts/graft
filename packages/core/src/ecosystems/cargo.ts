@@ -36,7 +36,7 @@ export interface CargoPackage {
   source: string | null;
   manifest_path: string;
   repository?: string | null;
-  dependencies?: { name: string }[];
+  dependencies?: { name: string; req?: string; kind?: string | null }[];
 }
 
 export interface CargoMetadata {
@@ -67,8 +67,10 @@ function pickCargoPackage(packages: CargoPackage[], pkg: string): CargoPackage |
 }
 
 /**
- * Cargo crates released together with `pkg`: declared as dependencies of a workspace member,
- * installed at `pkg`'s installed version, with the same normalized `repository` (#56).
+ * Cargo crates released together with `pkg`: dependencies of a workspace member, plus any
+ * transitive exact-version (`=<version>`, non-dev) lockstep dependencies of `pkg` or discovered
+ * siblings (e.g. `serde` → `serde_core = "=1.0.228"` → `serde_derive = "=1.0.228"`), installed
+ * at `pkg`'s installed version with the same normalized `repository` (#56, #93).
  */
 export async function findCargoSiblings(project: Project, pkg: string): Promise<string[]> {
   const manifest = cargoManifest(project);
@@ -83,13 +85,34 @@ export async function findCargoSiblings(project: Project, pkg: string): Promise<
   const declared = new Set<string>();
   for (const m of members) for (const d of m.dependencies ?? []) declared.add(d.name);
   declared.delete(pkg);
-  const siblings: string[] = [];
-  for (const name of [...declared].sort()) {
+
+  const isSibling = (name: string): CargoPackage | undefined => {
+    if (name === pkg) return undefined;
     const other = pickCargoPackage(meta.packages, name);
-    if (other?.version !== root.version) continue;
-    if (repositoryKey(other.repository ?? undefined) === key) siblings.push(name);
+    if (other?.version !== root.version) return undefined;
+    return repositoryKey(other.repository ?? undefined) === key ? other : undefined;
+  };
+
+  const found = new Map<string, CargoPackage>();
+  for (const name of declared) {
+    const other = isSibling(name);
+    if (other) found.set(name, other);
   }
-  return siblings;
+  const exactReq = `=${root.version}`;
+  const queue: CargoPackage[] = [root, ...found.values()];
+  const visited = new Set<string>([root.name, ...found.keys()]);
+  while (queue.length) {
+    const cur = queue.shift()!;
+    for (const d of cur.dependencies ?? []) {
+      if (d.kind === 'dev' || d.req !== exactReq || visited.has(d.name)) continue;
+      const other = isSibling(d.name);
+      if (!other) continue;
+      visited.add(d.name);
+      found.set(d.name, other);
+      queue.push(other);
+    }
+  }
+  return [...found.keys()].sort();
 }
 
 /** Order `names` so dependents come before dependencies (updating a dependent can pull exact-version deps along). */
@@ -99,7 +122,15 @@ function orderCargoUpdates(names: string[], packages: CargoPackage[]): string[] 
   const depsOf = new Map<string, Set<string>>();
   for (const name of names) {
     const p = pickCargoPackage(packages, name);
-    depsOf.set(name, new Set((p?.dependencies ?? []).map((d) => d.name).filter((d) => d !== name && set.has(d))));
+    depsOf.set(
+      name,
+      new Set(
+        (p?.dependencies ?? [])
+          .filter((d) => d.kind !== 'dev')
+          .map((d) => d.name)
+          .filter((d) => d !== name && set.has(d)),
+      ),
+    );
   }
   const ordered: string[] = [];
   const remaining = new Set(names);
@@ -198,18 +229,44 @@ export const cargoEcosystem: Ecosystem = {
   async install(project, pkg, version, siblings = []) {
     const manifest = cargoManifest(project);
     const names = [pkg, ...siblings];
-    const meta = names.length > 1 ? await cargoMetadata(manifest) : undefined;
-    const ordered = meta ? orderCargoUpdates(names, meta.packages) : names;
-    const commands: string[] = [];
+    const meta = await cargoMetadata(manifest);
+    const ordered = orderCargoUpdates(names, meta.packages);
+    const pending: { name: string; current: string }[] = [];
     for (const name of ordered) {
-      const installed = await project.upstreamFor('cargo').installed(name);
+      const installed = pickCargoPackage(meta.packages, name);
       if (!installed) throw new GraftError(`${name} is not a dependency of ${manifest}`, 'install/failed');
-      if (installed.version === version) continue;
-      const args = ['update', '--manifest-path', manifest, '-p', `${name}@${installed.version}`, '--precise', version];
-      await tool('cargo', args, { cwd: path.dirname(manifest), code: 'install/failed' });
-      commands.push(`cargo ${args.join(' ')}`);
+      if (installed.version !== version) pending.push({ name, current: installed.version });
     }
-    return commands.join(' && ') || `cargo update --manifest-path ${manifest} -p ${pkg} --precise ${version}`;
+    const commands: string[] = [];
+    if (pending.length) {
+      // Update the package and all lockstep siblings in one `cargo update` call so Cargo resolves
+      // mutual `=<version>` constraints and `[patch.crates-io]` atomically (#93).
+      const batchArgs = [
+        'update',
+        '--manifest-path',
+        manifest,
+        ...pending.flatMap((p) => ['-p', `${p.name}@${p.current}`]),
+        '--precise',
+        version,
+      ];
+      try {
+        await tool('cargo', batchArgs, { cwd: path.dirname(manifest), code: 'install/failed' });
+        commands.push(`cargo ${batchArgs.join(' ')}`);
+      } catch (err) {
+        if (pending.length === 1) throw err;
+        // Fallback for older Cargo builds that reject multiple `-p` specs with `--precise`.
+        for (const { name } of pending) {
+          const installed = await project.upstreamFor('cargo').installed(name);
+          if (!installed) throw new GraftError(`${name} is not a dependency of ${manifest}`, 'install/failed');
+          if (installed.version === version) continue;
+          const args = ['update', '--manifest-path', manifest, '-p', `${name}@${installed.version}`, '--precise', version];
+          await tool('cargo', args, { cwd: path.dirname(manifest), code: 'install/failed' });
+          commands.push(`cargo ${args.join(' ')}`);
+        }
+      }
+    }
+    commands.push(await this.reinstall(project));
+    return commands.join(' && ');
   },
   async reinstall(project) {
     const manifest = cargoManifest(project);

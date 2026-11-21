@@ -105,7 +105,8 @@ export const cargoVendorApplier: PatchApplier = {
     const text = await readFile(ws, 'utf8');
     const next = setTomlValue(text, patchTable(project), crate, `{ path = ${JSON.stringify(rel)} }`, path.basename(ws));
     if (next !== text) await writeFile(ws, next);
-    // Cargo re-resolves to the vendored path on its next command (the ecosystem's reinstall).
-    return { files: [dest, ws], install: 'reinstall' };
+    // `cargo update -p … --precise` only edits Cargo.lock and respects [patch.crates-io], so
+    // sync can update the patched crate and its siblings atomically together (#93).
+    return { files: [dest, ws] };
   },
 };
