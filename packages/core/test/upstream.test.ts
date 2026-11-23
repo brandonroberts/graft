@@ -314,4 +314,22 @@ describe('release-age cooldown filtering (.npmrc min-release-age / pnpm minimumR
     }
     expect((await readFile(envLog, 'utf8')).trim()).toBe('age=0');
   });
+
+  it('unwraps npm 12 array-wrapped `npm view --json` output and fails loudly on empty/unexpected shapes', async () => {
+    const { parseNpmViewVersions } = await import('../src/upstream.js');
+    // npm < 12 object shape
+    expect(parseNpmViewVersions({ versions: ['1.0.0', '1.1.0'], 'dist-tags': { latest: '1.1.0' } })).toEqual({
+      versions: ['1.0.0', '1.1.0'],
+      distTags: { latest: '1.1.0' },
+    });
+    // npm 12+ single-element array shape
+    expect(parseNpmViewVersions([{ versions: ['58.0.23', '58.0.26'], 'dist-tags': { latest: '58.0.26', next: '58.0.11' } }])).toEqual({
+      versions: ['58.0.23', '58.0.26'],
+      distTags: { latest: '58.0.26', next: '58.0.11' },
+    });
+    // Unexpected or empty shapes fail loudly instead of silently returning distTags: {}
+    expect(() => parseNpmViewVersions([])).toThrow(/unexpected JSON shape/);
+    expect(() => parseNpmViewVersions({})).toThrow(/no versions or dist-tags/);
+    expect(() => parseNpmViewVersions([{}])).toThrow(/no versions or dist-tags/);
+  });
 });

@@ -467,18 +467,42 @@ export class NpmUpstreamSource implements UpstreamSource {
       const policy = readNpmReleaseAgePolicy(this.options.root);
       const hasCooldown = (policy.npmMs ?? 0) > 0 || (policy.pnpmMs ?? 0) > 0;
       const fields = hasCooldown ? ['versions', 'dist-tags', 'time'] : ['versions', 'dist-tags'];
-      const info = npmJson(await npm(['view', pkg, ...fields, '--json'], this.options.root)) as {
-        versions?: string | string[];
-        'dist-tags'?: Record<string, string>;
-        time?: Record<string, string>;
-      };
-      const versions = typeof info.versions === 'string' ? [info.versions] : (info.versions ?? []);
-      const distTags = { ...info['dist-tags'] };
-      return hasCooldown ? filterVersionsByReleaseAge(pkg, { versions, distTags, time: info.time }, policy) : { versions, distTags };
+      const parsed = parseNpmViewVersions(npmJson(await npm(['view', pkg, ...fields, '--json'], this.options.root)));
+      return hasCooldown ? filterVersionsByReleaseAge(pkg, parsed, policy) : { versions: parsed.versions, distTags: parsed.distTags };
     } catch (err) {
       throw new GraftError(`could not read versions of ${pkg}: ${(err as Error).message}`, 'upstream/versions');
     }
   }
+}
+
+/**
+ * Parse the JSON output of `npm view <pkg> versions dist-tags [time] --json`.
+ * npm < 12 returns `{ versions, "dist-tags", time? }`, whereas npm 12+ wraps the object in a
+ * single-element array `[{ versions, "dist-tags", time? }]`. Fails loudly on unexpected/empty
+ * shapes so registry format changes never silently look "up to date".
+ */
+export function parseNpmViewVersions(raw: unknown): {
+  versions: string[];
+  distTags: Record<string, string>;
+  time?: Record<string, string>;
+} {
+  const entry = Array.isArray(raw) ? raw.at(-1) : raw;
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+    throw new Error('npm view returned an unexpected JSON shape (expected an object or non-empty array of objects)');
+  }
+  const info = entry as {
+    versions?: string | string[];
+    'dist-tags'?: Record<string, string>;
+    time?: Record<string, string>;
+  };
+  const versions = typeof info.versions === 'string' ? [info.versions] : Array.isArray(info.versions) ? info.versions : [];
+  const distTags =
+    info['dist-tags'] && typeof info['dist-tags'] === 'object' && !Array.isArray(info['dist-tags']) ? { ...info['dist-tags'] } : {};
+  if (!versions.length && !Object.keys(distTags).length) {
+    throw new Error('npm view returned no versions or dist-tags');
+  }
+  const time = info.time && typeof info.time === 'object' && !Array.isArray(info.time) ? { ...info.time } : undefined;
+  return { versions, distTags, ...(time ? { time } : {}) };
 }
 
 const DAY_MS = 24 * 60 * 60_000;
