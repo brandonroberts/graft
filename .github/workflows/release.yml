@@ -4,8 +4,8 @@
 # publishes any package version not yet on npm, then tags the release once (v<version>: the
 # @graftsync/* packages share one version) and creates its GitHub release.
 #
-# Requires: the `graftsync` npm org, and an NPM_TOKEN repository secret that can publish to it.
-# Without NPM_TOKEN, the release step is skipped.
+# Requires: npm Trusted Publishing configured on npmjs.com for each @graftsync/* package
+# (owner: brandonroberts, repo: graft, workflow: release.yml). Publishes via OIDC with provenance.
 name: Release
 
 on:
@@ -14,14 +14,13 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  id-token: write
 
 concurrency: release
 
 jobs:
   release:
     runs-on: ubuntu-latest
-    env:
-      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v5
@@ -29,14 +28,11 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-          registry-url: https://registry.npmjs.org
+      # npm Trusted Publishing (OIDC) requires npm >= 11.5.1.
+      - run: npm install -g npm@latest
       - run: pnpm install --frozen-lockfile
-      - name: Skip release (NPM_TOKEN not set)
-        if: env.NPM_TOKEN == ''
-        run: echo "::notice::NPM_TOKEN is not set; skipping version PR and publish."
       - uses: changesets/action@v1
         id: changesets
-        if: env.NPM_TOKEN != ''
         with:
           version: pnpm version-packages
           publish: pnpm release
@@ -45,7 +41,7 @@ jobs:
           createGithubReleases: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: true
       # One tag and one GitHub release per release, not one per package. With no changesets
       # pending, the action ran `pnpm release`, which either published this version (or found it
       # already published) or failed the job, so the version is on npm, or is being staged there
@@ -53,7 +49,7 @@ jobs:
       # (The action's `published` output can't be used: it parses `changeset publish`'s tag lines,
       # which --no-git-tag turns off.)
       - name: Tag and release
-        if: env.NPM_TOKEN != '' && steps.changesets.outputs.hasChangesets == 'false'
+        if: steps.changesets.outputs.hasChangesets == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

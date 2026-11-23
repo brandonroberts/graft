@@ -77,7 +77,7 @@ Releases use [Changesets](https://github.com/changesets/changesets). All `@graft
 
 The CLI package ships the root `README.md`: packing `@graftsync/cli` writes it into the package with its relative links pointed at the release's `v<version>` tag on GitHub, and its images at the packed commit (`tools/package-readme`), and fails on a link to a path that doesn't exist. Images can't wait for the tag: Release tags only after publishing, and npmjs.com fetches and caches README images when it first renders the package.
 
-Prerequisites (done): the `graftsync` npm organization exists, and an npm token that can publish to it is set as the `NPM_TOKEN` repository secret. Without the secret, the workflow skips the release step.
+Prerequisites: the `graftsync` npm organization exists, and npm Trusted Publishing (GitHub Actions OIDC, workflow `release.yml`) is configured on npmjs.com for each `@graftsync/*` package. Publishes attach npm provenance automatically without an `NPM_TOKEN` secret.
 
 ## Roadmap
 

@@ -1,5 +1,17 @@
 # @graftsync/adapter-fork
 
+## 0.3.4
+
+### Patch Changes
+
+- Detect obsolete grafts whose variants still apply cleanly: default-on nearby-upstream-change detection (filtering version-only manifest bumps) and opt-in without-variant `probe` in `graft.md` (`graft sync --probe-obsolete`, Action `probe-obsolete`) (#98).
+- Unwrap npm 12+ array-wrapped `npm view --json` output and fail loudly on empty or unexpected shapes so `graft outdated` never silently reports up-to-date (#99).
+- Add customizable `pr-title` input to the GitHub Action and follow repository PR/issue guidelines (#101).
+- Updated dependencies
+  - @graftsync/core@0.3.4
+  - @graftsync/spec@0.3.4
+  - @graftsync/adapter-patch@0.3.4
+
 ## 0.3.3
 
 ### Patch Changes
