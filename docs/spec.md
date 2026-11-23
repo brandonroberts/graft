@@ -67,6 +67,8 @@ YAML, is an error.
 | `variants[].module` | non-empty string | yes | — | Path of the variant module, relative to the graft directory. |
 | `generator` | object | no | — | A command that writes a new variant mechanically; `sync` runs it when no existing variant fits (§6). |
 | `generator.command` | non-empty string containing `{out}` (or using `$GRAFT_VARIANT_OUT`) | yes, with `generator` | — | `{version}` and `{out}` are substituted. |
+| `probe` | string or `{ command, timeout? }` | no | — | Optional command exercising the graft's Invariants for the without-variant obsolescence probe (§6). Disable test-runner caching in the command (e.g. `--skip-nx-cache`, `--no-cache`). |
+| `probe.timeout` | positive integer (seconds) | no | 600 | Timeout per probe run. |
 | `fork` | object | yes for `mechanism: fork` | — | Where a fork graft's modification lives (§9.2). |
 | `fork.repo` | non-empty string | yes | — | Git URL of the fork, or a path relative to the project root (e.g. `.` when the graft lives in the fork). |
 | `fork.upstream` | non-empty string | yes | — | Git URL of the upstream source repository. |
@@ -269,6 +271,29 @@ A graft is reported *likely upstreamed* (`likelyUpstreamed`) when its adapter fi
 already contains its change, or its generator says so. The outcome stays `needs-agent`: a human
 confirms and sets `status: upstreamed`.
 
+**Nearby upstream changes.** When a graft stays `green` across a version change (`verified !== T`),
+`sync` calls `scopeDiff(ctx, verified, T)` (including on dry runs) and ignores `"version"`-only
+hunks in manifest files (`package.json`, `Cargo.toml`). If non-trivial upstream changes remain near
+the variant's anchors, the report records `nearbyChanges` (`files`, `hunks`, `diffPath`) and writes
+the filtered diff to `.grafts/.report/<id>/diff.patch`. This is report-only (`outcome` stays `green`).
+
+**Without-variant obsolescence probe.** When a graft declares `probe` (`string` or `{ command, timeout? }`),
+`sync` runs it only when needed: on a version change (`verified !== T`) during `sync --install`, or
+on demand via `graft sync --probe-obsolete` (never on `--dry-run`). It exports `GRAFT_ID`,
+`GRAFT_DIR`, `GRAFT_PACKAGE`, `GRAFT_UPSTREAM_VERSION` and `GRAFT_PROBE_MODE` (`with-variant` or
+`without-variant`), and runs **with** the variant first:
+
+- `with-variant` fails: short-circuits (no pristine swap), marks `needs-agent` (exit `1`), does not
+  bump `verified`, and records `probe.status = 'failed'`.
+- `with-variant` passes: runs the command against pristine upstream via `adapter.withPristine` (an
+  unsupported mechanism or applier, such as Yarn Plug'n'Play or `fork`, fails loudly with
+  `probe/unsupported`, exit `2`):
+  - `without-variant` fails: `green` (exit `0`), `probe.status = 'needed'`.
+  - `without-variant` passes: `green` (exit `0`), `likelyObsolete: true`,
+    `probe.status = 'likely-obsolete'` — report-only, for a human to confirm and retire with
+    `graft mark <id> --status obsolete`. Disable test-runner caches (e.g. `--skip-nx-cache`,
+    `--no-cache`) in the probe command so cached results do not produce false positives.
+
 Outcomes per graft: `green`, `needs-agent`, `skipped`, `error`. Invalid grafts are always
 reported as `error`.
 
@@ -345,6 +370,7 @@ under the name used in `mechanism`.
 | `beforeInstall?(ctx, version)` | no | Point the package manager at the variant for `version` before `sync` installs it. May return `{ install: 'reinstall' }` to request a bare reinstall instead of a targeted install. |
 | `afterInstall?(ctx, version)` | no | Run right after `sync` installs `version`, for mechanisms that apply themselves. |
 | `applyInstalled?(ctx)` | no | Apply selected variants to installed package copies (from `postinstall`). MUST be idempotent, work offline, and never modify files shared with a package-manager store (write new inodes). |
+| `withPristine?(ctx, version, fn)` | no | Temporarily present pristine upstream (without the graft's variant applied) at `version` while `fn` runs, then restore the patched state in `finally`. Used by the without-variant obsolescence probe (§6). MUST fail loudly (`probe/unsupported`) when in-place swapping is not supported (e.g. Yarn Plug'n'Play). |
 | `standalone?(graft)` | no | True when the graft installs nothing into the project. Its current version is `rootstock.verified`, `sync` skips the install step (and defaults to re-checking `verified`), and a green sync materializes `workspace` as its result. |
 | `workspace?(ctx, version)` | with `standalone` | Materialize the upstream at `version` with the graft applied, as the graft's result (e.g. a branch to fetch); returns `{ dir, result?, fetch?, dispose }` (`result`/`fetch`: where to get the materialized result afterwards). Throw when it can't be done. |
 | `afterVerified?(ctx, version, update?)` | no | Called by `sync` after a green result (not on dry runs); `update` is the graft.md change when `recordsInResult` said to record it in the result. |

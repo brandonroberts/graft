@@ -3,7 +3,8 @@ import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { ACTIVE_STATUSES } from '@graftsync/spec';
 import { GraftError } from './errors.js';
-import { runCommand } from './command.js';
+import { runCommand, type CommandResult } from './command.js';
+import { isTrivialVersionHunk, renderPatch } from './diff.js';
 import { checkUpgradeNeedsAgent, resolveUpgrade, runUpgrade } from './install.js';
 import { recordVariant, summarizeMisses, updateGraft } from './operations.js';
 import type { Project } from './project.js';
@@ -12,6 +13,34 @@ import type { AgentStart, AnchorReport, ApplyResult, FetchableRef, Graft, GraftU
 import { npmResolveFrom } from './upstream.js';
 
 export type SyncOutcome = 'green' | 'needs-agent' | 'skipped' | 'error';
+
+export interface NearbyChanges {
+  /** Target files with non-trivial upstream changes near the variant's hunks/anchors. */
+  files: string[];
+  /** Total nearby upstream hunks across those files. */
+  hunks: number;
+  /** Path to the scoped upstream diff file written under `.grafts/.report/<id>/`. */
+  diffPath?: string;
+}
+
+export interface ProbeRunResult {
+  passed: boolean;
+  exitCode: number | null;
+  timedOut: boolean;
+  summary?: string;
+}
+
+export interface ProbeResult {
+  command: string;
+  /**
+   * - `needed`: failed on pristine upstream and passed with the variant applied.
+   * - `likely-obsolete`: passed on pristine upstream and with the variant applied.
+   * - `failed`: failed with the variant applied (short-circuited; pristine run skipped).
+   */
+  status: 'needed' | 'likely-obsolete' | 'failed';
+  withVariant: ProbeRunResult;
+  withoutVariant?: ProbeRunResult;
+}
 
 export interface SyncGraftResult {
   id: string;
@@ -30,7 +59,7 @@ export interface SyncGraftResult {
   apply?: ApplyResult;
   /** For a standalone graft: the materialized result (e.g. the rebased fork) and how to fetch it. */
   materialized?: { description?: string; fetch?: FetchableRef };
-  /** Scoped upstream diff (from → to) written for the agent path. */
+  /** Scoped upstream diff (from → to) written for the agent path or nearby-change review. */
   diffPath?: string;
   /** True when graft.md was updated (verified bumped / status set to applied). */
   updated?: boolean;
@@ -40,6 +69,16 @@ export interface SyncGraftResult {
    * `status: upstreamed`.
    */
   likelyUpstreamed?: boolean;
+  /**
+   * True when the graft's `probe` command passed on pristine upstream as well as with the
+   * variant applied. Report-only (`outcome` stays `green`): a human confirms and sets
+   * `status: obsolete`.
+   */
+  likelyObsolete?: boolean;
+  /** Result of the without-variant obsolescence probe, when it ran. */
+  probe?: ProbeResult;
+  /** Non-trivial upstream changes near this graft's anchors between `from` and `to` (even though the variant still applies). */
+  nearbyChanges?: NearbyChanges;
   /**
    * Set when the graft's `generator` wrote a new variant for the target version. `module` is
    * relative to the graft directory. `rolledBack` is true when the regenerated variant was
@@ -88,11 +127,13 @@ export interface SyncOptions {
   ids?: string[];
   /** Install the target version when it differs from the installed one. */
   install?: boolean;
+  /** Run configured `probe` commands even when the version did not change. */
+  probeObsolete?: boolean;
   /** Do not modify graft.md files on green. */
   dryRun?: boolean;
   /** Write `.grafts/.report/sync.{json,md}` (default true). */
   writeReport?: boolean;
-  /** Output of the commands sync runs on the project's behalf: generators and `upgrade` commands. */
+  /** Output of the commands sync runs on the project's behalf: generators, probes, and `upgrade` commands. */
   onOutput?: (chunk: string) => void;
   onProgress?: (message: string) => void;
 }
@@ -208,6 +249,13 @@ export async function sync(project: Project, options: SyncOptions = {}): Promise
       staged.push(entry);
     }
     const ready = staged.filter((s) => s.result.outcome === 'green');
+    // Cheaper obsolescence/drift signal: flag non-trivial upstream changes near the variant's
+    // anchors between `verified` and `version`, even though the variant still applies.
+    for (const s of ready) {
+      if (s.graft.frontmatter.rootstock.verified !== version) {
+        await checkNearbyChanges(project, s.graft, version, s.result);
+      }
+    }
 
     // Phase 2: install the target version if needed.
     let installError: string | undefined;
@@ -367,6 +415,23 @@ export async function sync(project: Project, options: SyncOptions = {}): Promise
           s.result.reasons.push(`anchors: ${installed.errors.join('; ')}`);
           s.result.outcome = 'needs-agent';
           await markNeedsAgent(project, s.graft, s.result);
+        }
+      }
+    }
+
+    // Phase 2.5: optional without-variant obsolescence probe (only when needed: on a version
+    // change during `--install`, or on demand via `--probe-obsolete`). Never on dry runs.
+    if (!options.dryRun) {
+      for (const s of ready.filter((s) => s.result.outcome === 'green')) {
+        if (!s.graft.frontmatter.probe) continue;
+        const versionChanged = s.graft.frontmatter.rootstock.verified !== version;
+        const shouldProbe = Boolean(options.probeObsolete) || (versionChanged && Boolean(options.install));
+        if (!shouldProbe) continue;
+        try {
+          await runProbe(project, s.graft, version, s.result, options);
+        } catch (err) {
+          s.result.outcome = 'error';
+          s.result.reasons.push((err as Error).message);
         }
       }
     }
@@ -647,6 +712,103 @@ async function markNeedsAgent(project: Project, graft: Graft, result: SyncGraftR
   }
 }
 
+/**
+ * Flag non-trivial upstream changes near a green graft's anchors between `verified` and `version`.
+ * Trivial `"version"`-only manifest bumps are ignored so every release does not trigger noise.
+ */
+async function checkNearbyChanges(project: Project, graft: Graft, version: string, result: SyncGraftResult): Promise<void> {
+  const from = graft.frontmatter.rootstock.verified;
+  if (from === version) return;
+  let diff;
+  try {
+    diff = await project.adapterFor(graft).scopeDiff(project.context(graft), from, version);
+  } catch {
+    return;
+  }
+  const significant = diff.files
+    .map((f) => ({ ...f, hunks: f.hunks.filter((h) => !isTrivialVersionHunk(f.file, h)) }))
+    .filter((f) => f.hunks.length > 0 || f.status === 'added' || f.status === 'removed');
+  if (!significant.length) return;
+  const totalHunks = significant.reduce((sum, f) => sum + f.hunks.length, 0);
+  const pkg = graft.frontmatter.rootstock.package;
+  const dir = path.join(project.reportDir, graft.id);
+  await mkdir(dir, { recursive: true });
+  const diffPath = path.join(dir, 'diff.patch');
+  const filteredPatch = renderPatch(significant, { from: `${pkg}@${from}`, to: `${pkg}@${version}` });
+  await writeFile(diffPath, filteredPatch || '# no differences in target files\n');
+  await writeFile(path.join(dir, 'diff.json'), JSON.stringify({ ...diff, files: significant, patch: filteredPatch }, null, 2));
+  result.diffPath = diffPath;
+  result.nearbyChanges = {
+    files: significant.map((f) => f.newFile ?? f.file),
+    hunks: totalHunks,
+    diffPath,
+  };
+}
+
+function summarizeProbeRun(run: CommandResult): ProbeRunResult {
+  const summary = !run.passed ? errorSummary(run.output) || undefined : undefined;
+  return { passed: run.passed, exitCode: run.exitCode, timedOut: run.timedOut, ...(summary ? { summary } : {}) };
+}
+
+/**
+ * Run the graft's opt-in `probe` command with the variant applied first (short-circuiting on
+ * failure), then against pristine upstream via `adapter.withPristine`. Passing on both flags
+ * `likelyObsolete: true` (report-only).
+ */
+async function runProbe(project: Project, graft: Graft, version: string, result: SyncGraftResult, options: SyncOptions): Promise<void> {
+  const probe = graft.frontmatter.probe!;
+  const adapter = project.adapterFor(graft);
+  if (!adapter.withPristine) {
+    throw new GraftError(
+      `graft "${graft.id}": without-variant probe is not supported by the ${adapter.name} mechanism`,
+      'probe/unsupported',
+    );
+  }
+  const pkg = graft.frontmatter.rootstock.package;
+  const log = options.onProgress ?? (() => {});
+  const timeoutMs = (probe.timeout ?? 600) * 1000;
+  const envFor = (mode: 'with-variant' | 'without-variant') => ({
+    GRAFT_ID: graft.id,
+    GRAFT_DIR: graft.dir,
+    GRAFT_PACKAGE: pkg,
+    GRAFT_UPSTREAM_VERSION: version,
+    GRAFT_PROBE_MODE: mode,
+  });
+
+  log(`probing ${graft.id} with variant: ${probe.command}`);
+  const withRun = await runCommand(probe.command, {
+    cwd: project.root,
+    env: envFor('with-variant'),
+    timeoutMs,
+    onOutput: options.onOutput,
+  });
+  const withSummary = summarizeProbeRun(withRun);
+  if (!withRun.passed) {
+    result.probe = { command: probe.command, status: 'failed', withVariant: withSummary };
+    const detail = `${withRun.timedOut ? 'timed out' : `exit ${withRun.exitCode}`}${withSummary.summary ? `: ${withSummary.summary}` : ''}`;
+    result.reasons.push(`probe \`${probe.command}\` failed with variant applied (${detail}); verify the Invariants before recording`);
+    await markNeedsAgent(project, graft, result);
+    return;
+  }
+
+  log(`probing ${graft.id} without variant: ${probe.command}`);
+  const withoutRun = await adapter.withPristine(project.context(graft), version, () =>
+    runCommand(probe.command, {
+      cwd: project.root,
+      env: envFor('without-variant'),
+      timeoutMs,
+      onOutput: options.onOutput,
+    }),
+  );
+  const withoutSummary = summarizeProbeRun(withoutRun);
+  if (withoutRun.passed) {
+    result.likelyObsolete = true;
+    result.probe = { command: probe.command, status: 'likely-obsolete', withVariant: withSummary, withoutVariant: withoutSummary };
+  } else {
+    result.probe = { command: probe.command, status: 'needed', withVariant: withSummary, withoutVariant: withoutSummary };
+  }
+}
+
 async function finish(project: Project, graft: Graft, result: SyncGraftResult, options: SyncOptions): Promise<void> {
   const fm = graft.frontmatter;
   const version = result.to!;
@@ -734,12 +896,39 @@ export function renderSyncMarkdown(report: SyncReport, root: string = report.roo
   }
   lines.push('| Graft | Package | Verified → Target | Outcome |', '|---|---|---|---|');
   for (const g of report.grafts) {
-    const regen = g.regenerated ? (g.regenerated.rolledBack ? ' (regeneration rolled back)' : ' (variant regenerated)') : '';
-    lines.push(
-      `| ${g.id} | ${g.package} | ${g.from} → ${g.to ?? '?'} | ${ICON[g.outcome]} ${g.outcome}${g.likelyUpstreamed ? ' (likely upstreamed)' : ''}${regen} |`,
-    );
+    const tags = [
+      g.likelyUpstreamed ? ' (likely upstreamed)' : '',
+      g.likelyObsolete ? ' (likely obsolete)' : '',
+      g.outcome === 'green' && g.nearbyChanges ? ' (nearby upstream changes)' : '',
+      g.regenerated ? (g.regenerated.rolledBack ? ' (regeneration rolled back)' : ' (variant regenerated)') : '',
+    ].join('');
+    lines.push(`| ${g.id} | ${g.package} | ${g.from} → ${g.to ?? '?'} | ${ICON[g.outcome]} ${g.outcome}${tags} |`);
   }
   lines.push('');
+  const obsolete = report.grafts.filter((g) => g.likelyObsolete);
+  if (obsolete.length) {
+    lines.push('Likely obsolete (probe passed on pristine upstream and with the variant applied):', '');
+    for (const g of obsolete) {
+      lines.push(
+        `- **${g.id}** (\`${g.probe?.command ?? 'probe'}\`): Invariant tests pass on pristine \`${g.package}@${g.to}\`. ` +
+          'The modification may be unnecessary, or the probe may not exercise it (disable test caching such as `--skip-nx-cache` / `--no-cache`). ' +
+          `Confirm and retire with \`graft mark ${g.id} --status obsolete --history "…"\`.`,
+      );
+    }
+    lines.push('');
+  }
+  const nearby = report.grafts.filter((g) => g.outcome === 'green' && g.nearbyChanges);
+  if (nearby.length) {
+    lines.push('Nearby upstream changes (variant still applies, but review whether it is still needed):', '');
+    for (const g of nearby) {
+      const n = g.nearbyChanges!;
+      const diffNote = n.diffPath ? ` — diff: \`${rel(n.diffPath)}\`` : '';
+      lines.push(
+        `- **${g.id}** (${g.from} → ${g.to}): ${n.hunks} hunk(s) near anchors in ${n.files.map((f) => `\`${f}\``).join(', ')}${diffNote}`,
+      );
+    }
+    lines.push('');
+  }
   const results = report.grafts.filter((g) => g.outcome === 'green' && g.materialized?.description);
   if (results.length) {
     lines.push('Materialized results (Graft never pushes; take them from here):', '');

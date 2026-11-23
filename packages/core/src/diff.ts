@@ -99,6 +99,22 @@ export function renderPatch(files: ScopedFileDiff[], labels: { from: string; to:
   return out.join('\n') + (out.length ? '\n' : '');
 }
 
+const PACKAGE_JSON_VERSION_RE = /^"version"\s*:\s*"[^"]*",?$/;
+const CARGO_TOML_VERSION_RE = /^version\s*=\s*"[^"]*"(\s*#.*)?$/;
+
+/**
+ * True when a diff hunk in a manifest file (`package.json`, `Cargo.toml`) changes only the
+ * package's version field. Used so nearby-upstream-change detection does not fire on every
+ * release bump when a patch sits near `"version"`.
+ */
+export function isTrivialVersionHunk(file: string, hunk: DiffHunk): boolean {
+  const base = path.posix.basename(file);
+  const pattern = base === 'package.json' ? PACKAGE_JSON_VERSION_RE : base === 'Cargo.toml' ? CARGO_TOML_VERSION_RE : undefined;
+  if (!pattern) return false;
+  const changed = hunk.lines.filter((l) => l[0] === '+' || l[0] === '-').map((l) => l.slice(1).trim());
+  return changed.length > 0 && changed.every((line) => pattern.test(line));
+}
+
 const CHUNK_EXT_RE = /^(.*?)(\.d\.[cm]?ts|\.[cm]?[jt]sx?|\.css)$/;
 const CHUNK_HASH_RE = /^(.+?)([.-])([A-Za-z0-9_-]{6,32})$/;
 const looksLikeContentHash = (s: string) => /\d/.test(s) || (/[a-z]/.test(s) && /[A-Z]/.test(s));

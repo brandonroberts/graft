@@ -679,10 +679,19 @@ export function createForkAdapter(): MechanismAdapter {
         for (const file of touched) {
           const [oldText, newText] = [await showFile(dir, fromRev, inPkg(cfg, file)), await showFile(dir, toRev, inPkg(cfg, file))];
           const filePatch = patches.find((p) => p.oldFile === file);
-          const regions = (filePatch?.hunks ?? []).map((h, i) => ({
-            name: `${file}#${i + 1}`,
-            old: [h.oldStart, h.oldStart + Math.max(h.oldLines - 1, 0)] as [number, number],
-          }));
+          const regions = (filePatch?.hunks ?? []).map((h, i) => {
+            const oldMatch = oldText !== undefined ? locateHunk(oldText, h) : undefined;
+            const newMatch = newText !== undefined ? locateHunk(newText, h) : undefined;
+            const oldStart = oldMatch && oldMatch.occurrences > 0 && oldMatch.line ? oldMatch.line : h.oldStart;
+            const span = Math.max(h.oldLines - 1, 0);
+            return {
+              name: `${file}#${i + 1}`,
+              old: [oldStart, oldStart + span] as [number, number],
+              ...(newMatch && newMatch.occurrences > 0 && newMatch.line
+                ? { new: [newMatch.line, newMatch.line + span] as [number, number] }
+                : {}),
+            };
+          });
           const scoped = scopeFileDiff({ file, oldText, newText, regions, window: 10 });
           if (scoped.status === 'removed' && filePatch?.hunks.length) {
             toTree ??= await checkout(dir, toRev);

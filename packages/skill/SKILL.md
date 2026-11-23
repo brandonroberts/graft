@@ -48,7 +48,7 @@ the project root. Exit codes: `0` ok, `1` something needs attention, `2` tooling
 | Step | Command |
 |---|---|
 | Overview | `graft status` |
-| Deterministic first pass | `graft sync [--version X] [--install]` |
+| Deterministic first pass | `graft sync [--version X] [--install] [--probe-obsolete]` |
 | Read intent + variants (and which variant the installed version selects) | `graft show <id>` |
 | Anchor report | `graft check <id> [--version X]` |
 | What moved upstream | `graft diff <id> [from] [to]` |
@@ -67,6 +67,10 @@ Reports from `sync` land in `.grafts/.report/` (`sync.md`, `sync.json`, and per 
 1. **Run the deterministic first pass first.** `graft sync --version X --install`.
    Never re-derive what already passes. Green grafts are done — `sync` already bumped
    `verified` and wrote History. Only grafts marked `needs-agent` are yours.
+   Check the report for **likely obsolete** (when a graft's `probe` command passed on pristine
+   upstream too) and **nearby upstream changes** (when upstream changed lines near a green graft's
+   anchors): review the diff or run `graft sync --probe-obsolete`, and if the graft is no longer
+   needed, ask a human to confirm and retire it with `graft mark <id> --status obsolete --history "…"`.
    If the project has an `upgrade` command, read its output in the report ("Output of …" in
    `sync.md`, `installOutput` in `sync.json`) even when sync is green. A tool may have left
    work for you there: e.g. `nx migrate --agentic` run from inside an agent prints steps for the

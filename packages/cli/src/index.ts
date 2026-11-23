@@ -396,8 +396,9 @@ const syncCmd = defineCommand({
     ecosystem: { type: 'string', description: 'Only grafts on packages of this ecosystem (npm | cargo | go | pypi)' },
     id: { type: 'string', description: 'Comma-separated graft ids' },
     install: { type: 'boolean', description: 'Install the target version if it is not installed' },
+    'probe-obsolete': { type: 'boolean', description: 'Run configured `probe` commands even when the version did not change' },
     'dry-run': { type: 'boolean', description: 'Do not update graft.md on success' },
-    quiet: { type: 'boolean', description: 'Do not stream the output of generators and upgrade commands' },
+    quiet: { type: 'boolean', description: 'Do not stream the output of generators, probes, and upgrade commands' },
   },
   run: guarded(async (args) => {
     const project = await open(args.root);
@@ -410,6 +411,7 @@ const syncCmd = defineCommand({
         .map((s) => s.trim())
         .filter(Boolean),
       install: args.install,
+      probeObsolete: args['probe-obsolete'],
       dryRun: args['dry-run'],
       onProgress: args.json ? undefined : (m) => console.error(`graft: ${m}`),
       // stderr, so --json keeps stdout to the report.
@@ -417,12 +419,25 @@ const syncCmd = defineCommand({
     });
     print(args.json, report, () => {
       for (const g of report.grafts) {
+        const tags = [
+          g.likelyUpstreamed ? ' (likely upstreamed)' : '',
+          g.likelyObsolete ? ' (likely obsolete)' : '',
+          g.outcome === 'green' && g.nearbyChanges ? ' (nearby upstream changes)' : '',
+        ].join('');
         console.log(
-          `${g.outcome === 'green' ? '✓' : g.outcome === 'skipped' ? '-' : '✗'} ${g.id}  ${g.from} → ${g.to ?? '?'}  ${g.outcome}${g.likelyUpstreamed ? ' (likely upstreamed)' : ''}`,
+          `${g.outcome === 'green' ? '✓' : g.outcome === 'skipped' ? '-' : '✗'} ${g.id}  ${g.from} → ${g.to ?? '?'}  ${g.outcome}${tags}`,
         );
         if (g.regenerated)
           console.log(
             `    ${g.regenerated.rolledBack ? 'rolled back regenerated' : 'regenerated'} variant ${g.regenerated.module} with \`${g.regenerated.command}\``,
+          );
+        if (g.likelyObsolete)
+          console.log(
+            `    probe \`${g.probe?.command ?? 'probe'}\` passed on pristine upstream; confirm and retire with \`graft mark ${g.id} --status obsolete --history "…"\``,
+          );
+        if (g.outcome === 'green' && g.nearbyChanges)
+          console.log(
+            `    upstream changed ${g.nearbyChanges.hunks} hunk(s) near anchors in ${g.nearbyChanges.files.join(', ')}${g.nearbyChanges.diffPath ? ` (${path.relative(process.cwd(), g.nearbyChanges.diffPath)})` : ''}`,
           );
         for (const r of g.reasons) console.log(`    ${r}`);
       }

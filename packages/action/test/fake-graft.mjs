@@ -129,6 +129,12 @@ if (args[0] === 'sync') {
     process.exit(0);
   };
   if (mode === 'green') green();
+  if (mode === 'nearby') green({ nearbyChanges: { files: ['package.json'], hunks: 1 } });
+  if (mode === 'likely-obsolete')
+    green({
+      likelyObsolete: true,
+      probe: { command: 'npm test', status: 'likely-obsolete', withVariant: { passed: true }, withoutVariant: { passed: true } },
+    });
   if (mode === 'regenerated') green({ regenerated: { module: './variants/v2.patch', command: 'node gen.mjs' } });
   if (mode === 'needs-agent') {
     if (existsSync('.agent-fixed')) green();

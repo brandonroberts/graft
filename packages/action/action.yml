@@ -75,6 +75,12 @@ inputs:
   dry-run:
     description: Run sync but do not push or open PRs.
     default: 'false'
+  probe-obsolete:
+    description: >
+      Pass --probe-obsolete to graft sync and install unchanged candidates so grafts with a `probe`
+      command run their without-variant obsolescence check. Default false (only runs when the action
+      already installs, e.g. on-unchanged: pr or a regenerated variant).
+    default: 'false'
   check:
     description: >
       Run `graft check` on the installed tree first (before any branch is touched): every active

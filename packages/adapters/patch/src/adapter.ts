@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, realpath, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
   distinctiveText,
@@ -32,7 +32,7 @@ import {
   type FilePatch,
 } from './patchfile.js';
 import { readPinKeys, selectApplier, type ApplierConfig } from './appliers.js';
-import { applyToInstalledCopy } from './installed.js';
+import { applyToInstalledCopy, writeNewInode } from './installed.js';
 import { captureInstalledChanges } from './capture.js';
 import { pnpmPackageExtensionWarnings } from './pnpm.js';
 import type { Project } from '@graftsync/core';
@@ -437,10 +437,19 @@ export function createPatchAdapter(): MechanismAdapter {
       for (const file of touched) {
         const [oldText, newText] = await Promise.all([readIn(fromDir, file), readIn(toDir, file)]);
         const filePatch = patches.find((p) => p.oldFile === file);
-        const regions = (filePatch?.hunks ?? []).map((h, i) => ({
-          name: `${file}#${i + 1}`,
-          old: [h.oldStart, h.oldStart + Math.max(h.oldLines - 1, 0)] as [number, number],
-        }));
+        const regions = (filePatch?.hunks ?? []).map((h, i) => {
+          const oldMatch = oldText !== undefined ? locateHunk(oldText, h) : undefined;
+          const newMatch = newText !== undefined ? locateHunk(newText, h) : undefined;
+          const oldStart = oldMatch && oldMatch.occurrences > 0 && oldMatch.line ? oldMatch.line : h.oldStart;
+          const span = Math.max(h.oldLines - 1, 0);
+          return {
+            name: `${file}#${i + 1}`,
+            old: [oldStart, oldStart + span] as [number, number],
+            ...(newMatch && newMatch.occurrences > 0 && newMatch.line
+              ? { new: [newMatch.line, newMatch.line + span] as [number, number] }
+              : {}),
+          };
+        });
         if (oldText !== undefined && newText === undefined && filePatch?.hunks.length) {
           // Point at where the patched code went: files in `to` holding the hunks' old side.
           const text = distinctiveText(
@@ -524,6 +533,95 @@ export function createPatchAdapter(): MechanismAdapter {
         if (r.action === 'failed') report.errors.push(`graft "${graft.id}": ${pkg}@${copy.version} at ${copy.dir}: ${r.reason}`);
       }
       return report;
+    },
+
+    async withPristine<T>(ctx: GraftContext, version: string, fn: () => Promise<T>): Promise<T> {
+      const { project, graft } = ctx;
+      const pkg = graft.frontmatter.rootstock.package;
+      const ecosystem = graft.frontmatter.rootstock.ecosystem;
+      const variant = project.selectVariant(graft, version);
+      if (!variant) throw new GraftError(`graft "${graft.id}": no variant covers ${pkg}@${version}`, 'variant/none');
+      const patches = await loadPatch(graft, variant);
+      const upstream = project.upstreamFor(graft);
+      const pristineDir = await upstream.resolve(pkg, version);
+      const pristineReal = await realpath(pristineDir).catch(() => path.resolve(pristineDir));
+
+      const rawCopies: InstalledPackage[] =
+        ecosystem === 'npm'
+          ? (await project.installedCopies(pkg, 'npm')).filter((c) => c.version === version)
+          : await upstream.installed(pkg).then((c) => (c?.version === version ? [c] : []));
+      if (!rawCopies.length) {
+        throw new GraftError(
+          `graft "${graft.id}": cannot run without-variant probe — ${pkg}@${version} is not installed`,
+          'probe/unsupported',
+        );
+      }
+      if (rawCopies.some((c) => c.pnp)) {
+        throw new GraftError(
+          `graft "${graft.id}": without-variant probe is not supported under Yarn Plug'n'Play (installed files live in zip archives)`,
+          'probe/unsupported',
+        );
+      }
+
+      const targetDirs: string[] = [];
+      const seen = new Set<string>();
+      for (const copy of rawCopies) {
+        const real = await realpath(copy.dir).catch(() => path.resolve(copy.dir));
+        if (real === pristineReal) {
+          throw new GraftError(
+            `graft "${graft.id}": cannot run without-variant probe — installed directory is the pristine cache`,
+            'probe/unsupported',
+          );
+        }
+        if (seen.has(real)) continue;
+        seen.add(real);
+        targetDirs.push(real);
+      }
+
+      const saved = new Map<string, { content: string | null; mode?: number }>();
+      const snapshot = async (absFile: string) => {
+        if (saved.has(absFile)) return;
+        const st = await stat(absFile).catch(() => undefined);
+        if (!st || !st.isFile()) saved.set(absFile, { content: null });
+        else saved.set(absFile, { content: await readFile(absFile, 'utf8'), mode: st.mode & 0o7777 });
+      };
+      const bumpTime = async (absFile: string, offsetMs: number) => {
+        const t = new Date(Date.now() + offsetMs);
+        await utimes(absFile, t, t).catch(() => {});
+      };
+
+      try {
+        for (const dir of targetDirs) {
+          for (const p of patches) {
+            if (p.newFile) await snapshot(path.join(dir, p.newFile));
+            if (p.oldFile) await snapshot(path.join(dir, p.oldFile));
+            if (p.oldFile === null && p.newFile) {
+              // Patch created this file; remove it in pristine state.
+              await rm(path.join(dir, p.newFile), { force: true });
+              continue;
+            }
+            if (p.oldFile) {
+              const pristineContent = await readIn(pristineDir, p.oldFile);
+              if (pristineContent === undefined) continue;
+              if (p.newFile && p.newFile !== p.oldFile) await rm(path.join(dir, p.newFile), { force: true });
+              const dest = path.join(dir, p.oldFile);
+              await writeNewInode(dest, pristineContent);
+              await bumpTime(dest, 2000);
+            }
+          }
+        }
+        return await fn();
+      } finally {
+        for (const [absFile, entry] of saved) {
+          if (entry.content === null) {
+            await rm(absFile, { force: true });
+          } else {
+            await writeNewInode(absFile, entry.content);
+            if (entry.mode !== undefined) await chmod(absFile, entry.mode).catch(() => {});
+            await bumpTime(absFile, 4000);
+          }
+        }
+      }
     },
 
     async afterInstall(ctx: GraftContext): Promise<void> {
