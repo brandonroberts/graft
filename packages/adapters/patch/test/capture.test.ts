@@ -138,4 +138,31 @@ describe('graft capture (patch)', () => {
     const patch = await readFile(path.join(app, '.grafts/demo-fix', result.module), 'utf8');
     expect(parsePatchFile(patch).map(patchTarget)).toEqual(['src/lib.rs']);
   });
+
+  it('ignores .git directories (git checkouts) and .git files (worktrees/submodules) (#103)', async () => {
+    const { project, installed, graftDir } = await setup();
+    // Simulate a git checkout with binary index/pack files and text metadata.
+    await mkdir(path.join(installed, '.git/objects/pack'), { recursive: true });
+    await writeFile(path.join(installed, '.git/HEAD'), 'ref: refs/heads/main\n');
+    await writeFile(path.join(installed, '.git/index'), Buffer.from([0x44, 0x49, 0x52, 0x43, 0, 0, 0, 2]));
+    await writeFile(path.join(installed, '.git/objects/pack/pack-abc.pack'), Buffer.from([0x50, 0x41, 0x43, 0x4b, 0, 0, 0, 2]));
+
+    // .git/ alone is not a package modification (and must not trip capture/binary).
+    await expect(captureVariant(project, 'add-b')).rejects.toThrow(/identical to the published package/);
+
+    // A real edit is captured cleanly without any .git/ entries.
+    await writeFile(path.join(installed, 'lib/a.js'), 'module.exports = 42\n');
+    const dirResult = await captureVariant(project, 'add-b');
+    const dirPatch = await readFile(path.join(graftDir, dirResult.module), 'utf8');
+    expect(parsePatchFile(dirPatch).map(patchTarget)).toEqual(['lib/a.js']);
+
+    // Worktrees and submodules place a `.git` regular file instead of a directory.
+    const wt = await setup();
+    await writeFile(path.join(wt.installed, '.git'), 'gitdir: ../.git/modules/lib\n');
+    await expect(captureVariant(wt.project, 'add-b')).rejects.toThrow(/identical to the published package/);
+    await writeFile(path.join(wt.installed, 'lib/a.js'), 'module.exports = 99\n');
+    const fileResult = await captureVariant(wt.project, 'add-b');
+    const filePatch = await readFile(path.join(wt.graftDir, fileResult.module), 'utf8');
+    expect(parsePatchFile(filePatch).map(patchTarget)).toEqual(['lib/a.js']);
+  });
 });
