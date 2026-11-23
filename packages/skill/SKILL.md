@@ -103,7 +103,9 @@ Reports from `sync` land in `.grafts/.report/` (`sync.md`, `sync.json`, and per 
    names (and the suite), and add a test for any Invariant nothing covers. Show it fails
    without the graft. If a test fails, the graft isn't done, whatever sync said: fix the
    variant, or stop (see *When to stop*).
-9. **Finish:** open a PR (see below), saying how you verified each Invariant.
+9. **Finish:** open a PR (see below), saying how you verified each Invariant. Follow the
+   repository's commit, PR, and issue guidelines (such as `CONTRIBUTING.md`, `.github/`
+   templates, conventional-commit or PR-title rules, and required labels or checklists).
 
 ## Adding a new graft
 
@@ -153,7 +155,10 @@ When asked to capture a modification as a graft (new, or migrating an existing p
    action's README: `contents`, `pull-requests` and `issues: write`, the project's install step
    first, and the action pinned to the release tag of the CLI version in use
    (`brandonroberts/graft/packages/action@v<version>`) with `graft-command` at that same
-   version when the project doesn't depend on `@graftsync/cli`. You can't do the GitHub side:
+   version when the project doesn't depend on `@graftsync/cli`. Check the repository's PR,
+   commit, and issue guidelines (such as `CONTRIBUTING.md`, `.github/` templates, or
+   conventional-commit / PR-title lint checks) and configure `pr-title`, `issue-title`, and
+   `labels` to match them when needed. You can't do the GitHub side:
    tell them to allow Actions to create pull requests (or use a GitHub App token as
    `github-token`) and to add the agent's API key as a repository secret.
 
@@ -325,6 +330,9 @@ at everything else: `GRAFT_SKILL_PATH` (this file), `GRAFT_COMMAND` (how to run 
 - Write the PR description (format below) to `GRAFT_PR_BODY_FILE`.
 
 ## PR description
+
+Follow the repository's PR and issue guidelines (title format, templates, required sections, or
+checklists in `CONTRIBUTING.md` or `.github/`) and include the graft summary below:
 
 ```markdown
 ## Graft sync: <package> <verified> → <target>

@@ -8,12 +8,12 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 const DEFAULT_AUTHOR = 'github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>';
-const DEFAULT_ISSUE_TITLE = 'build: graft sync {package} to {version}{status}';
-const LEGACY_ISSUE_TITLE = 'graft: sync {package} to {version}{status}';
+const DEFAULT_TITLE = 'build: graft sync {package} to {version}{status}';
+const LEGACY_TITLE = 'graft: sync {package} to {version}{status}';
 
-/** Format an issue title from a template using literal `{package}`, `{version}`, and `{status}` placeholders. */
-export function formatIssueTitle(template, { candidate, outcome }) {
-  const raw = (template || DEFAULT_ISSUE_TITLE).replace(/\{(package|version|status)\}/g, (_, key) => {
+/** Format a PR, commit, or issue title from a template using literal `{package}`, `{version}`, and `{status}` placeholders. */
+export function formatTitle(template, { candidate, outcome }) {
+  const raw = (template || DEFAULT_TITLE).replace(/\{(package|version|status)\}/g, (_, key) => {
     if (key === 'package') return packageLabel(candidate);
     if (key === 'version') return candidate.version;
     return outcome === 'needs-agent' ? ' (needs attention)' : '';
@@ -23,6 +23,8 @@ export function formatIssueTitle(template, { candidate, outcome }) {
     .replace(/\s+/g, ' ')
     .trim();
 }
+
+export const formatIssueTitle = formatTitle;
 
 /** Normalize raw action inputs (strings from action.yml) into options. */
 export function parseInputs(raw = {}) {
@@ -49,6 +51,7 @@ export function parseInputs(raw = {}) {
     baseBranch: str('base-branch'),
     branchPrefix: str('branch-prefix', 'graft/sync-'),
     labels: list('labels'),
+    prTitle: str('pr-title'),
     issueTitle: str('issue-title'),
     onNeedsAgent,
     onUnchanged,
@@ -490,8 +493,8 @@ export async function runAction(options, deps) {
         const legacyPrefix = `graft: sync ${packageLabel(candidate)} to ${candidate.version}`;
         const customTitles = options.issueTitle
           ? [
-              formatIssueTitle(options.issueTitle, { candidate, outcome: 'green' }),
-              formatIssueTitle(options.issueTitle, { candidate, outcome: 'needs-agent' }),
+              formatTitle(options.issueTitle, { candidate, outcome: 'green' }),
+              formatTitle(options.issueTitle, { candidate, outcome: 'needs-agent' }),
             ]
           : [];
         const handled = await findProposal(branch, [defaultPrefix, legacyPrefix], customTitles);
@@ -508,11 +511,13 @@ export async function runAction(options, deps) {
           continue;
         }
         await git('fetch', '--quiet', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`);
-        const title = (await git('log', '-1', '--format=%s', `refs/remotes/origin/${branch}`)) || defaultPrefix;
-        const draft = title.endsWith('(needs attention)');
+        const commitSubject = await git('log', '-1', '--format=%s', `refs/remotes/origin/${branch}`);
+        const commitBody = await git('log', '-1', '--format=%b', `refs/remotes/origin/${branch}`);
+        const draft = /^Graft-Sync-Status:\s*needs-agent\s*$/m.test(commitBody) || commitSubject.includes('(needs attention)');
         const resumeOutcome = draft ? 'needs-agent' : 'green';
-        const issueTitle = formatIssueTitle(options.issueTitle, { candidate, outcome: resumeOutcome });
-        const legacyTitles = [formatIssueTitle(LEGACY_ISSUE_TITLE, { candidate, outcome: resumeOutcome })];
+        const title = formatTitle(options.prTitle, { candidate, outcome: resumeOutcome });
+        const issueTitle = formatTitle(options.issueTitle, { candidate, outcome: resumeOutcome });
+        const legacyTitles = [formatTitle(LEGACY_TITLE, { candidate, outcome: resumeOutcome })];
         const body = [
           `## Graft sync: ${packageLabel(candidate)} ${candidate.verified} → ${candidate.version}`,
           '',
@@ -583,8 +588,8 @@ export async function runAction(options, deps) {
             result.outcome = 'needs-agent';
             continue;
           }
-          const issueTitle = formatIssueTitle(options.issueTitle, { candidate, outcome: 'needs-agent' });
-          const legacyTitles = [formatIssueTitle(LEGACY_ISSUE_TITLE, { candidate, outcome: 'needs-agent' })];
+          const issueTitle = formatTitle(options.issueTitle, { candidate, outcome: 'needs-agent' });
+          const legacyTitles = [formatTitle(LEGACY_TITLE, { candidate, outcome: 'needs-agent' })];
           const body = renderPrBody({ candidate, report: pre.report, outcome: 'needs-agent' });
           if (options.dryRun) {
             result.outcome = 'would-open-issue';
@@ -722,9 +727,9 @@ export async function runAction(options, deps) {
         (await git('status', '--porcelain'))
           .split('\n')
           .filter((l) => l.trim() && !(tmpRel && !tmpRel.startsWith('..') && l.slice(3).startsWith(tmpRel.split('/')[0]))).length > 0;
-      const title = formatIssueTitle('', { candidate, outcome });
-      const issueTitle = formatIssueTitle(options.issueTitle, { candidate, outcome });
-      const legacyTitles = [formatIssueTitle(LEGACY_ISSUE_TITLE, { candidate, outcome })];
+      const title = formatTitle(options.prTitle, { candidate, outcome });
+      const issueTitle = formatTitle(options.issueTitle, { candidate, outcome });
+      const legacyTitles = [formatTitle(LEGACY_TITLE, { candidate, outcome })];
       const body = renderPrBody({ candidate, report, agentBody, outcome });
       if (!changed && outcome === 'green') {
         result.outcome = 'no-changes';
@@ -754,10 +759,14 @@ export async function runAction(options, deps) {
       }
       await git('add', '-A');
       if (tmpRel && !tmpRel.startsWith('..')) await run(gitCmd(`reset -q -- ${quote(tmpRel.split('/')[0])}`));
+      const commitBody =
+        outcome === 'needs-agent'
+          ? `Upstream ${packageLabel(candidate)}@${candidate.version} (${candidate.tag}). Generated by graft sync.\n\nGraft-Sync-Status: needs-agent`
+          : `Upstream ${packageLabel(candidate)}@${candidate.version} (${candidate.tag}). Generated by graft sync.`;
       await deps
         .sh(
           gitCmd(
-            `-c user.name=${quote(authorName)} -c user.email=${quote(authorEmail)} commit -q -m ${quote(title)} -m ${quote(`Upstream ${packageLabel(candidate)}@${candidate.version} (${candidate.tag}). Generated by graft sync.`)}`,
+            `-c user.name=${quote(authorName)} -c user.email=${quote(authorEmail)} commit -q -m ${quote(title)} -m ${quote(commitBody)}`,
           ),
           { cwd },
         )
