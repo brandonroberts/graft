@@ -1,5 +1,27 @@
 # @graftsync/cli
 
+## 0.3.3
+
+### Patch Changes
+
+- 7452f67: Verify nested `node_modules` copies in `graft check` / `graft sync` when using Graft's built-in `graft` applier (`graft apply --installed`): covered nested copies are verified against their matching variant (failing loudly if unpatched or unapplicable), and uncovered nested copies emit a warning (#87, #88).
+- 47af9b4: Resolve workspace sibling candidates from `resolveFrom[pkg]` first (ignoring unrelated multi-version `.pnpm` ambiguities) in `findSiblings`, and run `resolveUpgrade` and sibling checks before `beforeInstall` in `sync` so pre-install errors never leave package-manager config mutated (#89, #90).
+- c7eb007: Add transactional `WorkspaceSnapshot` rollback around `sync --install` (so install or post-install verification failures never leave manifests, package-manager config, lockfiles, or vendored artifacts half-mutated) and unify workspace-scoped / multi-copy package resolution across `sync`, `checkInstalled`, `applyInstalled`, `siblings`, and `ecosystems/npm` (#91).
+- 0d49fad: Report fork adapter fetch, git, partial-clone, and config failures (`fork/partial-clone`, `fork/git`, `fork/config`, `fork/ecosystem`) as tooling errors (`outcome: 'error'`, exit code `2`) instead of `needs-agent`, and detect `file://` local partial clones (#92).
+- 746f00b: Include transitive exact-version (`=<version>`, non-dev) lockstep dependencies from the same repository in `findCargoSiblings` (such as `serde_core` with `serde`), ignore dev-dependencies in `orderCargoUpdates`, and update patched Cargo crates and their siblings atomically in one `cargo update -p … --precise` call (#93, #94).
+- 08f9cfc: Clear `uv`'s cache (`uv cache clean`) and pass `--reinstall-package` for vendored wheels to `uv sync` in `pypiEcosystem.reinstall` so `graft apply` always restores modified site-packages (including hardlinked same-filesystem caches) or rebuilt same-version wheels into `.venv` (#95, #96).
+- Updated dependencies [746f00b]
+- Updated dependencies [7452f67]
+- Updated dependencies [0d49fad]
+- Updated dependencies [47af9b4]
+- Updated dependencies [c7eb007]
+- Updated dependencies [08f9cfc]
+  - @graftsync/core@0.3.3
+  - @graftsync/adapter-patch@0.3.3
+  - @graftsync/adapter-fork@0.3.3
+  - @graftsync/skill@0.3.3
+  - @graftsync/spec@0.3.3
+
 ## 0.3.2
 
 ### Patch Changes

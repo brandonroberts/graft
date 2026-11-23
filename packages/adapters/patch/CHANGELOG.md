@@ -1,5 +1,20 @@
 # @graftsync/adapter-patch
 
+## 0.3.3
+
+### Patch Changes
+
+- 746f00b: Include transitive exact-version (`=<version>`, non-dev) lockstep dependencies from the same repository in `findCargoSiblings` (such as `serde_core` with `serde`), ignore dev-dependencies in `orderCargoUpdates`, and update patched Cargo crates and their siblings atomically in one `cargo update -p … --precise` call (#93).
+- 7452f67: Verify nested `node_modules` copies in `graft check` / `graft sync` when using Graft's built-in `graft` applier (`graft apply --installed`): covered nested copies are verified against their matching variant (failing loudly if unpatched or unapplicable), and uncovered nested copies emit a warning (#87).
+- c7eb007: Add transactional `WorkspaceSnapshot` rollback around `sync --install` (so failures in `beforeInstall`, `eco.install`, `afterInstall`, or post-install version verification never leave workspace manifests, package-manager config, lockfiles, or applier artifacts half-mutated) and unify workspace-scoped / multi-copy package resolution (`UpstreamSource.installed(pkg, { from, allowAmbiguous })`, `UpstreamSource.installedCopies`, `Project.installedCopies`, and `npmResolveFrom`) across `sync`, `checkInstalled`, `applyInstalled`, `siblings`, and `ecosystems/npm`.
+- Updated dependencies [746f00b]
+- Updated dependencies [0d49fad]
+- Updated dependencies [47af9b4]
+- Updated dependencies [c7eb007]
+- Updated dependencies [08f9cfc]
+  - @graftsync/core@0.3.3
+  - @graftsync/spec@0.3.3
+
 ## 0.3.2
 
 ### Patch Changes

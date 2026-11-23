@@ -1,5 +1,20 @@
 # @graftsync/adapter-fork
 
+## 0.3.3
+
+### Patch Changes
+
+- 0d49fad: Report fork adapter fetch, git, partial-clone, and config failures (`fork/partial-clone`, `fork/git`, `fork/config`, `fork/ecosystem`) as tooling errors (`outcome: 'error'`, exit code `2`) instead of `needs-agent`, and detect `file://` local partial clones in `refusePartialClone`.
+- Updated dependencies [746f00b]
+- Updated dependencies [7452f67]
+- Updated dependencies [0d49fad]
+- Updated dependencies [47af9b4]
+- Updated dependencies [c7eb007]
+- Updated dependencies [08f9cfc]
+  - @graftsync/core@0.3.3
+  - @graftsync/adapter-patch@0.3.3
+  - @graftsync/spec@0.3.3
+
 ## 0.3.2
 
 ### Patch Changes

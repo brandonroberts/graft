@@ -150,15 +150,15 @@ Every command accepts `--json` and `--root` (exit codes: `0` ok, `1` needs atten
 Run `graft check` in ordinary CI right after installing (no action needed):
 
 ```yaml
-- run: npx -y @graftsync/cli@0.3.2 check   # or: npx graft check
+- run: npx -y @graftsync/cli@0.3.3 check   # or: npx graft check
 ```
 
 Use [`packages/action`](packages/action) to poll for newer upstream versions, run `graft sync`, open PRs, and hand failures to any `agent-command`:
 
 ```yaml
-- uses: brandonroberts/graft/packages/action@v0.3.2   # pin to a release tag matching the CLI
+- uses: brandonroberts/graft/packages/action@v0.3.3   # pin to a release tag matching the CLI
   with:
-    graft-command: npx -y @graftsync/cli@0.3.2        # omit if the project depends on @graftsync/cli
+    graft-command: npx -y @graftsync/cli@0.3.3        # omit if the project depends on @graftsync/cli
     tags: latest                                      # stable releases only
     agent-command: ''                                 # optional; see packages/action/README.md
 ```

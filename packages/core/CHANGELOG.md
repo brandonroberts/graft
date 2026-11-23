@@ -1,5 +1,16 @@
 # @graftsync/core
 
+## 0.3.3
+
+### Patch Changes
+
+- 746f00b: Include transitive exact-version (`=<version>`, non-dev) lockstep dependencies from the same repository in `findCargoSiblings` (such as `serde_core` with `serde`), ignore dev-dependencies in `orderCargoUpdates`, and update patched Cargo crates and their siblings atomically in one `cargo update -p … --precise` call (#93).
+- 0d49fad: Report fork adapter fetch, git, partial-clone, and config failures (`fork/partial-clone`, `fork/git`, `fork/config`, `fork/ecosystem`) as tooling errors (`outcome: 'error'`, exit code `2`) instead of `needs-agent`, and detect `file://` local partial clones in `refusePartialClone`.
+- 47af9b4: Resolve workspace sibling candidates from `resolveFrom[pkg]` first (and ignore unrelated multi-version `.pnpm` ambiguities) in `findSiblings`, and run `resolveUpgrade` and sibling checks before `beforeInstall` in `sync` so pre-install errors never leave package-manager config mutated (#89).
+- c7eb007: Add transactional `WorkspaceSnapshot` rollback around `sync --install` (so failures in `beforeInstall`, `eco.install`, `afterInstall`, or post-install version verification never leave workspace manifests, package-manager config, lockfiles, or applier artifacts half-mutated) and unify workspace-scoped / multi-copy package resolution (`UpstreamSource.installed(pkg, { from, allowAmbiguous })`, `UpstreamSource.installedCopies`, `Project.installedCopies`, and `npmResolveFrom`) across `sync`, `checkInstalled`, `applyInstalled`, `siblings`, and `ecosystems/npm`.
+- 08f9cfc: Clear `uv`'s cache (`uv cache clean`) and pass `--reinstall-package` for vendored wheels to `uv sync` in `pypiEcosystem.reinstall` so `graft apply` always restores modified site-packages (including hardlinked same-filesystem caches) or rebuilt same-version wheels into `.venv` (#95).
+- @graftsync/spec@0.3.3
+
 ## 0.3.2
 
 ### Patch Changes
