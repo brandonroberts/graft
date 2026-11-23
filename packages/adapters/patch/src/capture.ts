@@ -18,8 +18,8 @@ import { GraftError, type GraftContext } from '@graftsync/core';
 import { applyFilePatch, parsePatchFile, patchTarget } from './patchfile.js';
 
 /** Directories and files that are never part of the package as published. */
-const SKIP_DIRS = new Set(['node_modules', '__pycache__', 'target']);
-const skipFile = (name: string) => name === '.cargo-ok' || name.endsWith('.pyc');
+const SKIP_DIRS = new Set(['.git', 'node_modules', '__pycache__', 'target']);
+const skipFile = (name: string) => name === '.git' || name === '.cargo-ok' || name.endsWith('.pyc');
 /** Publish-generated metadata inside a .crate archive (and cargo vendor), never a user patch. */
 const CARGO_METADATA = new Set(['.cargo_vcs_info.json', 'Cargo.toml.orig', '.cargo-checksum.json']);
 

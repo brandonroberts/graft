@@ -567,10 +567,10 @@ it.
   doesn't show the crate at the target version from the vendored directory, and on a vendored
   directory that isn't exactly pristine + variant.
 - **Capture:** `graft capture` diffs the copy cargo resolves (the vendored crate after
-  `graft apply`, else the registry source, which every project on the machine shares) against
-  the pristine `.crate`. A `target/` directory, cargo's `.cargo-ok` marker, and publish/vendor
-  metadata (`.cargo_vcs_info.json`, `Cargo.toml.orig`, `.cargo-checksum.json`) are not part of
-  the package.
+  `graft apply`, else a git/path patch or the registry source, which every project on the machine
+  shares) against the pristine `.crate`. A `.git` directory or file, a `target/` directory,
+  cargo's `.cargo-ok` marker, and publish/vendor metadata (`.cargo_vcs_info.json`,
+  `Cargo.toml.orig`, `.cargo-checksum.json`) are not part of the package.
 
 ### 10.3 go
 
