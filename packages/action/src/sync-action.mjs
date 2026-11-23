@@ -54,6 +54,7 @@ export function parseInputs(raw = {}) {
     onUnchanged,
     author: str('commit-author', DEFAULT_AUTHOR),
     dryRun: bool('dry-run'),
+    probeObsolete: bool('probe-obsolete'),
     skillPath: str('skill-path'),
   };
 }
@@ -159,8 +160,38 @@ export function renderPrBody({ candidate, report, agentBody, outcome }) {
   }
   if (report) {
     lines.push('| Graft | Verified → Target | Outcome |', '|---|---|---|');
-    for (const g of report.grafts) lines.push(`| ${g.id} | ${g.from} → ${g.to ?? '?'} | ${g.outcome} |`);
+    for (const g of report.grafts) {
+      const tags = [
+        g.likelyUpstreamed ? ' (likely upstreamed)' : '',
+        g.likelyObsolete ? ' (likely obsolete)' : '',
+        g.outcome === 'green' && g.nearbyChanges ? ' (nearby upstream changes)' : '',
+      ].join('');
+      lines.push(`| ${g.id} | ${g.from} → ${g.to ?? '?'} | ${g.outcome}${tags} |`);
+    }
     lines.push('');
+    const obsolete = report.grafts.filter((g) => g.likelyObsolete);
+    if (obsolete.length) {
+      lines.push(
+        '> [!NOTE]',
+        '> **Likely obsolete:** invariant probe passed on pristine upstream as well as with the variant applied:',
+        ...obsolete.map(
+          (g) =>
+            `> - \`${g.id}\` (\`${g.probe?.command ?? 'probe'}\`): confirm and retire with \`graft mark ${g.id} --status obsolete --history "…"\`.`,
+        ),
+        '',
+      );
+    }
+    const nearby = report.grafts.filter((g) => g.outcome === 'green' && g.nearbyChanges);
+    if (nearby.length) {
+      lines.push(
+        '> [!NOTE]',
+        '> **Nearby upstream changes:** upstream modified lines near these grafts\u2019 anchors (variants still apply, but review whether they are still needed):',
+        ...nearby.map(
+          (g) => `> - \`${g.id}\`: ${g.nearbyChanges.hunks} hunk(s) in ${g.nearbyChanges.files.map((f) => `\`${f}\``).join(', ')}`,
+        ),
+        '',
+      );
+    }
     for (const g of report.grafts.filter((g) => g.outcome !== 'green' && g.outcome !== 'skipped')) {
       lines.push(`<details><summary>${g.id}: ${g.outcome}${g.likelyUpstreamed ? ' (likely upstreamed)' : ''}</summary>`, '');
       if (g.likelyUpstreamed)
@@ -519,7 +550,7 @@ export async function runAction(options, deps) {
       };
 
       let preNeedsAgent;
-      if (options.onUnchanged === 'skip' && !candidate.standalone) {
+      if (options.onUnchanged === 'skip' && !options.probeObsolete && !candidate.standalone) {
         const dryRunCmd = `${options.graftCommand} sync --json --dry-run --version ${quote(candidate.version)} --package ${quote(candidate.package)}${ecosystemFlag(candidate)}`;
         const pre = await runSync(dryRunCmd);
         if (pre.code === 2) {
@@ -535,6 +566,11 @@ export async function runAction(options, deps) {
           result.reasons.push(
             `existing variant(s) already fit ${packageLabel(candidate)}@${candidate.version}; skipping upgrade (on-unchanged: skip)`,
           );
+          for (const g of pre.report.grafts.filter((x) => x.nearbyChanges)) {
+            result.reasons.push(
+              `${g.id}: nearby upstream changes in ${g.nearbyChanges.files.join(', ')} (${g.nearbyChanges.hunks} hunk(s)); review whether this graft is still needed`,
+            );
+          }
           continue;
         }
         if (pre.code === 1 && !options.agentCommand) {
@@ -581,9 +617,10 @@ export async function runAction(options, deps) {
       previous = candidate;
       await git('checkout', '-B', branch, base);
 
+      const probeFlag = options.probeObsolete ? ' --probe-obsolete' : '';
       const syncCmd = candidate.standalone
-        ? `${options.graftCommand} sync --json --version ${quote(candidate.version)} --id ${quote(candidate.grafts.join(','))}`
-        : `${options.graftCommand} sync --json --version ${quote(candidate.version)} --package ${quote(candidate.package)}${ecosystemFlag(candidate)} --install`;
+        ? `${options.graftCommand} sync --json --version ${quote(candidate.version)} --id ${quote(candidate.grafts.join(','))}${probeFlag}`
+        : `${options.graftCommand} sync --json --version ${quote(candidate.version)} --package ${quote(candidate.package)}${ecosystemFlag(candidate)} --install${probeFlag}`;
       // Repo mode: Graft leaves its result (or, for an agent, git's merge with conflict markers)
       // as a branch in its cache clone; the PR branch takes that whole tree. When Graft names the
       // upstream commit the result sits on, the commit is a merge of it (with the result's tree),

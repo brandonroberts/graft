@@ -270,6 +270,13 @@ export interface MechanismAdapter {
    */
   applyInstalled?(ctx: GraftContext): Promise<InstalledApplyReport>;
   /**
+   * Temporarily present pristine upstream (without this graft's variant applied) at `version`
+   * while `fn` runs, then restore the patched state in `finally`. Used by the without-variant
+   * obsolescence probe. Throw `GraftError` (`probe/unsupported`) when in-place swapping is not
+   * supported by the mechanism or applier.
+   */
+  withPristine?<T>(ctx: GraftContext, version: string, fn: () => Promise<T>): Promise<T>;
+  /**
    * True when the graft installs nothing into the project (e.g. a fork that is the product
    * itself, not a dependency). Its current version is then `rootstock.verified`, `sync` skips
    * the install step, and a green sync materializes `workspace(version)` as its result.

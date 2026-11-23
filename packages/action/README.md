@@ -165,6 +165,7 @@ The agent must not commit, push or open PRs. The action does that after re-verif
 | `commit-author` | `github-actions[bot]` | |
 | `skill-path` | bundled `SKILL.md` | |
 | `dry-run` | `false` | Run sync without pushing or opening anything |
+| `probe-obsolete` | `false` | Pass `--probe-obsolete` to `graft sync` and install unchanged candidates so grafts with a `probe` command run their without-variant obsolescence check. When `false` (default), probes only run when the action already installs (`on-unchanged: pr` or a regenerated variant); `on-unchanged: skip` still surfaces any `nearbyChanges` in the job summary |
 | `check` | `fail` | `fail`, `warn` or `off`: run `graft check` on the installed tree first |
 | `sync` | `true` | `false` runs only the check |
 

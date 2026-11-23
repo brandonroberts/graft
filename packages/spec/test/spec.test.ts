@@ -41,6 +41,24 @@ describe('parseGraft', () => {
     expect(bad.diagnostics.map((d) => d.message).join('\n')).toMatch(/\{out\}/);
   });
 
+  it('accepts probe as a command string or { command, timeout } object, and rejects invalid forms', () => {
+    const str = parseGraft(doc(`${FM}\nprobe: "npx nx run my-lib:test --skip-nx-cache"`), { directoryName: 'x' });
+    expect(str.ok).toBe(true);
+    expect(str.graft?.frontmatter.probe).toEqual({ command: 'npx nx run my-lib:test --skip-nx-cache' });
+
+    const obj = parseGraft(doc(`${FM}\nprobe: { command: "npm test", timeout: 120 }`), { directoryName: 'x' });
+    expect(obj.ok).toBe(true);
+    expect(obj.graft?.frontmatter.probe).toEqual({ command: 'npm test', timeout: 120 });
+
+    const badEmpty = parseGraft(doc(`${FM}\nprobe: ""`), { directoryName: 'x' });
+    expect(badEmpty.ok).toBe(false);
+    expect(badEmpty.diagnostics.some((d) => d.code === 'frontmatter/invalid')).toBe(true);
+
+    const badTimeout = parseGraft(doc(`${FM}\nprobe: { command: "npm test", timeout: -5 }`), { directoryName: 'x' });
+    expect(badTimeout.ok).toBe(false);
+    expect(badTimeout.diagnostics.some((d) => d.code === 'frontmatter/invalid')).toBe(true);
+  });
+
   it('selects variants including prereleases', () => {
     const variants = [{ range: '>=1.0.0 <2.0.0-0' }, { range: '>=2.0.0-0' }];
     expect(selectVariant(variants, '2.0.0-rc.1')).toBe(variants[1]);

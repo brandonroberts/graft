@@ -709,4 +709,24 @@ describe('on-unchanged: skip (default)', () => {
     expect(results[0]).toMatchObject({ outcome: 'pr', agent: true, pullRequest: 'https://github.com/o/r/pull/1' });
     expect(t.calls()).toContain('--install');
   });
+
+  it('surfaces nearby upstream changes in summary when on-unchanged: skip skips an unchanged upgrade', async () => {
+    const t = setup({ outdated: [entry('lib', '1.1.0')], sync: { lib: 'nearby' } });
+    const { results, failed } = await t.run({ 'on-unchanged': 'skip' });
+    expect(failed).toBe(false);
+    expect(results[0]).toMatchObject({ outcome: 'skipped-unchanged', syncExitCode: 0 });
+    expect(results[0]!.reasons.join('\n')).toContain('nearby upstream changes in package.json');
+    expect(t.calls()).not.toContain('--install');
+    expect(t.summary()).toContain('nearby upstream changes in package.json');
+  });
+
+  it('passes --probe-obsolete and renders likely-obsolete callout in PR body when probe-obsolete is enabled', async () => {
+    const t = setup({ outdated: [entry('lib', '1.1.0')], sync: { lib: 'likely-obsolete' } });
+    const { results, failed } = await t.run({ 'on-unchanged': 'skip', 'probe-obsolete': 'true' });
+    expect(failed).toBe(false);
+    expect(results[0]).toMatchObject({ outcome: 'pr', pullRequest: 'https://github.com/o/r/pull/1' });
+    expect(t.calls()).toContain('--install --probe-obsolete');
+    expect(t.calls()).toContain('Likely obsolete');
+    expect(t.calls()).toContain('graft mark lib-graft --status obsolete');
+  });
 });

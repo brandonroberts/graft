@@ -211,7 +211,7 @@ Verified against the real `vercel/ms` repo, with a local fork, on npm and pnpm:
 | `graft variant add <id> --range R --module M [--verify-version X] [--note N] [--no-narrow]` | Register a variant |
 | `graft apply [<id>]` · `graft apply --installed` | Wire the package manager to the selected variants and reinstall · the built-in applier |
 | `graft mark <id> [--status S] [--verified X] [--history H]` | Bookkeeping |
-| `graft sync [--version X] [--install] [--dry-run]` | The deterministic first pass; writes `.grafts/.report/sync.{json,md}` |
+| `graft sync [--version X] [--install] [--probe-obsolete] [--dry-run]` | The deterministic first pass (plus nearby-upstream-change detection and opt-in without-variant `probe`); writes `.grafts/.report/sync.{json,md}` |
 | `graft outdated` · `graft replay <id> [--range R]` | Newer dist-tagged versions (latest, next, rc, beta; not canary), or for repo-mode forks the newest upstream tag or `fork.track` tip · static checks across every published version |
 
 All commands take `--json` and `--root`. Exit codes: `0` ok, `1` needs attention, `2` tooling error.

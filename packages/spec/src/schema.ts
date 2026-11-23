@@ -80,6 +80,23 @@ export const GeneratorSchema = z.object({
   timeout: z.number().int().positive().optional(),
 });
 
+export const ProbeSchema = z.union([
+  z
+    .string()
+    .min(1)
+    .transform((command): { command: string; timeout?: number } => ({ command })),
+  z.object({
+    /**
+     * Shell command that exercises this graft's Invariants, run from the project root by
+     * `graft sync` (with and without the variant) to detect grafts that still apply but are no
+     * longer needed. Disable test-runner caching in the command (e.g. `--skip-nx-cache`, `--no-cache`).
+     */
+    command: z.string().min(1),
+    /** Optional timeout, in seconds (default 600). */
+    timeout: z.number().int().positive().optional(),
+  }),
+]);
+
 const FrontmatterObject = z.object({
   id: z.string().regex(GRAFT_ID_PATTERN, 'must be lowercase kebab-case'),
   rootstock: RootstockSchema,
@@ -90,6 +107,8 @@ const FrontmatterObject = z.object({
   variants: z.array(VariantRefSchema).min(1),
   /** Optional command that regenerates a variant for a new upstream version. */
   generator: GeneratorSchema.optional(),
+  /** Optional command that exercises the graft's Invariants for the without-variant obsolescence probe. */
+  probe: ProbeSchema.optional(),
   /** For `mechanism: fork`: where the modification lives as commits, and how to build it. */
   fork: ForkSchema.optional(),
   status: z.enum(GRAFT_STATUSES).default('applied'),
@@ -122,6 +141,7 @@ export type Rootstock = z.infer<typeof RootstockSchema>;
 export type VariantRef = z.infer<typeof VariantRefSchema>;
 export type ForkConfig = z.infer<typeof ForkSchema>;
 export type Generator = z.infer<typeof GeneratorSchema>;
+export type Probe = z.infer<typeof ProbeSchema>;
 export type GraftFrontmatter = z.infer<typeof GraftFrontmatterSchema>;
 /** Frontmatter as authored, before defaults are applied. */
 export type GraftFrontmatterInput = z.input<typeof GraftFrontmatterSchema>;
