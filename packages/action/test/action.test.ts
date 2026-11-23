@@ -8,6 +8,7 @@ import {
   detectInstallCommand,
   detectResetCommand,
   formatIssueTitle,
+  formatTitle,
   parseInputs,
   renderPrBody,
   runAction,
@@ -664,6 +665,128 @@ describe('custom issue-title', () => {
     });
     const second = await t.run({ 'issue-title': template, 'on-unchanged': 'pr' });
     expect(second.results[0]).toMatchObject({ outcome: 'skipped-existing', issue: 'https://github.com/o/r/issues/7' });
+  });
+});
+
+describe('custom pr-title', () => {
+  it('uses pr-title for both the sync commit subject and PR title, keeping shell metacharacters literal', async () => {
+    const template = 'chore(deps): sync {package} to {version} $(echo INJECTED){status}';
+    const expected = 'chore(deps): sync lib to 1.1.0 $(echo INJECTED)';
+    expect(formatTitle(template, { candidate: { package: 'lib', version: '1.1.0' }, outcome: 'green' })).toBe(expected);
+
+    const t = setup({ outdated: [entry('lib', '1.1.0')], sync: { lib: 'green' } });
+    const { results, failed } = await t.run({ 'pr-title': template, 'on-unchanged': 'pr' });
+    expect(failed).toBe(false);
+    expect(results[0]).toMatchObject({ outcome: 'pr', pullRequest: 'https://github.com/o/r/pull/1' });
+    const createCall = t
+      .calls()
+      .split('\n')
+      .find((l) => l.includes('"pr","create"'))!;
+    expect(createCall).toContain(`"--title",${JSON.stringify(expected)}`);
+    expect(createCall).not.toContain('INJECTED\n');
+    expect(t.git('log', '-1', '--format=%s', 'origin/graft/sync-lib-1.1.0').trim()).toBe(expected);
+    expect(t.git('log', '-1', '--format=%b', 'origin/graft/sync-lib-1.1.0')).not.toContain('Graft-Sync-Status:');
+  });
+
+  it('expands {status} in pr-title for draft PRs and records Graft-Sync-Status trailer in commit body', async () => {
+    const template = 'chore(deps): graft sync {package} to {version}{status}';
+    const expected = 'chore(deps): graft sync lib to 2.0.0 (needs attention)';
+    const t = setup({ outdated: [entry('lib', '2.0.0')], sync: { lib: 'needs-agent' } });
+    const { results, failed } = await t.run({
+      'pr-title': template,
+      'agent-command': 'echo partial > notes.txt; exit 3',
+    });
+    expect(failed).toBe(false);
+    expect(results[0]).toMatchObject({ outcome: 'draft-pr' });
+    const createCall = t
+      .calls()
+      .split('\n')
+      .find((l) => l.includes('"pr","create"'))!;
+    expect(createCall).toContain(`"--title",${JSON.stringify(expected)}`);
+    expect(createCall).toContain('"--draft"');
+    expect(t.git('log', '-1', '--format=%s', 'origin/graft/sync-lib-2.0.0').trim()).toBe(expected);
+    expect(t.git('log', '-1', '--format=%b', 'origin/graft/sync-lib-2.0.0')).toContain('Graft-Sync-Status: needs-agent');
+  });
+
+  it('uses pr-title when resuming a previously pushed green branch', async () => {
+    const t = setup({ outdated: [entry('lib', '1.1.0')], sync: { lib: 'green' }, refusePr: 'other' });
+    const first = await t.run({ 'on-unchanged': 'pr' });
+    expect(first.failed).toBe(true);
+    expect(t.git('log', '-1', '--format=%s', 'origin/graft/sync-lib-1.1.0').trim()).toBe('build: graft sync lib to 1.1.0');
+
+    t.setScenario({ outdated: [entry('lib', '1.1.0')], sync: { lib: 'green' } });
+    const second = await t.run({ 'pr-title': 'chore(deps): graft sync {package} to {version}{status}' });
+    expect(second.failed).toBe(false);
+    expect(second.results[0]).toMatchObject({ outcome: 'pr', resumed: true });
+    const creates = t
+      .calls()
+      .split('\n')
+      .filter((l) => l.includes('"pr","create"'));
+    expect(creates).toHaveLength(2);
+    expect(creates[1]).toContain('"--title","chore(deps): graft sync lib to 1.1.0"');
+    expect(creates[1]).not.toContain('"--draft"');
+  });
+
+  it('preserves draft status on resume even when pr-title omits {status}, and still handles legacy commit subjects', async () => {
+    const t = setup({ outdated: [entry('lib', '2.0.0')], sync: { lib: 'needs-agent' }, refusePr: 'other' });
+    const first = await t.run({
+      'pr-title': 'chore(deps): sync {package}@{version}',
+      'agent-command': 'echo partial > notes.txt; exit 3',
+    });
+    expect(first.failed).toBe(true);
+    expect(t.git('log', '-1', '--format=%s', 'origin/graft/sync-lib-2.0.0').trim()).toBe('chore(deps): sync lib@2.0.0');
+
+    // Resuming with a template that includes {status} recovers needs-agent from the commit trailer.
+    t.setScenario({ outdated: [entry('lib', '2.0.0')], sync: { lib: 'needs-agent' } });
+    const resumed = await t.run({ 'pr-title': 'chore(deps): sync {package}@{version}{status}' });
+    expect(resumed.failed).toBe(false);
+    expect(resumed.results[0]).toMatchObject({ outcome: 'draft-pr', resumed: true });
+    const creates = t
+      .calls()
+      .split('\n')
+      .filter((l) => l.includes('"pr","create"'));
+    expect(creates).toHaveLength(2);
+    expect(creates[1]).toContain('"--title","chore(deps): sync lib@2.0.0 (needs attention)"');
+    expect(creates[1]).toContain('"--draft"');
+
+    // Backwards compatibility: an older branch without the trailer still detects draft from its commit subject.
+    const legacy = setup({ outdated: [entry('lib', '2.0.0')], sync: { lib: 'needs-agent' } });
+    legacy.git('checkout', '-b', 'graft/sync-lib-2.0.0');
+    writeFileSync(path.join(legacy.work, 'notes.txt'), 'legacy\n');
+    legacy.git('add', '-A');
+    legacy.git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'build: graft sync lib to 2.0.0 (needs attention)');
+    legacy.git('push', '-q', 'origin', 'graft/sync-lib-2.0.0');
+    legacy.git('checkout', 'main');
+    const legacyResumed = await legacy.run({ 'pr-title': 'chore(deps): update {package} {version}{status}' });
+    expect(legacyResumed.failed).toBe(false);
+    expect(legacyResumed.results[0]).toMatchObject({ outcome: 'draft-pr', resumed: true });
+    const legacyCreate = legacy
+      .calls()
+      .split('\n')
+      .find((l) => l.includes('"pr","create"'))!;
+    expect(legacyCreate).toContain('"--title","chore(deps): update lib 2.0.0 (needs attention)"');
+    expect(legacyCreate).toContain('"--draft"');
+  });
+
+  it('keeps pr-title and issue-title independent when PR creation is refused', async () => {
+    const t = setup({ outdated: [entry('lib', '1.1.0')], sync: { lib: 'green' }, refusePr: 'actions' });
+    const res = await t.run({
+      'pr-title': 'chore(deps): sync {package}@{version}',
+      'issue-title': '[issue] {package} {version}',
+      'on-unchanged': 'pr',
+    });
+    expect(res.results[0]).toMatchObject({ outcome: 'pr-refused-issue', issue: 'https://github.com/o/r/issues/7' });
+    expect(t.git('log', '-1', '--format=%s', 'origin/graft/sync-lib-1.1.0').trim()).toBe('chore(deps): sync lib@1.1.0');
+    const prCall = t
+      .calls()
+      .split('\n')
+      .find((l) => l.includes('"pr","create"'))!;
+    expect(prCall).toContain('"--title","chore(deps): sync lib@1.1.0"');
+    const issueCall = t
+      .calls()
+      .split('\n')
+      .find((l) => l.includes('"issue","create"'))!;
+    expect(issueCall).toContain('"--title","[issue] lib 1.1.0"');
   });
 });
 
