@@ -1,7 +1,66 @@
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
-import { structuredPatch } from 'diff';
+import { parsePatch, structuredPatch } from 'diff';
 import type { DiffHunk, ScopedFileDiff } from './types.js';
+
+/** Combined old+new byte size above which we delegate diffing to `git diff --no-index` (C Myers). */
+const LARGE_DIFF_BYTES = 128 * 1024;
+/** Fallback edit-length cap if `git` is unavailable on a large file (avoids multi-minute JS hangs). */
+const FALLBACK_MAX_EDIT_LENGTH = 4000;
+
+function gitDiffHunks(oldText: string, newText: string, context: number): DiffHunk[] | undefined {
+  let tmp: string | undefined;
+  try {
+    tmp = mkdtempSync(path.join(os.tmpdir(), 'graft-diff-'));
+    const oldPath = path.join(tmp, 'old');
+    const newPath = path.join(tmp, 'new');
+    writeFileSync(oldPath, oldText);
+    writeFileSync(newPath, newText);
+    const r = spawnSync('git', ['diff', '--no-index', '--no-ext-diff', '--no-color', `--unified=${context}`, '--', oldPath, newPath], {
+      encoding: 'utf8',
+      maxBuffer: 64 * 1024 * 1024,
+      timeout: 30_000,
+    });
+    if (r.error || (r.status !== 0 && r.status !== 1)) return undefined;
+    if (!r.stdout) return [];
+    const parsed = parsePatch(r.stdout);
+    return (parsed[0]?.hunks ?? []).map((h) => ({
+      oldStart: h.oldStart,
+      oldLines: h.oldLines,
+      newStart: h.newStart,
+      newLines: h.newLines,
+      lines: h.lines,
+      anchors: [],
+    }));
+  } catch {
+    return undefined;
+  } finally {
+    if (tmp) rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+function computeHunks(file: string, newFile: string, oldText: string, newText: string, context: number): DiffHunk[] {
+  const large = oldText.length + newText.length > LARGE_DIFF_BYTES;
+  if (large) {
+    const fast = gitDiffHunks(oldText, newText, context);
+    if (fast !== undefined) return fast;
+  }
+  const patch = structuredPatch(file, newFile, oldText, newText, '', '', {
+    context,
+    ...(large ? { maxEditLength: FALLBACK_MAX_EDIT_LENGTH } : {}),
+  });
+  return (patch?.hunks ?? []).map((h) => ({
+    oldStart: h.oldStart,
+    oldLines: h.oldLines,
+    newStart: h.newStart,
+    newLines: h.newLines,
+    lines: h.lines,
+    anchors: [],
+  }));
+}
 
 /** A region of interest for narrowing a diff, typically one located anchor. */
 export interface AnchorRegion {
@@ -41,17 +100,7 @@ export function scopeFileDiff(options: ScopeFileOptions): ScopedFileDiff {
     oldText === undefined ? 'added' : newText === undefined ? 'removed' : oldText === newText ? 'unchanged' : 'modified';
   if (status === 'unchanged') return { file, ...renamed, status, totalHunks: 0, hunks: [], narrowed: true };
 
-  const patch = structuredPatch(file, newFile ?? file, oldText ?? '', newText ?? '', '', '', {
-    context: options.context ?? 3,
-  });
-  const hunks: DiffHunk[] = patch.hunks.map((h) => ({
-    oldStart: h.oldStart,
-    oldLines: h.oldLines,
-    newStart: h.newStart,
-    newLines: h.newLines,
-    lines: h.lines,
-    anchors: [],
-  }));
+  const hunks = computeHunks(file, newFile ?? file, oldText ?? '', newText ?? '', options.context ?? 3);
 
   const located = regions.some((r) => r.old || r.new || r.symbols?.length);
   if (!located || status !== 'modified') {
