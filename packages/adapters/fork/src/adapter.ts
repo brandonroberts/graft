@@ -43,7 +43,7 @@ import {
   type ScopedFileDiff,
   type Workspace,
 } from '@graftsync/core';
-import type { ForkConfig } from '@graftsync/spec';
+import { versionScheme, type ForkConfig } from '@graftsync/spec';
 import {
   applyToInstalledCopy,
   describeHunk,
@@ -505,7 +505,7 @@ function hunkAnchors(patch: FilePatch, content: string | undefined): AnchorResul
  * Environment, fetch, git, or config failures that an agent cannot fix by editing a variant.
  * Rethrowing them lets `sync` report `outcome: 'error'` (exit 2) instead of `needs-agent` (exit 1).
  */
-const FORK_TOOLING_ERRORS = new Set(['fork/partial-clone', 'fork/git', 'fork/config', 'fork/ecosystem']);
+const FORK_TOOLING_ERRORS = new Set(['fork/partial-clone', 'fork/git', 'fork/config', 'fork/ecosystem', 'fork/no-commit', 'fork/no-base']);
 const isForkToolingError = (err: unknown): boolean => !(err instanceof GraftError) || FORK_TOOLING_ERRORS.has(err.code);
 
 export function createForkAdapter(): MechanismAdapter {
@@ -820,9 +820,16 @@ export function createForkAdapter(): MechanismAdapter {
         // Follow a branch: its tip, labelled with the version in its package.json (else the newest tag).
         const tip = await resolveUpstreamRef(dir, cfg.track);
         if (!tip || tip === verifiedRev) return undefined;
-        let version = semver.valid(
-          JSON.parse((await showFile(dir, tip, inPkg(cfg, 'package.json')).catch(() => undefined)) ?? '{}').version ?? '',
-        );
+        const pkgJson = await showFile(dir, tip, inPkg(cfg, 'package.json')).catch(() => undefined);
+        let pkgVersion: unknown;
+        if (pkgJson) {
+          try {
+            pkgVersion = (JSON.parse(pkgJson) as { version?: unknown } | null)?.version;
+          } catch {
+            pkgVersion = undefined;
+          }
+        }
+        let version = typeof pkgVersion === 'string' ? semver.valid(pkgVersion) : null;
         version ??= (await upstreamTags(dir, cfg.tag)).at(-1) ?? semver.parse(verified)!.version;
         return { version: `${version}+${tip.slice(0, 12)}`, tag: `branch ${cfg.track}` };
       }
@@ -862,7 +869,7 @@ export function createForkAdapter(): MechanismAdapter {
       return `${JSON.stringify(variant, null, 2)}\n`;
     },
 
-    scaffoldFrontmatter({ root, options }) {
+    scaffoldFrontmatter({ root, ecosystem, options }) {
       const inPlace = options.inPlace === true;
       const str = (k: string) => (typeof options[k] === 'string' ? (options[k] as string) : undefined);
       // In place, the fork is this checkout: its `upstream` git remote (if any) names the upstream.
@@ -871,14 +878,19 @@ export function createForkAdapter(): MechanismAdapter {
         str('upstream') ??
         (upstreamRemote?.status === 0 ? upstreamRemote.stdout.trim() : undefined) ??
         'TODO: git URL of the upstream repo';
+      const track = str('track');
+      const tag = str('tag');
       const fork: Record<string, unknown> = {
         repo: str('repo') ?? (inPlace ? '.' : 'TODO: git URL of your fork'),
         upstream,
-        tag: str('tag') ?? 'v{version}',
       };
+      if (tag || !track) fork.tag = tag ?? 'v{version}';
       if (inPlace || options.repoMode === true) fork.install = 'none';
-      if (str('track')) fork.track = str('track');
-      return { fork };
+      if (track) fork.track = track;
+      return {
+        fork,
+        ...(inPlace ? { variants: [{ range: versionScheme(ecosystem).fromMajor('0.0.0'), module: './variants/fork.json' }] } : {}),
+      };
     },
   };
   return adapter;

@@ -469,25 +469,29 @@ a tool run from source), not a dependency:
 - The cache clone fetches every object of `fork.repo` and `fork.upstream`. When either is a
   local partial clone (`remote.<name>.promisor` or `extensions.partialClone`), the tooling MUST
   refuse it with a reason naming the cause (`fork/partial-clone`), not git's "repository
-  corruption" error, and report fetch and partial-clone failures as tooling errors (`error`,
-  exit code 2) rather than `needs-agent`. A shallow clone is fine.
+  corruption" error, and report fetch, partial-clone, and missing commit/base failures
+  (`fork/no-commit`, `fork/no-base`) as tooling errors (`error`, exit code 2) rather than
+  `needs-agent`. A shallow clone is fine.
 - When the graft lives in the fork (`fork.repo` is the project's own checkout), a green
   result also carries the project's `.grafts/` (without `.cache`, `.report` and `.vendor`),
   including the just-recorded verification, so adopting the result keeps the graft files.
 - **In place.** A variant may use `"ref": "@worktree"` (the project's checkout, uncommitted
   changes included, `.grafts/` excluded; the graft must live in the fork) and
-  `"base": "@verified"` (the upstream at `rootstock.verified`). With `@verified`, a green sync
-  MUST record the new verification only in the result (`recordsInResult`), never in the
-  checkout, which still holds the fork at its old base. The `-agent` branch's graft.md is set
-  to the target version (status `conflicted` while markers remain), so `sync` on it verifies
-  the resolved branch in place. Its `agentStart.next` says so (resolve, re-sync, take the
-  result, commit; keep the variant), and is the report's "Next" line. When the checkout is
-  already merging the result's upstream commit (it adopted the `-agent` branch), the green
-  result's adoption hint takes only its tree (`git read-tree`), since git refuses a second merge;
-  that tree carries graft.md with the verification recorded.
+  `"base": "@verified"` (the upstream at `rootstock.verified`). Scaffolding in place writes
+  `./variants/fork.json` with an all-version range (`>=0.0.0-0`, or `>=0.dev0` for PyPI) so
+  the permanent variant still matches if upstream omits or changes its package version. With
+  `@verified`, a green sync MUST record the new verification only in the result
+  (`recordsInResult`), never in the checkout, which still holds the fork at its old base. The
+  `-agent` branch's graft.md is set to the target version (status `conflicted` while markers
+  remain), so `sync` on it verifies the resolved branch in place. Its `agentStart.next` says so
+  (resolve, re-sync, take the result, commit; keep the variant), and is the report's "Next"
+  line. When the checkout is already merging the result's upstream commit (it adopted the
+  `-agent` branch), the green result's adoption hint takes only its tree (`git read-tree`),
+  since git refuses a second merge; that tree carries graft.md with the verification recorded.
 - `fork.track` (a branch) makes `outdated` offer that branch's tip as `<version>+<commit>`
-  (the version from its `package.json`, else the newest tag); otherwise it offers the newest
-  release tag above `verified` (`newerVersion`).
+  (the version from its `package.json` when valid JSON with a valid version string, else the
+  newest tag, else `verified`'s version); otherwise it offers the newest release tag above
+  `verified` (`newerVersion`).
 
 ## 10. Ecosystems
 

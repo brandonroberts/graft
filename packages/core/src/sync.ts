@@ -828,6 +828,8 @@ async function finish(project: Project, graft: Graft, result: SyncGraftResult, o
           err.code === 'fork/git' ||
           err.code === 'fork/config' ||
           err.code === 'fork/ecosystem' ||
+          err.code === 'fork/no-commit' ||
+          err.code === 'fork/no-base' ||
           err.code === 'config/invalid' ||
           err.code === 'upstream/fetch')
       ) {
