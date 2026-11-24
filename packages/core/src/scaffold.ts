@@ -185,8 +185,15 @@ export async function addGraft(project: Project, input: AddGraftInput): Promise<
     options: input.options ?? {},
   };
 
+  const extra = adapter.scaffoldFrontmatter?.({ ...scaffold, version });
+  const variants =
+    Array.isArray(extra?.variants) && extra.variants.length
+      ? (extra.variants as { range: string; module: string }[])
+      : [{ range: ecosystem.scheme.fromMajor(version), module: variantFile }];
+  const targetVariantFile = variants[0]!.module;
+
   await initProject(project.root);
-  await mkdir(path.join(dir, 'variants'), { recursive: true });
+  await mkdir(path.dirname(path.join(dir, targetVariantFile)), { recursive: true });
   const files: [string, string][] = [
     [
       path.join(dir, GRAFT_FILE),
@@ -195,13 +202,13 @@ export async function addGraft(project: Project, input: AddGraftInput): Promise<
         rootstock: { package: input.package, ...(ecosystem.name === 'npm' ? {} : { ecosystem: ecosystem.name }), verified: version },
         mechanism: input.mechanism,
         ...(input.targets?.length ? { targets: input.targets } : {}),
-        variants: [{ range: ecosystem.scheme.fromMajor(version), module: variantFile }],
-        ...adapter.scaffoldFrontmatter?.({ ...scaffold, version }),
+        variants,
+        ...extra,
         status: 'applied',
       }),
     ],
     [
-      path.join(dir, variantFile),
+      path.join(dir, targetVariantFile),
       adapter.variantTemplate?.(scaffold) ??
         `// Variant for ${input.package}. Implement the ${input.mechanism} mechanism here.\nexport default {};\n`,
     ],

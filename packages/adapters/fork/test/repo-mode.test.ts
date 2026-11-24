@@ -394,6 +394,38 @@ describe('fork repo mode, in place (@worktree / @verified)', () => {
     await expect(forkAdapter.checkAnchors(project.context(graft), '1.0.1')).rejects.toMatchObject({ code: 'fork/git' });
   });
 
+  it('reports missing upstream target or base commits as tooling errors (exit 2), not needs-agent (#107)', async () => {
+    const { fork, project } = await setup({ inPlace: true });
+    const missingSha = 'deadbeefcafe1234567890abcdef1234567890ab';
+    const noCommit = await sync(project, { version: `1.0.1+${missingSha}` });
+    expect(noCommit.exitCode).toBe(2);
+    expect(noCommit.grafts[0]?.outcome).toBe('error');
+    expect(noCommit.grafts[0]?.agentStart).toBeUndefined();
+    expect(noCommit.grafts[0]?.diffPath).toBeUndefined();
+    expect(noCommit.grafts[0]!.reasons.join('\n')).toMatch(/upstream commit deadbeefcafe/);
+    const graft = await project.get('tr');
+    await expect(forkAdapter.checkAnchors(project.context(graft), `1.0.1+${missingSha}`)).rejects.toMatchObject({
+      code: 'fork/no-commit',
+    });
+    await expect(forkAdapter.apply(project.context(graft), { version: `1.0.1+${missingSha}` })).rejects.toMatchObject({
+      code: 'fork/no-commit',
+    });
+
+    // Missing base commit in a repo-mode variant also reports exit 2 (fork/no-base).
+    const variantPath = path.join(fork, '.grafts/tr/variants/v1.json');
+    await writeFile(variantPath, JSON.stringify({ ref: '@worktree', base: missingSha }));
+    const reloaded = await Project.open({ root: fork, adapters: [forkAdapter] });
+    const noBase = await sync(reloaded, { version: '1.0.1' });
+    expect(noBase.exitCode).toBe(2);
+    expect(noBase.grafts[0]?.outcome).toBe('error');
+    expect(noBase.grafts[0]?.agentStart).toBeUndefined();
+    expect(noBase.grafts[0]?.diffPath).toBeUndefined();
+    expect(noBase.grafts[0]!.reasons.join('\n')).toMatch(/neither a tag nor a commit/);
+    const g2 = await reloaded.get('tr');
+    await expect(forkAdapter.checkAnchors(reloaded.context(g2), '1.0.1')).rejects.toMatchObject({ code: 'fork/no-base' });
+    await expect(forkAdapter.apply(reloaded.context(g2), { version: '1.0.1' })).rejects.toMatchObject({ code: 'fork/no-base' });
+  });
+
   it('a shallow fork checkout still syncs', async () => {
     const { root, fork } = await setup({ inPlace: true });
     const shallow = path.join(root, 'shallow');
@@ -412,6 +444,25 @@ describe('fork repo mode, in place (@worktree / @verified)', () => {
     const tip = gitIn(tracked.upstream, 'rev-parse', 'main').trim();
     expect((await outdated(tracked.project))[0]?.candidate).toEqual({ version: `1.2.0+${tip.slice(0, 12)}`, tag: 'branch main' });
   });
+
+  it('outdated falls back cleanly when upstream package.json is malformed or has a non-string version (#107)', async () => {
+    const tracked = await setup({ inPlace: true, track: 'main' });
+    // Malformed JSON / JSONC in upstream package.json at the tracked branch tip.
+    await writeFile(path.join(tracked.upstream, 'package.json'), '// comment\n{ "name": "docs", "version": "9.9.9" }\n');
+    gitIn(tracked.upstream, 'add', 'package.json');
+    gitIn(tracked.upstream, 'commit', '-q', '-m', 'malformed package.json');
+    const tip1 = gitIn(tracked.upstream, 'rev-parse', 'main').trim();
+    resetFetchCache();
+    expect((await outdated(tracked.project))[0]?.candidate).toEqual({ version: `1.2.0+${tip1.slice(0, 12)}`, tag: 'branch main' });
+
+    // Non-string version field in upstream package.json falls back without throwing.
+    await writeFile(path.join(tracked.upstream, 'package.json'), JSON.stringify({ name: 'docs', version: 123 }));
+    gitIn(tracked.upstream, 'add', 'package.json');
+    gitIn(tracked.upstream, 'commit', '-q', '-m', 'numeric version');
+    const tip2 = gitIn(tracked.upstream, 'rev-parse', 'main').trim();
+    resetFetchCache();
+    expect((await outdated(tracked.project))[0]?.candidate).toEqual({ version: `1.2.0+${tip2.slice(0, 12)}`, tag: 'branch main' });
+  });
 });
 
 describe('graft add for repo mode', () => {
@@ -421,15 +472,19 @@ describe('graft add for repo mode', () => {
     gitIn(fork, 'remote', 'add', 'upstream', `file://${upstream}`);
     const project = await Project.open({ root: fork, adapters: [forkAdapter] });
     const version = `1.0.0+${base.slice(0, 12)}`;
-    await addGraft(project, { id: 'tr2', package: 'docs', version, mechanism: 'fork', options: { inPlace: true } });
+    await addGraft(project, { id: 'tr2', package: 'docs', version, mechanism: 'fork', options: { inPlace: true, track: 'main' } });
 
     const md = await readFile(path.join(fork, '.grafts/tr2/graft.md'), 'utf8');
     expect(md).toContain('repo: .');
     expect(md).toContain(`upstream: file://${upstream}`); // from the checkout's upstream remote
     expect(md).toContain('install: none');
+    expect(md).toContain('track: main');
+    expect(md).not.toMatch(/^\s+tag:/m); // omitted when --track is set without --tag
     expect(md).not.toContain('oracle');
     expect(md).toContain(`verified: ${version}`);
-    expect(JSON.parse(await readFile(path.join(fork, '.grafts/tr2/variants/v1.json'), 'utf8'))).toEqual({
+    expect(md).toContain('range: ">=0.0.0-0"');
+    expect(md).toContain('module: ./variants/fork.json');
+    expect(JSON.parse(await readFile(path.join(fork, '.grafts/tr2/variants/fork.json'), 'utf8'))).toEqual({
       ref: '@worktree',
       base: '@verified',
     });
@@ -438,6 +493,31 @@ describe('graft add for repo mode', () => {
 
     const report = await sync(project);
     expect(report.exitCode, JSON.stringify(report.grafts)).toBe(0);
+
+    // Permanent in-place variant still matches even if a commit target carries a lower semver (#107).
+    const v101 = gitIn(upstream, 'rev-parse', 'v1.0.1^{commit}').trim();
+    const lower = await sync(project, { version: `0.1.0+${v101.slice(0, 12)}` });
+    expect(lower.exitCode, JSON.stringify(lower.grafts)).toBe(0);
+  });
+
+  it('in-place scaffolding uses PEP 440 all-version range for pypi and keeps explicit --tag (#107)', async () => {
+    const { fork, upstream, base } = await setup({ inPlace: true });
+    await rm(path.join(fork, '.grafts/tr'), { recursive: true });
+    const project = await Project.open({ root: fork, adapters: [forkAdapter] });
+    await addGraft(project, {
+      id: 'py-fork',
+      package: 'pytool',
+      ecosystem: 'pypi',
+      version: `1.0+${base.slice(0, 12)}`,
+      mechanism: 'fork',
+      options: { inPlace: true, upstream: `file://${upstream}`, track: 'main', tag: '{version}' },
+    });
+    const md = await readFile(path.join(fork, '.grafts/py-fork/graft.md'), 'utf8');
+    expect(md).toContain('range: ">=0.dev0"');
+    expect(md).toContain('module: ./variants/fork.json');
+    expect(md).toContain('tag: "{version}"');
+    const { invalid } = await project.loadAll();
+    expect(invalid).toEqual([]);
   });
 
   it('repo mode without in place keeps the fork and variant to fill in', async () => {
@@ -454,7 +534,9 @@ describe('graft add for repo mode', () => {
     expect(md).toMatch(/repo: "?TODO/);
     expect(md).toContain('upstream: https://example.com/tool.git');
     expect(md).toContain('track: main');
+    expect(md).not.toMatch(/^\s+tag:/m);
     expect(md).toContain('install: none');
+    expect(md).toContain('module: ./variants/v2.json');
   });
 
   it('mergeToBranch falls back without --merge-base (git 2.38–2.39) (#60)', async () => {
