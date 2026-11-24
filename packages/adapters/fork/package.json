@@ -1,6 +1,6 @@
 {
   "name": "@graftsync/adapter-fork",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "type": "module",
   "license": "MIT",
   "description": "Graft fork mechanism: modifications kept as commits on a fork of the upstream repo, rebased and packed per upstream version.",

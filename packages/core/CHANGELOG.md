@@ -1,5 +1,12 @@
 # @graftsync/core
 
+## 0.3.5
+
+### Patch Changes
+
+- Updated dependencies
+  - @graftsync/spec@0.3.5
+
 ## 0.3.4
 
 ### Patch Changes
