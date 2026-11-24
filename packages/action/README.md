@@ -35,7 +35,7 @@ In ordinary CI you don't need the action for this: run the CLI right after insta
 ```yaml
       - run: npm ci --ignore-scripts
       - run: npx graft check                        # the project depends on @graftsync/cli
-      # or, without the dependency: npx -y @graftsync/cli@0.3.3 check
+      # or, without the dependency: npx -y @graftsync/cli@0.3.5 check
 ```
 
 ## Usage
@@ -57,7 +57,7 @@ jobs:
       - uses: actions/setup-node@v7
         with: { node-version: 24 }
       - run: npm ci            # the project must depend on @graftsync/cli
-      - uses: brandonroberts/graft/packages/action@v0.3.3
+      - uses: brandonroberts/graft/packages/action@v0.3.5
         with:
           tags: latest         # only stable releases (see below)
 ```
@@ -74,9 +74,9 @@ Enable **Settings → Actions → General → Allow GitHub Actions to create and
       - uses: actions/setup-node@v7
         with: { node-version: 24 }
       - run: uv sync --locked            # or: python -m venv .venv && .venv/bin/pip install -r requirements.txt
-      - uses: brandonroberts/graft/packages/action@v0.3.3
+      - uses: brandonroberts/graft/packages/action@v0.3.5
         with:
-          graft-command: npx --yes @graftsync/cli@0.3.3   # 0.2.3 added Cargo, Go and PyPI
+          graft-command: npx --yes @graftsync/cli@0.3.5   # 0.2.3 added Cargo, Go and PyPI
 ```
 
 ## Tokens and pull requests
@@ -94,7 +94,7 @@ A **GitHub App token** (or a fine-grained PAT with contents, pull requests and i
         with:
           app-id: ${{ vars.GRAFT_APP_ID }}
           private-key: ${{ secrets.GRAFT_APP_PRIVATE_KEY }}
-      - uses: brandonroberts/graft/packages/action@v0.3.3
+      - uses: brandonroberts/graft/packages/action@v0.3.5
         with:
           github-token: ${{ steps.app-token.outputs.token }}
 ```
@@ -132,7 +132,7 @@ Each `graft sync` run shows in the job log as a collapsible group with Graft's p
 Example with Claude Code. Adjust the flags to your agent and your CLI version:
 
 ```yaml
-      - uses: brandonroberts/graft/packages/action@v0.3.3
+      - uses: brandonroberts/graft/packages/action@v0.3.5
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         with:

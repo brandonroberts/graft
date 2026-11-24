@@ -1,5 +1,14 @@
 # @graftsync/adapter-patch
 
+## 0.3.5
+
+### Patch Changes
+
+- c1bfbe0: Skip `.git` directories and `.git` gitdir files in `graft capture` so capturing from git-sourced dependencies (such as Cargo `[patch.crates-io]` git checkouts, Go `replace` clones, or submodules/worktrees) does not fail on `.git/index` or `.git/objects/pack/*` (#103).
+- Updated dependencies
+  - @graftsync/core@0.3.5
+  - @graftsync/spec@0.3.5
+
 ## 0.3.4
 
 ### Patch Changes
