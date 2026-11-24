@@ -14,7 +14,11 @@
   "keywords": [
     "graft",
     "patch",
+    "fork",
     "npm",
+    "cargo",
+    "go",
+    "pypi",
     "upstream",
     "spec",
     "schema"

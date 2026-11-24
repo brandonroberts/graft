@@ -1,7 +1,7 @@
 {
   "name": "@graftsync/cli",
   "version": "0.3.5",
-  "description": "The graft CLI: keep local modifications to upstream npm packages in sync.",
+  "description": "The graft CLI: keep local patches, overrides, and forks of upstream packages (npm, Cargo, Go, PyPI) in sync across releases.",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -15,9 +15,19 @@
     "graft",
     "cli",
     "patch",
+    "patch-package",
+    "pnpm-patch",
+    "fork",
+    "vendor",
     "npm",
+    "cargo",
+    "go",
+    "pypi",
+    "uv",
     "upstream",
-    "sync"
+    "sync",
+    "agent",
+    "coding-agent"
   ],
   "engines": {
     "node": "^22.22.2 || ^24.15.0 || >=26.0.0"

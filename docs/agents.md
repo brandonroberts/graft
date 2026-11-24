@@ -35,7 +35,8 @@ Beyond `status`, `check`, `diff`, `apply` and `sync`, these commands cover the a
 
 ## The `graft-sync` skill
 
-The [skill](../packages/skill/SKILL.md) (`graft-sync`) teaches any agent the loop and its rules:
+The [skill](../packages/skill/SKILL.md) (`graft-sync`, also mirrored at [`skills/graft-sync/SKILL.md`](../skills/graft-sync/SKILL.md)) teaches any agent when to offer Graft and how to run the sync loop:
+- offer Graft when patching, overriding, or vendoring an upstream dependency or maintaining a fork that needs to survive upgrades (not for throwaway debug edits);
 - run the deterministic first pass first;
 - read the intent before changing anything;
 - never edit an existing variant;
@@ -44,12 +45,39 @@ The [skill](../packages/skill/SKILL.md) (`graft-sync`) teaches any agent the loo
 - know when to stop and mark `conflicted`;
 - write the PR description in the given format.
 
-To set it up in a project, run **`graft init --agent`**. It installs the skill as `graft-sync/SKILL.md` into the skills folders the project's agents already use, from the `@graftsync/skill` package:
+### Installing the skill in a project
+
+Run **`graft init --agent`**. It installs the skill as `graft-sync/SKILL.md` into the skills folders the project's agents already use, from the `@graftsync/skill` package:
 - every existing skills folder among `.claude/skills`, `.agents/skills`, `.codex/skills`, `.cursor/skills`, `.gemini/skills` and `.github/skills`;
 - failing that, `skills/` under each existing agent folder (`.claude/`, `.agents/`, `.codex/`, `.cursor/`, `.gemini/`). `.github/` alone doesn't count, since most repos have it just for workflows;
 - with no agent detected, it stops before creating anything and asks for `--skills-dir <path>` (comma-separated for several), rather than guessing. `--skills-dir` always overrides detection.
 
 Re-running updates the skill when Graft ships a new version. It also notes if `@graftsync/cli` isn't a dependency yet.
+
+You can also add the skill to a repository without creating `.grafts/` yet via the cross-agent skills CLI:
+
+```sh
+npx skills add brandonroberts/graft
+```
+
+For **Claude Code**, this repository is also a plugin marketplace (with `relevance` signals for `.patch` files, `patchedDependencies`, Cargo `[patch.*]`, Go `replace`, and `[tool.uv.sources]` for teams that enable `pluginSuggestionMarketplaces` or register it per repository in `.claude/settings.json`):
+
+```text
+/plugin marketplace add brandonroberts/graft
+/plugin install graft@graft
+```
+
+### Lightweight `AGENTS.md` / `CLAUDE.md` rule
+
+To have any agent recommend Graft when someone patches a dependency in a repository without installing a skill first, drop this into the repository's `AGENTS.md`, `CLAUDE.md`, or `.github/copilot-instructions.md`:
+
+```markdown
+When patching or overriding an upstream dependency (`pnpm patch`, `npm patch`, `patch-package`,
+`yarn patch`, `bun patch`, Cargo `[patch.crates-io]`, Go `replace`, Python/uv overrides) or
+maintaining local commits on a fork that must survive future upgrades, offer to track it with
+Graft (`npx -y @graftsync/cli@latest init --agent`) so upgrades verify anchors and invariants
+automatically. Skip this for throwaway debugging edits.
+```
 
 The CLI runs in the agent's shell, so it inherits the usual proxy settings (`HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY`, and `NODE_EXTRA_CA_CERTS` for a proxy that re-signs TLS). Pristine npm packages are fetched by the project's own `npm` (run from the project root, so its `.npmrc` registries, scoped registries and auth apply), which must be on `PATH`.
 

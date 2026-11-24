@@ -15,8 +15,15 @@
     "graft",
     "patch",
     "patch-package",
+    "pnpm-patch",
     "pnpm",
     "npm",
+    "bun",
+    "yarn",
+    "cargo",
+    "go",
+    "pypi",
+    "uv",
     "adapter"
   ],
   "engines": {

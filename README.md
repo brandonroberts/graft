@@ -143,7 +143,7 @@ graft outdated                                 # newer upstream versions
 graft replay <id> [--range R]                  # static checks across published versions
 ```
 
-Every command accepts `--json` and `--root` (exit codes: `0` ok, `1` needs attention, `2` tooling error). Agents use the same CLI plus `show`, `preview`, `variant add`, and `mark`, guided by the [`graft-sync` skill](packages/skill/SKILL.md). See [`docs/agents.md`](docs/agents.md) for agent commands, skill installation, and writing Invariants.
+Every command accepts `--json` and `--root` (exit codes: `0` ok, `1` needs attention, `2` tooling error). Agents use the same CLI plus `show`, `preview`, `variant add`, and `mark`, guided by the [`graft-sync` skill](skills/graft-sync/SKILL.md) (installable into a repo with `graft init --agent` or `npx skills add brandonroberts/graft`). See [`docs/agents.md`](docs/agents.md) for the Claude Code plugin marketplace, a copy-paste `AGENTS.md` / `CLAUDE.md` snippet, agent commands, and writing Invariants.
 
 ## GitHub Action
 

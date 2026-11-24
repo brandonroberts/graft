@@ -8,6 +8,9 @@
     "graft",
     "fork",
     "git",
+    "rebase",
+    "upstream",
+    "sync",
     "npm",
     "dependencies"
   ],

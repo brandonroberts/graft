@@ -14,7 +14,12 @@
   "keywords": [
     "graft",
     "patch",
+    "patch-package",
+    "fork",
     "npm",
+    "cargo",
+    "go",
+    "pypi",
     "upstream",
     "sync",
     "dependencies"

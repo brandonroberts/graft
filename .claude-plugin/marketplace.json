@@ -1,0 +1,46 @@
+{
+  "name": "graft",
+  "owner": {
+    "name": "Brandon Roberts",
+    "url": "https://github.com/brandonroberts"
+  },
+  "description": "Graft plugin for keeping local patches, overrides, and forks of upstream software working across upstream releases.",
+  "plugins": [
+    {
+      "name": "graft",
+      "source": "./",
+      "description": "Keep local patches, overrides, and forks of upstream dependencies (npm, Cargo, Go, PyPI, git forks) working across upstream releases.",
+      "category": "development",
+      "tags": ["graft", "patch", "patch-package", "pnpm-patch", "fork", "dependencies", "npm", "cargo", "go", "pypi", "uv"],
+      "relevance": {
+        "topic": "dependency patches",
+        "signals": {
+          "cli": ["graft", "patch-package"],
+          "filesRead": ["**/*.patch", "**/.grafts/**"],
+          "manifestDeps": [
+            {
+              "file": "[/\\\\]package\\.json$",
+              "pattern": "\"(patchedDependencies|@graftsync/cli)\"\\s*:"
+            },
+            {
+              "file": "[/\\\\]pnpm-workspace\\.yaml$",
+              "pattern": "patchedDependencies:"
+            },
+            {
+              "file": "[/\\\\]Cargo\\.toml$",
+              "pattern": "\\[patch\\."
+            },
+            {
+              "file": "[/\\\\]go\\.mod$",
+              "pattern": "(?:^|\\n)replace\\s+"
+            },
+            {
+              "file": "[/\\\\]pyproject\\.toml$",
+              "pattern": "\\[tool\\.uv\\.sources\\]"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

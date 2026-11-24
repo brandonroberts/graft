@@ -172,6 +172,49 @@ describe('graft init --agent', () => {
     expect(existsSync(path.join(root, '.agents/skills/graft-sync/SKILL.md'))).toBe(true);
     expect(existsSync(path.join(root, '.codex/skills/graft-sync/SKILL.md'))).toBe(true);
   });
+
+  it('keeps skills/graft-sync/SKILL.md in sync with @graftsync/skill and validates Claude plugin manifests', async () => {
+    const repo = path.resolve(import.meta.dirname, '../../..');
+    const pkgSkill = await readFile(path.join(repo, 'packages/skill/SKILL.md'), 'utf8');
+    const rootSkill = await readFile(path.join(repo, 'skills/graft-sync/SKILL.md'), 'utf8');
+    expect(rootSkill).toBe(pkgSkill);
+
+    const plugin = JSON.parse(await readFile(path.join(repo, '.claude-plugin/plugin.json'), 'utf8')) as Record<string, unknown>;
+    const marketplace = JSON.parse(await readFile(path.join(repo, '.claude-plugin/marketplace.json'), 'utf8')) as {
+      name: string;
+      owner: { name: string };
+      plugins: Array<{
+        name: string;
+        source: string;
+        version?: string;
+        relevance?: { topic?: string; signals?: { manifestDeps?: Array<{ file: string; pattern: string }> } };
+      }>;
+    };
+    expect(plugin.name).toBe('graft');
+    expect(plugin.version).toBeUndefined();
+    expect(marketplace.name).toBe('graft');
+    expect(marketplace.owner.name).toBeTruthy();
+    expect(marketplace.plugins).toHaveLength(1);
+    const entry = marketplace.plugins[0]!;
+    expect(entry.source).toBe('./');
+    expect(entry.version).toBeUndefined();
+
+    const deps = entry.relevance?.signals?.manifestDeps ?? [];
+    expect(deps.length).toBeGreaterThan(0);
+    const samples: Array<[string, string]> = [
+      ['/repo/package.json', '{"pnpm":{"patchedDependencies":{"ms":"patches/ms.patch"}}}'],
+      ['/repo/pnpm-workspace.yaml', 'patchedDependencies:\n  ms: patches/ms.patch\n'],
+      ['/repo/Cargo.toml', '[patch.crates-io]\nitoa = { path = ".grafts/.vendor/cargo/itoa" }\n'],
+      ['/repo/go.mod', 'module example.com/app\n\nreplace github.com/foo/bar v1.0.0 => ./.grafts/.vendor/go/bar\n'],
+      ['/repo/pyproject.toml', '[tool.uv.sources]\nclick = { path = ".grafts/.vendor/pypi/click.whl" }\n'],
+    ];
+    for (const [samplePath, sampleBody] of samples) {
+      expect(
+        deps.some((d) => new RegExp(d.file, 'i').test(samplePath) && new RegExp(d.pattern).test(sampleBody)),
+        `expected a manifestDeps relevance signal to match ${samplePath}`,
+      ).toBe(true);
+    }
+  });
 });
 
 describe('graft sync: output of the commands it runs', () => {

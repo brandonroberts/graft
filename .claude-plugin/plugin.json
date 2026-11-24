@@ -1,0 +1,13 @@
+{
+  "name": "graft",
+  "displayName": "Graft",
+  "description": "Keep local patches, overrides, and forks of upstream dependencies (npm, Cargo, Go, PyPI, git forks) working across upstream releases.",
+  "author": {
+    "name": "Brandon Roberts",
+    "url": "https://github.com/brandonroberts"
+  },
+  "homepage": "https://github.com/brandonroberts/graft#readme",
+  "repository": "https://github.com/brandonroberts/graft",
+  "license": "MIT",
+  "keywords": ["graft", "patch", "patch-package", "pnpm-patch", "fork", "dependencies", "npm", "cargo", "go", "pypi", "uv"]
+}
