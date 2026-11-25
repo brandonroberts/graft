@@ -4,7 +4,7 @@
 # independently from `@graftsync/*`).
 #
 # Requires: repository secret `KODY_API_TOKEN` — a user-owned Kody API token (`kody_at_…`)
-# with `package:read` and `package:write` scopes.
+# with `package:read`, `package:write`, and (for first publish) `package:create` scopes.
 name: Release Kody package
 
 on:
@@ -51,22 +51,34 @@ jobs:
           FORCE_PUSH: ${{ inputs.force_push }}
         run: |
           if [ -z "$KODY_API_TOKEN" ]; then
-            echo "::error::Missing repository secret KODY_API_TOKEN (user-owned kody_at_... token with package:read and package:write)."
+            echo "::error::Missing repository secret KODY_API_TOKEN (user-owned kody_at_... token with package:read, package:write, and package:create)."
             exit 1
           fi
           PKG_NAME="$(node -p "require('./packages/kody/package.json').name")"
-          REMOTE="https://kody.codes/${PKG_NAME}.git"
-          npx -y @kodycodes/cli@latest auth setup-git
-          CREATED="$(
+          REMOTE_JSON="$(
             npx -y @kodycodes/cli@latest api packageGetGitRemote \
               --params "{\"create\":true,\"name\":\"${PKG_NAME}\"}" \
-              --json \
-              | node -e "const d = JSON.parse(require('node:fs').readFileSync(0, 'utf8')); console.log(d.created ? 'true' : 'false');"
+              --json
           )"
+          PACKAGE_ID="$(printf '%s' "$REMOTE_JSON" | jq -er '.package_id')"
+          CREATED="$(printf '%s' "$REMOTE_JSON" | jq -r 'if .created then "true" else "false" end')"
+          REMOTE="$(printf '%s' "$REMOTE_JSON" | jq -er '.remote')"
+          GIT_EXTRA_HEADER="$(printf '%s' "$REMOTE_JSON" | jq -er '.git_extra_header')"
+          ARTIFACT_TOKEN="${GIT_EXTRA_HEADER#Authorization: Bearer }"
+          echo "::add-mask::${GIT_EXTRA_HEADER}"
+          if [ -n "$ARTIFACT_TOKEN" ]; then
+            echo "::add-mask::${ARTIFACT_TOKEN}"
+          fi
           SPLIT_SHA="$(git subtree split --prefix=packages/kody HEAD)"
           if [ "$CREATED" = "true" ] || [ "$FORCE_PUSH" = "true" ]; then
-            git push --force "$REMOTE" "${SPLIT_SHA}:refs/heads/main"
+            GIT_CONFIG_COUNT=1 \
+            GIT_CONFIG_KEY_0="http.extraHeader" \
+            GIT_CONFIG_VALUE_0="$GIT_EXTRA_HEADER" \
+              git push --force "$REMOTE" "${SPLIT_SHA}:refs/heads/main"
           else
-            git push "$REMOTE" "${SPLIT_SHA}:refs/heads/main"
+            GIT_CONFIG_COUNT=1 \
+            GIT_CONFIG_KEY_0="http.extraHeader" \
+            GIT_CONFIG_VALUE_0="$GIT_EXTRA_HEADER" \
+              git push "$REMOTE" "${SPLIT_SHA}:refs/heads/main"
           fi
-          npx -y @kodycodes/cli@latest package publish "$PKG_NAME"
+          npx -y @kodycodes/cli@latest package publish "$PACKAGE_ID"
