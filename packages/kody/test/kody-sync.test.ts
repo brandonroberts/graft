@@ -6,6 +6,7 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { buildCompletionEvent, emitCompletionOrScheduleCloud, packageIdFromStorageId } from '../src/completion-event.ts';
 import { deleteForkPolicy, getForkPolicy, getSyncRun, listForkPolicies, listSyncRuns, upsertForkPolicy } from '../src/storage.ts';
 import { syncForkFromUpstreamEvent } from '../src/sync.ts';
 import type { CommandRunner, CommunityForkUpstreamUpdatedEvent, ExternalPublisher, StorageBucket, SyncRunRecord } from '../src/types.ts';
@@ -468,7 +469,7 @@ describe('packages/kody (@brandontroberts/graft-sync)', () => {
     expect(record.reasons.join('\n')).toMatch(/upstream commit deadbeefcafe/);
   });
 
-  it('falls back to npx -y @graftsync/cli@latest when graft is not on PATH', async () => {
+  it('falls back to npx -y @graftsync/cli@latest when graft probe throws ENOENT and saves reportMd on green runs', async () => {
     const fx = await setupKodyFork();
     const next = await fx.commitUpstream({ 'src/util.ts': 'export const VERSION = 2;\n' }, 'upstream v2');
     const real = createHostRunner();
@@ -476,7 +477,7 @@ describe('packages/kody (@brandontroberts/graft-sync)', () => {
     const runner: CommandRunner = {
       async run(input) {
         if (input.file === 'graft' && input.args?.[0] === '--version') {
-          return { exitCode: 127, signal: null, timedOut: false, stdout: '', stderr: 'not found' };
+          throw new Error('spawn graft ENOENT');
         }
         if (input.file === 'npx' && input.args?.[0] === '-y' && input.args[1] === '@graftsync/cli@latest') {
           seenNpx.push(input.args);
@@ -497,6 +498,7 @@ describe('packages/kody (@brandontroberts/graft-sync)', () => {
       },
     });
     expect(record.outcome, JSON.stringify(record)).toBe('green');
+    expect(record.reportMd).toContain('# Graft sync report');
     expect(seenNpx).toHaveLength(1);
     expect(seenNpx[0]?.slice(0, 3)).toEqual(['-y', '@graftsync/cli@latest', 'sync']);
   });
@@ -605,6 +607,8 @@ describe('packages/kody (@brandontroberts/graft-sync)', () => {
       'src/types.ts',
       'src/storage.ts',
       'src/sync.ts',
+      'src/completion-event.ts',
+      'src/emit-sync-completed.ts',
       'src/on-upstream-updated.ts',
       'src/index.ts',
     ];
@@ -683,7 +687,15 @@ describe('packages/kody (@brandontroberts/graft-sync)', () => {
 
   it('uses exact .ts relative import specifiers that Kody module resolution expects', async () => {
     const srcDir = path.resolve(HERE, '..', 'src');
-    const srcFiles = ['index.ts', 'on-upstream-updated.ts', 'storage.ts', 'sync.ts', 'types.ts'];
+    const srcFiles = [
+      'index.ts',
+      'on-upstream-updated.ts',
+      'completion-event.ts',
+      'emit-sync-completed.ts',
+      'storage.ts',
+      'sync.ts',
+      'types.ts',
+    ];
     const importRe = /\bfrom\s+['"](\.\.?\/[^'"]+)['"]/g;
     for (const file of srcFiles) {
       const content = await readFile(path.join(srcDir, file), 'utf8');
@@ -693,5 +705,75 @@ describe('packages/kody (@brandontroberts/graft-sync)', () => {
         expect(existsSync(target), `${file} imports "${spec}" which does not exist at ${target}`).toBe(true);
       }
     }
+  });
+
+  it('dispatches completion events directly on cloud and falls back to cloud workflow on Execution Context', async () => {
+    const sample: SyncRunRecord = {
+      id: 'run-42',
+      eventId: 'evt-42',
+      forkKodyId: '@brandontroberts/github',
+      upstreamKodyId: '@kody/github',
+      fromCommit: 'aaaaaaa1111111',
+      toCommit: 'bbbbbbb2222222',
+      targetVersion: '0.0.0+bbbbbbb2222222',
+      outcome: 'green',
+      mode: 'branch',
+      branch: 'graft/sync-bbbbbbb22222',
+      conflicts: [],
+      reasons: [],
+      warnings: [],
+      createdAt: '2026-11-25T00:00:00.000Z',
+    };
+
+    expect(packageIdFromStorageId('package:b92bc7a2-3fad-4acd-8b3a-0f4a1ab82e04')).toBe('b92bc7a2-3fad-4acd-8b3a-0f4a1ab82e04');
+    expect(packageIdFromStorageId(undefined)).toBeUndefined();
+    expect(buildCompletionEvent(sample).topic).toBe('@brandontroberts/graft.sync.completed');
+
+    // Cloud path: events.dispatch succeeds directly without scheduling a workflow.
+    const dispatched: unknown[] = [];
+    const scheduled: unknown[] = [];
+    const cloudResult = await emitCompletionOrScheduleCloud(sample, {
+      dispatch: async (input) => {
+        dispatched.push(input);
+      },
+      scheduleWorkflow: async (input) => {
+        scheduled.push(input);
+      },
+      storageId: 'package:pkg-graft-sync',
+    });
+    expect(cloudResult).toBe('dispatched');
+    expect(dispatched).toHaveLength(1);
+    expect(scheduled).toHaveLength(0);
+
+    // Execution Context path: events.dispatch throws, so it schedules ./emit-sync-completed on cloud.
+    const contextResult = await emitCompletionOrScheduleCloud(sample, {
+      dispatch: async () => {
+        throw new Error('events.dispatch is not available in local execute');
+      },
+      scheduleWorkflow: async (input) => {
+        scheduled.push(input);
+      },
+      storageId: 'package:pkg-graft-sync',
+    });
+    expect(contextResult).toBe('scheduled');
+    expect(scheduled).toEqual([
+      {
+        packageId: 'pkg-graft-sync',
+        exportName: './emit-sync-completed',
+        execution: { context: 'cloud' },
+        idempotencyKey: 'graft-sync-emit:run-42',
+        params: { runId: 'run-42' },
+      },
+    ]);
+
+    // Failure path: if neither events.dispatch nor a valid storageId/workflow is available, rethrows.
+    await expect(
+      emitCompletionOrScheduleCloud(sample, {
+        dispatch: async () => {
+          throw new Error('events.dispatch is not available in local execute');
+        },
+        storageId: undefined,
+      }),
+    ).rejects.toThrow(/events\.dispatch is not available/);
   });
 });

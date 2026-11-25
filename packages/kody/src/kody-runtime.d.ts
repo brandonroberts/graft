@@ -67,4 +67,16 @@ declare module 'kody:runtime' {
       payload: Record<string, unknown>;
     }): Promise<{ topic: string; source: string; idempotencyKey: string; status: string }>;
   };
+
+  export const workflows: {
+    create(input: {
+      packageId?: string;
+      exportName?: string;
+      code?: string;
+      execution?: { context?: string; chain?: string[]; requires?: string[]; whenOffline?: string; queueMinutes?: number };
+      idempotencyKey?: string;
+      runAt?: string | Date;
+      params?: Record<string, unknown>;
+    }): Promise<{ id: string; status?: string }>;
+  };
 }
