@@ -54,6 +54,7 @@ declare module 'kody:runtime' {
     command: {
       run(input: CommandRunInput): Promise<CommandRunResult>;
     };
+    packageGet(input: { package_id: string }): Promise<{ package_id: string; name: string; kody_id: string; slug?: string }>;
     packagePublishExternalPush(input: { kody_id?: string; package_id?: string }): Promise<ExternalPublishResult>;
   };
 
