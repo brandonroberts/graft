@@ -75,10 +75,12 @@ jobs:
             GIT_CONFIG_KEY_0="http.extraHeader" \
             GIT_CONFIG_VALUE_0="$GIT_EXTRA_HEADER" \
               git push --force "$REMOTE" "${SPLIT_SHA}:refs/heads/main"
+            npx -y @kodycodes/cli@latest package publish "$PACKAGE_ID" \
+              --params '{"allow_force":true,"confirm_destructive_overwrite":true}'
           else
             GIT_CONFIG_COUNT=1 \
             GIT_CONFIG_KEY_0="http.extraHeader" \
             GIT_CONFIG_VALUE_0="$GIT_EXTRA_HEADER" \
               git push "$REMOTE" "${SPLIT_SHA}:refs/heads/main"
+            npx -y @kodycodes/cli@latest package publish "$PACKAGE_ID"
           fi
-          npx -y @kodycodes/cli@latest package publish "$PACKAGE_ID"

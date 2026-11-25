@@ -94,9 +94,9 @@ changed before publishing.
 
 ## Publishing from this repository
 
-Trigger the manual **Release Kody package** workflow (`.github/workflows/release-kody.yml`) from the Actions tab (or `gh workflow run release-kody.yml`). It runs `packages/kody` tests and `kody dev check`, pushes the `packages/kody` subtree to `https://kody.codes/@brandontroberts/graft-sync.git`, and runs `kody package publish`.
+Trigger the manual **Release Kody package** workflow (`.github/workflows/release-kody.yml`) from the Actions tab (or `gh workflow run release-kody.yml`). It runs `packages/kody` tests and `kody dev check --offline`, mints an Artifacts git remote via `packageGetGitRemote`, pushes the `packages/kody` subtree, and runs `kody package publish`.
 
-Required repository secret: `KODY_API_TOKEN` (a user-owned `kody_at_…` token with `package:read` and `package:write` scopes).
+Required repository secret: `KODY_API_TOKEN` (a user-owned `kody_at_…` token with `package:read`, `package:write`, and `package:create` scopes).
 
 ## License
 
