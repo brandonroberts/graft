@@ -43,7 +43,7 @@ jobs:
         run: npx vitest run packages/kody/test/kody-sync.test.ts
       - name: Run Kody pre-publish checks
         working-directory: packages/kody
-        run: npx -y @kodycodes/cli@latest dev check
+        run: npx -y @kodycodes/cli@latest dev check --offline
       - name: Push packages/kody subtree and publish to Kody
         if: ${{ !inputs.dry_run }}
         env:
