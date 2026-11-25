@@ -50,11 +50,21 @@ declare module 'kody:runtime' {
     error?: string;
   }
 
+  export interface PackageGitRemoteResult {
+    package_id: string;
+    kody_id: string;
+    remote: string;
+    git_extra_header?: string;
+    scope: 'read' | 'write';
+    git_author?: { name: string; email: string };
+  }
+
   export const kody: {
-    command: {
+    command?: {
       run(input: CommandRunInput): Promise<CommandRunResult>;
     };
     packageGet(input: { package_id: string }): Promise<{ package_id: string; name: string; kody_id: string; slug?: string }>;
+    packageGetGitRemote(input: { package_id?: string; name?: string; scope?: 'read' | 'write' }): Promise<PackageGitRemoteResult>;
     packagePublishExternalPush(input: { kody_id?: string; package_id?: string }): Promise<ExternalPublishResult>;
   };
 

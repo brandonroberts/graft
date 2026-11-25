@@ -1,31 +1,27 @@
 # @brandontroberts/sync-fork
 
-Kody package for keeping forked Kody community packages in sync with upstream using [Graft](https://github.com/brandonroberts/graft).
+Kody package for keeping forked Kody community packages in sync with upstream using [Graft](https://github.com/brandonroberts/graft) — **natively in Kody Cloud** (`workerd`) by default, with optional Execution Context delegation when you configure host shell commands (`testCommand` or `agentCommand`).
 
 ## Intent
 
-Keep local customizations on forked Kody community packages working across upstream republishes without hand-porting diffs or losing track of why each fork diverged. When an upstream listing republishes, this package runs Graft's deterministic repo-mode `fork` sync on your Kody Execution Context, adopts clean merges with full upstream git ancestry, and hands conflicts to your coding agent (either on demand or automatically via `agentCommand`) with a scoped upstream diff and `.grafts/` Invariants.
+Keep local customizations on forked Kody community packages working across upstream republishes without hand-porting diffs, running a local daemon, or losing track of why each fork diverged. When an upstream listing republishes, this package runs Graft's deterministic repo-mode `fork` sync directly in Kody Cloud over Git Smart HTTP (`kody.packageGetGitRemote`), adopts clean merges with full upstream two-parent git ancestry, and pushes conflict-marked `-agent` branches with a scoped upstream diff and `.grafts/` Invariants when an agent is needed.
 
 ## Quick start — hand it to your coding agent
 
-Paste this once into Claude Code, Codex, Cursor, or any coding agent connected to Kody MCP:
+Paste this once into Claude Code, Codex, Cursor, or any coding agent connected to Kody MCP (no Execution Context required):
 
 ````text
 Set up Sync Fork (/@brandontroberts/sync-fork) in my Kody account so my forked
-Kody community packages stay in sync with upstream automatically.
+Kody community packages stay in sync with upstream automatically in Kody Cloud.
 
-1. Check my Kody Execution Contexts (`executionContextList`). If I don't have one
-   ready with `kody auth setup-git` and host commands enabled, give me the exact
-   one-time command(s) to run on my machine and wait for me.
-2. Fork `/@brandontroberts/sync-fork` into my org (`communityFork`), publish it,
-   enable its `community.fork.upstream_updated` subscription (`enablementEnable`),
-   and route that subscription to my Execution Context (`automationExecutionSet`
-   with `context: "<my-context>"`, `whenOffline: "queue"`, `queueMinutes: 1440`).
-3. List my forked community packages (`packageList`), diff each against its
+1. Fork `/@brandontroberts/sync-fork` into my org (`communityFork`), publish it,
+   and enable its `community.fork.upstream_updated` subscription (`enablementEnable`).
+   No Execution Context is needed unless I later configure `testCommand` or `agentCommand`.
+2. List my forked community packages (`packageList`), diff each against its
    upstream listing, and ask me which ones to keep in sync and how (`branch`,
-   `push`, or `publish`, plus an optional `testCommand` or `agentCommand` for
-   conflicts).
-4. For each fork I pick:
+   `push`, or `publish`, plus optional `allowZeroConflictPackageJson`, or
+   optional Execution Context `testCommand` / `agentCommand`).
+3. For each fork I pick:
    - run the fork's tests first and fix any `communityFork` rewrite bugs before
      baselining it,
    - scaffold `.grafts/upstream-sync/graft.md` via `graft add --mechanism fork --in-place`
@@ -34,29 +30,31 @@ Kody community packages stay in sync with upstream automatically.
      another user's `@scope/` in `graft.md`),
    - verify `graft sync` and the fork's tests pass, commit, push, publish, and save
      its policy via `setPolicy`.
-5. Smoke-test one onboarded fork via `packageSubscriptionDispatch` and confirm
+4. Smoke-test one onboarded fork via `packageSubscriptionDispatch` and confirm
    `getRun()` shows `outcome: "green"`, `warnings: []`, and a populated `reportMd`,
-   and that the `./emit-sync-completed` cloud workflow completed.
-6. Summarize what was set up and how conflicts will be handled.
+   running directly in Kody Cloud.
+5. Summarize what was set up and how conflicts will be handled.
 ````
-
-No global `graft` install is required — if `graft` is not on `PATH`, the package automatically falls back to `npx -y @graftsync/cli@latest`.
 
 ## How it works
 
 1. Each forked Kody package you want managed commits `.grafts/upstream-sync/graft.md` (with **Why**, **Invariants**, **Where to look**, **Anchors**, **History**) and `.grafts/upstream-sync/variants/fork.json` (`{ "ref": "@worktree", "base": "@verified" }`). Forks without `.grafts/` are safely skipped (`skipped-no-graft`).
-2. When an upstream listing republishes, Kody delivers `community.fork.upstream_updated` to `./src/on-upstream-updated.ts` on your Execution Context (`requires: ["fs"]`, `whenOffline: "queue"`, `queueMinutes: 1440` — skips Kody cloud). If your Execution Context isn't in your org's default fallback chain, pin it explicitly with `automationExecutionSet`.
-3. The handler resolves your fork's scoped name via `packageGet`, clones/fetches over HTTPS (`kody auth setup-git`), runs `graft sync --version <ver>+<pinned_commit> --json` directly via `kody.command.run({ file, args })` (falling back to `npx -y @graftsync/cli@latest` when `graft` is not on `PATH`), and stores `.grafts/.report/sync.md` (`reportMd`) in `packageStorage()` for every run.
-4. **Green (exit `0`):** adopts Graft's materialized result as a two-parent merge commit (keeping upstream's `pinned_commit` in git history), runs an optional `testCommand`, and pushes according to the fork's policy (`branch` by default, or `push` / `publish`).
-5. **Conflicts (`needs-agent`, exit `1`):**
-   - If `agentCommand` is set, adopts the conflict-marked `-agent` branch, runs `agentCommand` with `GRAFT_PROMPT_FILE` and `GRAFT_REPORT_MD`, verifies no conflict markers remain, then **re-runs `graft sync`** (and `testCommand`) before concluding the merge and pushing — never trusting the agent blindly.
-   - Otherwise (or if the agent did not resolve cleanly), pushes `graft/agent-<short-sha>` and saves conflicting paths + `reportMd` in `packageStorage()`.
-6. **Tooling errors (exit `2`):** records the failure loudly in `packageStorage()` and never pushes or publishes.
-7. **Completion event:** after persisting the run, emits `@brandontroberts/sync-fork.completed` (directly on cloud, or by scheduling `./emit-sync-completed` on Kody Cloud via `workflows.create` when running on a local Execution Context, where Kody disables `events.dispatch`).
+2. When an upstream listing republishes, Kody delivers `community.fork.upstream_updated` to `./src/on-upstream-updated.ts` **in Kody Cloud** by default (no local machine required).
+3. **Cloud path (default):**
+   - Resolves your fork's scoped name via `packageGet` and mints a short-lived scoped write remote via `packageGetGitRemote`.
+   - Fetches both your fork and the upstream public listing (`https://kody.codes/@<origin>/<leaf>.git`) in memory over Git Smart HTTP v1.
+   - Evaluates Graft's repo-mode `fork` rules natively in `workerd` (fuzz-0 hunk anchors, boundary-line checks, binary/executable-mode changes, likely-upstreamed detection, and comment-preserving `GraftDocumentEditor` updates).
+   - **Green:** creates a two-parent merge commit (keeping upstream's `pinned_commit` in git history, using your Kody `git_author`), pushes according to policy (`branch` by default, or `push` / `publish`), stores `reportMd` in `packageStorage()`, and dispatches `@brandontroberts/sync-fork.completed` directly.
+   - **Conflicts (`needs-agent`):** performs a 3-way merge with conflict markers, updates `graft.md` to `status: conflicted`, pushes `graft/agent-<short-sha>`, saves `conflicts` + scoped diff (`reportMd`) in `packageStorage()`, and emits `@brandontroberts/sync-fork.completed`.
+   - **Tooling errors:** fails loudly, records `outcome: "error"` in `packageStorage()`, and never pushes or publishes.
+4. **Optional Execution Context path (`testCommand`, `agentCommand`, or `execution: "context"`):**
+   - When a fork's policy configures host shell commands (`testCommand` or `agentCommand`) or sets `execution: "context"`, `./on-upstream-updated` automatically schedules `./sync-on-context` via `workflows.create` (using `executionContext` if named, else `requires: ["fs"]` with `whenOffline: "queue"`, `queueMinutes: 1440`).
+   - On the Execution Context, `./sync-on-context` runs `graft sync --json` (falling back to `npx -y @graftsync/cli@latest`), optional `agentCommand` (always re-verified with `graft sync`), and optional `testCommand`, then schedules `./emit-sync-completed` on Kody Cloud to dispatch `@brandontroberts/sync-fork.completed`.
+   - Host commands are never silently skipped: if scheduling `./sync-on-context` fails, the run records `outcome: "error"` loudly.
 
-## Manual Execution Context setup (one-time)
+## Optional Execution Context setup (only for `testCommand` / `agentCommand`)
 
-Only needed if your machine isn't already connected as a Kody Execution Context with host commands enabled:
+Skip this unless you configure `testCommand`, `agentCommand`, or `execution: "context"` on a fork policy:
 
 ```sh
 kody login
@@ -72,16 +70,18 @@ kody context commands on
 | Field | Default | Meaning |
 |---|---|---|
 | `mode` | `'branch'` | `'branch'` pushes `graft/sync-<sha>`; `'push'` pushes to the default branch; `'publish'` pushes and calls `packagePublishExternalPush` (respecting `locked_at` approval URLs) |
-| `testCommand` | unset | Optional shell command run in the fork checkout before pushing a green merge (e.g. `node --test test/*.test.ts`); failures abort the push and mark `needs-agent` |
-| `agentCommand` | unset | Optional coding-agent shell command run on `needs-agent` (use full binary path + headless edit flags since the daemon runs a non-login shell with no TTY, e.g. `/path/to/claude -p "$(cat "$GRAFT_PROMPT_FILE")" --permission-mode acceptEdits`, and check your context's `timeoutMs`). Receives `GRAFT_PROMPT_FILE`, `GRAFT_REPORT_MD`, `GRAFT_REPORT_JSON`, `GRAFT_TARGET_VERSION`, `GRAFT_CONFLICTS`, `GRAFT_FORK_ID`, `GRAFT_UPSTREAM_ID`. Always re-verified with `graft sync` + `testCommand` |
-| `graftCommand` | auto (`graft`, else `npx -y @graftsync/cli@latest`) | Override how Graft is invoked on the Execution Context |
-| `workspaceRoot` | `~/.cache/kody-graft` | Directory on the Execution Context where full fork clones are cached |
+| `execution` | `'cloud'` | `'cloud'` runs natively in Kody Cloud (`workerd`); `'context'` delegates to an Execution Context via `./sync-on-context`. Automatically `'context'` when `testCommand` or `agentCommand` is set |
+| `executionContext` | unset | Optional named Execution Context for `./sync-on-context` delegation (defaults to `requires: ["fs"]`) |
+| `testCommand` | unset | Optional host shell command run on an Execution Context before pushing a green merge (e.g. `node --test test/*.test.ts`); failures abort the push and mark `needs-agent` |
+| `agentCommand` | unset | Optional local coding-agent command run on an Execution Context on `needs-agent` (use full binary path + headless edit flags, e.g. `/path/to/claude -p "$(cat "$GRAFT_PROMPT_FILE")" --permission-mode acceptEdits`). Always re-verified with `graft sync` + `testCommand` |
+| `graftCommand` | auto (`graft`, else `npx -y @graftsync/cli@latest`) | Override how Graft is invoked on an Execution Context |
+| `workspaceRoot` | `~/.cache/kody-graft` | Directory on an Execution Context where full fork clones are cached |
 | `pushAgentBranch` | `true` | Push `graft/agent-<sha>` with conflict markers on `needs-agent` |
-| `allowZeroConflictPackageJson` | `false` | Opt-in: when the only missed anchor is `package.json` (e.g. upstream bumped `"version"` inside `-U3` context of `communityFork`'s `"name"` rewrite) and git's 3-way merge has zero conflicts, adopt the merge and re-verify with `graft sync` |
+| `allowZeroConflictPackageJson` | `false` | Opt-in: when the only missed anchor is `package.json` (e.g. upstream bumped `"version"` inside `-U3` context of `communityFork`'s `"name"` rewrite) and 3-way merge has zero conflicts, adopt the merge cleanly |
 
 ## When a conflict needs your agent
 
-If you don't set `agentCommand`, hand any `needs-agent` run to your agent:
+Hand any `needs-agent` run to your coding agent:
 
 ```text
 Check `listRuns` on `@<you>/sync-fork` and resolve the `needs-agent` sync for
@@ -94,13 +94,14 @@ changed before publishing.
 
 - `setPolicy` / `getPolicy` / `listPolicies` / `deletePolicy` — manage per-fork sync policies in `packageStorage()`
 - `listRuns` / `getRun` — inspect recent sync runs, conflicts, `agentRan`, `approvalUrl`, and `.grafts/.report/sync.md` (`reportMd`)
-- `syncFork` — trigger a manual sync for a fork against a specific upstream commit SHA
-- `./on-upstream-updated` — subscription handler for `community.fork.upstream_updated`
-- `./emit-sync-completed` — Kody Cloud workflow export scheduled by `./on-upstream-updated` to dispatch `@brandontroberts/sync-fork.completed` from local Execution Context runs
+- `syncFork` — trigger a manual sync for a fork against a specific upstream commit SHA (runs in Kody Cloud by default)
+- `./on-upstream-updated` — Kody Cloud subscription handler for `community.fork.upstream_updated`
+- `./sync-on-context` — Execution Context workflow export scheduled automatically when a fork configures `testCommand`, `agentCommand`, or `execution: "context"`
+- `./emit-sync-completed` — Kody Cloud workflow export scheduled by Execution Context runs to dispatch `@brandontroberts/sync-fork.completed`
 
 ## Emitted events
 
-- `@brandontroberts/sync-fork.completed` — subscribe from any email/Discord/notifier package in your org to get alerts on green syncs, `needs-agent` conflicts, approval URLs, or errors. Emitted via `./emit-sync-completed` on Kody Cloud after every Execution Context run.
+- `@brandontroberts/sync-fork.completed` — subscribe from any email/Discord/notifier package in your org to get alerts on green syncs, `needs-agent` conflicts, approval URLs, or errors. Dispatched directly in Kody Cloud (or via `./emit-sync-completed` after Execution Context runs).
 
 ## Publishing from this repository
 

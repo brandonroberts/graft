@@ -139,6 +139,15 @@ importers:
 
   packages/kody:
     dependencies:
+      '@graftsync/spec':
+        specifier: ^0.3.6
+        version: 0.3.6
+      diff:
+        specifier: ^9.0.0
+        version: 9.0.0
+      pako:
+        specifier: ^3.0.3
+        version: 3.0.3
       semver:
         specifier: ^7.7.0
         version: 7.8.6(patch_hash=0947e43b5ed23af7999e3f96c9aff3b942a900e128439305229a9b031d0890b4)
@@ -231,6 +240,10 @@ packages:
   '@gar/promise-retry@1.0.3':
     resolution: {integrity: sha512-GmzA9ckNokPypTg10pgpeHNQe7ph+iIKKmhKu3Ob9ANkswreCx7R3cKmY781K8QK3AqVL3xVh9A42JvIAbkkSA==}
     engines: {node: ^20.17.0 || >=22.9.0}
+
+  '@graftsync/spec@0.3.6':
+    resolution: {integrity: sha512-XM0Ji+zPRr5qtuGmLJ5WjdvAlJ8KdJpRBw9DT0fmYhutIsGmecGNJE/bw25uCr4RdJQz5N1EcxJjvnCOZ8zdiQ==}
+    engines: {node: ^22.22.2 || ^24.15.0 || >=26.0.0}
 
   '@isaacs/fs-minipass@4.0.1':
     resolution: {integrity: sha512-wgm9Ehl2jpeqP3zw/7mo3kRHFp5MEDhqAdwy1fTGkHAwnkGOVsgpvQhL8B5n1qlb01jV3n/bI0ZfZp5lWA1k4w==}
@@ -1195,6 +1208,9 @@ packages:
     engines: {node: ^22.22.2 || ^24.15.0 || >=26.0.0}
     hasBin: true
 
+  pako@3.0.3:
+    resolution: {integrity: sha512-tmrebBBYI5FOw8QICGwJNqE8fotC8R+gwcxOvoFNv+GKehOI6Lc6YBolNcQNnC4v96l1wt7rh102ifD4kVeZAQ==}
+
   path-scurry@2.0.2:
     resolution: {integrity: sha512-3O/iVVsJAPsOnpwWIeD+d6z/7PmqApyQePUtCndjatj/9I5LylHvt5qluFaBT3I5h3r1ejfR056c+FCv+NnNXg==}
     engines: {node: 18 || 20 || >=22}
@@ -1547,6 +1563,12 @@ snapshots:
       sisteransi: 1.0.5
 
   '@gar/promise-retry@1.0.3': {}
+
+  '@graftsync/spec@0.3.6':
+    dependencies:
+      semver: 7.8.6(patch_hash=0947e43b5ed23af7999e3f96c9aff3b942a900e128439305229a9b031d0890b4)
+      yaml: 2.9.1(patch_hash=48f10651313b364525b85ecf86c3c6106702743517271dea8307f8fb4a437edf)
+      zod: 4.6.7
 
   '@isaacs/fs-minipass@4.0.1':
     dependencies:
@@ -2322,6 +2344,8 @@ snapshots:
     transitivePeerDependencies:
       - kerberos
       - supports-color
+
+  pako@3.0.3: {}
 
   path-scurry@2.0.2:
     dependencies:

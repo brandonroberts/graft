@@ -50,7 +50,7 @@ packages/
   cli/              @graftsync/cli            the `graft` command, for people, CI and agents
   skill/            @graftsync/skill          SKILL.md teaching agents the sync loop through the CLI
   action/           (private)                 composite GitHub Action, plain ESM .mjs, no build step; used from main
-  kody/             (private)                 Kody package (@brandontroberts/sync-fork): syncs forked Kody community packages on an Execution Context (#109)
+  kody/             (private)                 Kody package (@brandontroberts/sync-fork): syncs forked Kody community packages natively in Kody Cloud (workerd) over Git Smart HTTP v1, with optional Execution Context delegation for testCommand/agentCommand (#109)
 tools/cjs-to-esm/                             converter used as the generator for the dogfood grafts
 examples/angular-tr/                          a drop-in repo-mode setup for a real fork, tested against it (§6)
 .grafts/                                      this repo's own grafts (dogfood, §10)

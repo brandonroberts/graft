@@ -33,6 +33,9 @@ export interface CommunityForkUpstreamUpdatedEvent {
 /** How a green sync result is pushed back to the fork. */
 export type SyncPushMode = 'branch' | 'push' | 'publish';
 
+/** Where a fork sync runs (`cloud` default, or `context` for host shell testCommand/agentCommand). */
+export type SyncExecutionTarget = 'cloud' | 'context';
+
 /** Per-fork configuration stored in `packageStorage()`. */
 export interface ForkPolicy {
   /** Fork package identity (e.g. `@brandontroberts/my-fork`). */
@@ -43,13 +46,21 @@ export interface ForkPolicy {
    * - `publish`: push to the default branch, then call `packagePublishExternalPush` (still gated by Kody checks and `locked_at`).
    */
   mode: SyncPushMode;
-  /** Optional local command run in the fork checkout before pushing a green merge (e.g. `npm test`). */
+  /**
+   * Execution target: `'cloud'` (default, runs natively in Kody Cloud / workerd with no Execution Context)
+   * or `'context'` (delegates to an Execution Context). Automatically treated as `'context'` whenever
+   * `testCommand` or `agentCommand` is set.
+   */
+  execution?: SyncExecutionTarget;
+  /** Optional named Execution Context to target when delegating host runs via `./sync-on-context`. */
+  executionContext?: string;
+  /** Optional local command run in the fork checkout before pushing a green merge (e.g. `npm test`). Requires an Execution Context. */
   testCommand?: string;
   /**
    * Optional local coding-agent shell command run on the Execution Context when `graft sync`
    * reports `needs-agent` (e.g. `claude -p "$(cat "$GRAFT_PROMPT_FILE")"`). Graft adopts the
    * `-agent` branch, runs this command, and re-runs `graft sync` (plus `testCommand`) before
-   * pushing — never trusting the agent blindly.
+   * pushing — never trusting the agent blindly. Requires an Execution Context.
    */
   agentCommand?: string;
   /**
@@ -142,6 +153,18 @@ export interface ExternalPublisher {
     approval_url?: string;
     error?: string;
   }>;
+}
+
+/** Short-lived authenticated git remote returned by `kody.packageGetGitRemote`. */
+export interface GitRemoteResult {
+  remote: string;
+  git_extra_header?: string;
+  git_author?: { name: string; email: string };
+}
+
+/** Injectable provider wrapping `kody.packageGetGitRemote` for Kody Cloud sync. */
+export interface GitRemoteProvider {
+  getGitRemote(input: { package_id?: string; name?: string; scope?: 'read' | 'write' }): Promise<GitRemoteResult>;
 }
 
 /** Optional downstream event emitter (`kody:runtime`'s `events.dispatch`). */

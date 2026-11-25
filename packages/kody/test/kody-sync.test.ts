@@ -607,6 +607,13 @@ describe('packages/kody (@brandontroberts/sync-fork)', () => {
       'src/types.ts',
       'src/storage.ts',
       'src/sync.ts',
+      'src/git-objects.ts',
+      'src/git-http.ts',
+      'src/merge3.ts',
+      'src/cloud-graft.ts',
+      'src/cloud-sync.ts',
+      'src/route.ts',
+      'src/sync-on-context.ts',
       'src/completion-event.ts',
       'src/emit-sync-completed.ts',
       'src/on-upstream-updated.ts',
@@ -618,21 +625,20 @@ describe('packages/kody (@brandontroberts/sync-fork)', () => {
     }
   });
 
-  it('declares valid Kody subscription execution routing requiring local fs', async () => {
+  it('declares cloud-default subscription, packageGetGitRemote capability, and ./sync-on-context export', async () => {
     const pkg = JSON.parse(await readFile(path.resolve(HERE, '..', 'package.json'), 'utf8')) as {
+      exports?: Record<string, string>;
       kody?: {
-        subscriptions?: Record<
-          string,
-          { execution?: { context?: string; chain?: string[]; requires?: string[]; whenOffline?: string; queueMinutes?: number } }
-        >;
+        capabilities?: string[];
+        subscriptions?: Record<string, { handler?: string; execution?: unknown }>;
       };
     };
-    const execution = pkg.kody?.subscriptions?.['community.fork.upstream_updated']?.execution;
-    expect(execution).toEqual({
-      requires: ['fs'],
-      whenOffline: 'queue',
-      queueMinutes: 1440,
-    });
+    expect(pkg.kody?.capabilities).toEqual(expect.arrayContaining(['packageGet', 'packageGetGitRemote', 'packagePublishExternalPush']));
+    expect(pkg.exports?.['./sync-on-context']).toBe('./src/sync-on-context.ts');
+    const sub = pkg.kody?.subscriptions?.['community.fork.upstream_updated'];
+    expect(sub?.handler).toBe('./src/on-upstream-updated.ts');
+    // No `requires: ["fs"]` on the default subscription so Kody Cloud runs it directly by default.
+    expect(sub?.execution).toBeUndefined();
   });
 
   it('resolves bare-leaf fork.kody_id via resolvePackageName and treats dispatched publish as clean', async () => {
@@ -685,11 +691,18 @@ describe('packages/kody (@brandontroberts/sync-fork)', () => {
     expect(publishCalls).toEqual([{ package_id: 'pkg-uuid-1' }]);
   });
 
-  it('uses exact .ts relative import specifiers that Kody module resolution expects', async () => {
+  it('uses exact .ts relative import specifiers and zero node:* imports across src/', async () => {
     const srcDir = path.resolve(HERE, '..', 'src');
     const srcFiles = [
       'index.ts',
       'on-upstream-updated.ts',
+      'sync-on-context.ts',
+      'route.ts',
+      'cloud-sync.ts',
+      'cloud-graft.ts',
+      'git-http.ts',
+      'git-objects.ts',
+      'merge3.ts',
       'completion-event.ts',
       'emit-sync-completed.ts',
       'storage.ts',
@@ -699,6 +712,7 @@ describe('packages/kody (@brandontroberts/sync-fork)', () => {
     const importRe = /\bfrom\s+['"](\.\.?\/[^'"]+)['"]/g;
     for (const file of srcFiles) {
       const content = await readFile(path.join(srcDir, file), 'utf8');
+      expect(content, `${file} must not import node:* builtins (workerd bundle)`).not.toMatch(/\bfrom\s+['"]node:/);
       for (const match of content.matchAll(importRe)) {
         const spec = match[1]!;
         const target = path.resolve(srcDir, spec);

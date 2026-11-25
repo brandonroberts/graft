@@ -1,6 +1,6 @@
 {
   "name": "@brandontroberts/sync-fork",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Kody package: keep forked Kody community packages in sync with upstream using Graft.",
@@ -8,28 +8,26 @@
   "exports": {
     ".": "./src/index.ts",
     "./on-upstream-updated": "./src/on-upstream-updated.ts",
+    "./sync-on-context": "./src/sync-on-context.ts",
     "./emit-sync-completed": "./src/emit-sync-completed.ts"
   },
   "dependencies": {
+    "@graftsync/spec": "^0.3.6",
+    "diff": "^9.0.0",
+    "pako": "^3.0.3",
     "semver": "^7.7.0"
   },
   "kody": {
-    "description": "Automatically sync forked Kody community packages with upstream using Graft's repo-mode fork mechanism on your Execution Context.",
+    "description": "Automatically sync forked Kody community packages with upstream in Kody Cloud using Graft's repo-mode fork mechanism.",
     "capabilities": [
       "packageGet",
+      "packageGetGitRemote",
       "packagePublishExternalPush"
     ],
     "subscriptions": {
       "community.fork.upstream_updated": {
         "handler": "./src/on-upstream-updated.ts",
-        "description": "Run graft sync on your Execution Context when an upstream community listing republishes.",
-        "execution": {
-          "requires": [
-            "fs"
-          ],
-          "whenOffline": "queue",
-          "queueMinutes": 1440
-        }
+        "description": "Run Graft repo-mode fork sync in Kody Cloud (or delegate to your Execution Context when testCommand/agentCommand is configured) when an upstream community listing republishes."
       }
     },
     "emits": {
