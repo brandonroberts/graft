@@ -182,8 +182,12 @@ async function writeText(command: CommandRunner, filePath: string, content: stri
 
 async function resolveGraftCommand(command: CommandRunner, policy: ForkPolicy): Promise<string[]> {
   if (policy.graftCommand?.length) return policy.graftCommand;
-  const probe = await command.run({ file: 'graft', args: ['--version'], timeoutMs: 10_000 });
-  if (!probe.timedOut && probe.exitCode === 0) return ['graft'];
+  try {
+    const probe = await command.run({ file: 'graft', args: ['--version'], timeoutMs: 10_000 });
+    if (!probe.timedOut && probe.exitCode === 0) return ['graft'];
+  } catch {
+    // On Kody Execution Contexts, spawning a binary missing from PATH rejects with ENOENT.
+  }
   return ['npx', '-y', '@graftsync/cli@latest'];
 }
 
@@ -470,6 +474,8 @@ export async function syncForkFromUpstreamEvent(event: CommunityForkUpstreamUpda
       }
     }
 
+    record.reportMd = await readTextIfExists(deps.command, joinPath(repoDir, '.grafts', '.report', 'sync.md'));
+
     if (syncRun.exitCode === 0 && syncRun.report) {
       const green = syncRun.report.grafts.find((g) => g.outcome === 'green' && g.materialized?.fetch);
       const fetch = green?.materialized?.fetch;
@@ -541,7 +547,6 @@ export async function syncForkFromUpstreamEvent(event: CommunityForkUpstreamUpda
       const needing = syncRun.report.grafts.filter((g) => g.outcome === 'needs-agent');
       record.reasons = needing.flatMap((g) => g.reasons);
       record.conflicts = [...new Set(needing.flatMap((g) => g.agentStart?.conflicts ?? []))];
-      record.reportMd = await readTextIfExists(deps.command, joinPath(repoDir, '.grafts', '.report', 'sync.md'));
 
       const start = needing.find((g) => g.agentStart?.repo && g.agentStart?.ref)?.agentStart;
       if (policy.pushAgentBranch !== false && start?.repo && start.ref) {
