@@ -136,7 +136,7 @@ export interface StorageBucket {
 
 /** Optional publisher for `mode: 'publish'`. */
 export interface ExternalPublisher {
-  publish(input: { kody_id: string; package_id?: string }): Promise<{
+  publish(input: { kody_id?: string; package_id?: string }): Promise<{
     status: string;
     published_commit?: string;
     approval_url?: string;

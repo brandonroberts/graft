@@ -15,6 +15,7 @@
   "kody": {
     "description": "Automatically sync forked Kody community packages with upstream using Graft's repo-mode fork mechanism on your Execution Context.",
     "capabilities": [
+      "packageGet",
       "packagePublishExternalPush"
     ],
     "subscriptions": {

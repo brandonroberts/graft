@@ -98,6 +98,7 @@ export async function syncFork(input: {
   return syncForkFromUpstreamEvent(syntheticEvent, {
     command: kody.command,
     storage: packageStorage(),
+    resolvePackageName: async (packageId) => (await kody.packageGet({ package_id: packageId })).name,
     publisher: {
       publish: (pubInput) => kody.packagePublishExternalPush(pubInput),
     },

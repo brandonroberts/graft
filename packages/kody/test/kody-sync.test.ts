@@ -281,7 +281,7 @@ describe('packages/kody (@brandontroberts/graft-sync)', () => {
     const fx = await setupKodyFork();
     const next = await fx.commitUpstream({ 'src/util.ts': 'export const VERSION = 2;\n' }, 'upstream v2');
     const storage = createSqliteBucket();
-    const publishCalls: Array<{ kody_id: string; package_id?: string }> = [];
+    const publishCalls: Array<{ kody_id?: string; package_id?: string }> = [];
     const publisher: ExternalPublisher = {
       async publish(input) {
         publishCalls.push(input);
@@ -328,7 +328,7 @@ describe('packages/kody (@brandontroberts/graft-sync)', () => {
     expect(ok.branch).toBe('main');
     expect(ok.publishStatus).toBe('locked');
     expect(ok.approvalUrl).toBe('https://kody.codes/@brandontroberts/my-tool/approve?commit=abc');
-    expect(publishCalls).toEqual([{ kody_id: '@brandontroberts/my-tool', package_id: 'pkg-1' }]);
+    expect(publishCalls).toEqual([{ package_id: 'pkg-1' }]);
     expect(gitIn(fx.forkBare, 'show', 'refs/heads/main:src/util.ts')).toBe('export const VERSION = 2;\n');
   });
 
@@ -628,5 +628,55 @@ describe('packages/kody (@brandontroberts/graft-sync)', () => {
       whenOffline: 'queue',
       queueMinutes: 1440,
     });
+  });
+
+  it('resolves bare-leaf fork.kody_id via resolvePackageName and treats dispatched publish as clean', async () => {
+    const fx = await setupKodyFork();
+    const next = await fx.commitUpstream({ 'src/util.ts': 'export const VERSION = 2;\n' }, 'upstream v2');
+    const storage = createSqliteBucket();
+    await upsertForkPolicy(storage, {
+      forkKodyId: '@brandontroberts/my-tool',
+      mode: 'publish',
+      graftCommand: [process.execPath, GRAFT_BIN],
+      workspaceRoot: fx.workspaceRoot,
+    });
+
+    const baseEvent = fx.makeEvent(next);
+    const bareLeafEvent: CommunityForkUpstreamUpdatedEvent = {
+      ...baseEvent,
+      listing: { ...baseEvent.listing, name: '@upstream/my-tool', kody_id: 'my-tool' },
+      fork: { ...baseEvent.fork, kody_id: 'my-tool', package_id: 'pkg-uuid-1' },
+    };
+
+    // Without resolvePackageName, a bare leaf must fail loudly.
+    await expect(
+      syncForkFromUpstreamEvent(bareLeafEvent, {
+        command: createHostRunner(),
+        storage,
+        forkGitUrl: `file://${fx.forkBare}`,
+      }),
+    ).rejects.toThrow(/Invalid fork kody_id: "my-tool"/);
+
+    // With resolvePackageName (backed by kody.packageGet in production), it resolves @owner/leaf,
+    // loads the saved policy, uses listing.name for upstreamKodyId, and treats dispatched as clean.
+    const publishCalls: Array<{ kody_id?: string; package_id?: string }> = [];
+    const run = await syncForkFromUpstreamEvent(bareLeafEvent, {
+      command: createHostRunner(),
+      storage,
+      forkGitUrl: `file://${fx.forkBare}`,
+      resolvePackageName: async (packageId) => (packageId === 'pkg-uuid-1' ? '@brandontroberts/my-tool' : undefined),
+      publisher: {
+        async publish(input) {
+          publishCalls.push(input);
+          return { status: 'dispatched' };
+        },
+      },
+    });
+    expect(run.outcome, JSON.stringify(run)).toBe('green');
+    expect(run.forkKodyId).toBe('@brandontroberts/my-tool');
+    expect(run.upstreamKodyId).toBe('@upstream/my-tool');
+    expect(run.publishStatus).toBe('dispatched');
+    expect(run.warnings).toEqual([]);
+    expect(publishCalls).toEqual([{ package_id: 'pkg-uuid-1' }]);
   });
 });

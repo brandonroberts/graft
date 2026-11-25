@@ -21,6 +21,8 @@ export interface SyncDependencies {
   storage?: StorageBucket;
   publisher?: ExternalPublisher;
   emitter?: SyncEventEmitter;
+  /** Resolve a package UUID to its scoped `@owner/leaf` name when `event.fork.kody_id` is a bare leaf. */
+  resolvePackageName?: (packageId: string) => Promise<string | undefined>;
   /** Override policy instead of reading from `storage` (useful for tests or manual runs). */
   policy?: ForkPolicy;
   /** Override the fork's git URL (defaults to `${kodyOrigin}/${fork.kody_id}.git`). */
@@ -320,8 +322,12 @@ async function adoptAndCommit(
  */
 export async function syncForkFromUpstreamEvent(event: CommunityForkUpstreamUpdatedEvent, deps: SyncDependencies): Promise<SyncRunRecord> {
   const now = (deps.now ?? (() => new Date()))();
-  const forkKodyId = event.fork.kody_id;
-  const upstreamKodyId = event.listing.kody_id;
+  let forkKodyId = event.fork.kody_id;
+  if (!KODY_ID_RE.test(forkKodyId) && event.fork.package_id && deps.resolvePackageName) {
+    const resolved = await deps.resolvePackageName(event.fork.package_id);
+    if (resolved) forkKodyId = resolved;
+  }
+  const upstreamKodyId = event.listing.name || event.listing.kody_id;
   const toCommit = event.current.pinned_commit;
   const fromCommit = event.fork.origin_commit || event.previous.pinned_commit || '';
 
@@ -518,10 +524,11 @@ export async function syncForkFromUpstreamEvent(event: CommunityForkUpstreamUpda
         if (!deps.publisher) {
           record.warnings.push('policy mode is "publish" but no publisher was provided; commit was pushed without publishing');
         } else {
-          const pub = await deps.publisher.publish({ kody_id: forkKodyId, package_id: event.fork.package_id });
+          const pubInput = event.fork.package_id ? { package_id: event.fork.package_id } : { kody_id: forkKodyId };
+          const pub = await deps.publisher.publish(pubInput);
           record.publishStatus = pub.status;
           if (pub.approval_url) record.approvalUrl = pub.approval_url;
-          if (pub.status !== 'published' && pub.status !== 'already_published') {
+          if (pub.status !== 'published' && pub.status !== 'already_published' && pub.status !== 'dispatched') {
             record.warnings.push(`publish returned status "${pub.status}"${pub.error ? `: ${pub.error}` : ''}`);
           }
         }

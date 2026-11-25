@@ -19,6 +19,7 @@ export default async function onUpstreamUpdated(params?: Record<string, unknown>
   return syncForkFromUpstreamEvent(event, {
     command: kody.command,
     storage: packageStorage(),
+    resolvePackageName: async (packageId) => (await kody.packageGet({ package_id: packageId })).name,
     publisher: {
       publish: (input) => kody.packagePublishExternalPush(input),
     },
