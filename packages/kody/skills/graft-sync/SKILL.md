@@ -15,8 +15,16 @@ Use this skill when:
 1. Check Execution Contexts (`executionContextList`). Verify one context is online with host commands enabled (`commands.enabled`) and `kody auth setup-git` configured.
    - If not, give the user the exact one-time commands to run on their machine (`kody login`, `kody auth setup-git`, `kody connect --name <name>`, `kody context commands on`) and wait — only the machine owner can turn host commands on.
 2. Fork `/@brandontroberts/graft-sync` into the user's org (`communityFork`), review, and publish it (becomes `@<you>/graft-sync`).
-3. Route `@<you>/graft-sync`'s `community.fork.upstream_updated` subscription to the user's Execution Context with `automationExecutionSet`.
-4. No global `graft` install is required: `@<you>/graft-sync` uses `graft` when on `PATH` and automatically falls back to `npx -y @graftsync/cli@latest`.
+3. Enable `@<you>/graft-sync`'s `community.fork.upstream_updated` subscription (Kody does not auto-enable subscriptions on publish):
+   ```ts
+   enablementEnable({
+     packageId: '<graft-sync-package-id>',
+     triggerKind: 'subscription',
+     triggerName: 'community.fork.upstream_updated',
+   });
+   ```
+4. Route `@<you>/graft-sync`'s `community.fork.upstream_updated` subscription to the user's Execution Context with `automationExecutionSet` (`context: '<context-name>'`, `whenOffline: 'queue'`, `queueMinutes: 1440`) — required whenever the context isn't already in the org's default fallback chain.
+5. No global `graft` install is required: `@<you>/graft-sync` probes `graft` and automatically falls back to `npx -y @graftsync/cli@latest` when `graft` is not on `PATH`.
 
 ## 2. Onboarding forked Kody packages
 
@@ -37,8 +45,11 @@ Use this skill when:
    - Edit `.grafts/upstream-sync/graft.md`:
      - Fill in **Why** (the `communityFork` scope/topic rewrites plus behavioral customizations), **Invariants** (observable behaviors + which tests cover them), **Where to look** (by behavior, not line numbers), and **Anchors**.
      - **Never write `kody:` followed by another user's `@scope/`** inside `graft.md` — Kody's publish cross-scope check scans docs too. Use plain `@<origin>/<leaf>` and `https://kody.codes/@<origin>/<leaf>.git`.
-   - Run `npx -y @graftsync/cli@latest sync` until it exits `0`, confirm `.grafts/.cache/` and `.grafts/.report/` are gitignored, commit, push, and publish.
+   - Run `npx -y @graftsync/cli@latest sync` and the fork's own tests until both pass, confirm `.grafts/.cache/` and `.grafts/.report/` are gitignored, commit, push, and publish.
    - Save the chosen policy via `setPolicy({ forkKodyId: '@<you>/<leaf>', ... })`.
+3. Smoke-test one onboarded fork end-to-end via `packageSubscriptionDispatch` (with a `community.fork.upstream_updated` payload at the fork's current `origin_commit`), then confirm:
+   - `getRun({ id })` shows `outcome: "green"`, `warnings: []`, and a populated `reportMd` (`.grafts/.report/sync.md`),
+   - `workflowRunList` shows the `./emit-sync-completed` cloud workflow completed and dispatched `@<you>/graft.sync.completed`.
 
 ## 3. Resolving a `needs-agent` run
 
