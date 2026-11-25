@@ -1,4 +1,4 @@
-# @brandontroberts/graft-sync
+# @brandontroberts/sync-fork
 
 Kody package for keeping forked Kody community packages in sync with upstream using [Graft](https://github.com/brandonroberts/graft).
 
@@ -11,13 +11,13 @@ Keep local customizations on forked Kody community packages working across upstr
 Paste this once into Claude Code, Codex, Cursor, or any coding agent connected to Kody MCP:
 
 ````text
-Set up Graft Sync (/@brandontroberts/graft-sync) in my Kody account so my forked
+Set up Sync Fork (/@brandontroberts/sync-fork) in my Kody account so my forked
 Kody community packages stay in sync with upstream automatically.
 
 1. Check my Kody Execution Contexts (`executionContextList`). If I don't have one
    ready with `kody auth setup-git` and host commands enabled, give me the exact
    one-time command(s) to run on my machine and wait for me.
-2. Fork `/@brandontroberts/graft-sync` into my org (`communityFork`), publish it,
+2. Fork `/@brandontroberts/sync-fork` into my org (`communityFork`), publish it,
    enable its `community.fork.upstream_updated` subscription (`enablementEnable`),
    and route that subscription to my Execution Context (`automationExecutionSet`
    with `context: "<my-context>"`, `whenOffline: "queue"`, `queueMinutes: 1440`).
@@ -50,7 +50,7 @@ No global `graft` install is required — if `graft` is not on `PATH`, the packa
    - If `agentCommand` is set, adopts the conflict-marked `-agent` branch, runs `agentCommand` with `GRAFT_PROMPT_FILE` and `GRAFT_REPORT_MD`, verifies no conflict markers remain, then **re-runs `graft sync`** (and `testCommand`) before concluding the merge and pushing — never trusting the agent blindly.
    - Otherwise (or if the agent did not resolve cleanly), pushes `graft/agent-<short-sha>` and saves conflicting paths + `reportMd` in `packageStorage()`.
 6. **Tooling errors (exit `2`):** records the failure loudly in `packageStorage()` and never pushes or publishes.
-7. **Completion event:** after persisting the run, emits `@brandontroberts/graft.sync.completed` (directly on cloud, or by scheduling `./emit-sync-completed` on Kody Cloud via `workflows.create` when running on a local Execution Context, where Kody disables `events.dispatch`).
+7. **Completion event:** after persisting the run, emits `@brandontroberts/sync-fork.completed` (directly on cloud, or by scheduling `./emit-sync-completed` on Kody Cloud via `workflows.create` when running on a local Execution Context, where Kody disables `events.dispatch`).
 
 ## Manual Execution Context setup (one-time)
 
@@ -82,8 +82,8 @@ kody context commands on
 If you don't set `agentCommand`, hand any `needs-agent` run to your agent:
 
 ```text
-Check `listRuns` on `@<you>/graft-sync` and resolve the `needs-agent` sync for
-`@<you>/<leaf>` following the `graft-sync` skill. Preserve every Invariant in
+Check `listRuns` on `@<you>/sync-fork` and resolve the `needs-agent` sync for
+`@<you>/<leaf>` following the `sync-fork` skill. Preserve every Invariant in
 `graft.md`, verify with `graft sync` and the package's tests, and summarize what
 changed before publishing.
 ```
@@ -94,11 +94,11 @@ changed before publishing.
 - `listRuns` / `getRun` — inspect recent sync runs, conflicts, `agentRan`, `approvalUrl`, and `.grafts/.report/sync.md` (`reportMd`)
 - `syncFork` — trigger a manual sync for a fork against a specific upstream commit SHA
 - `./on-upstream-updated` — subscription handler for `community.fork.upstream_updated`
-- `./emit-sync-completed` — Kody Cloud workflow export scheduled by `./on-upstream-updated` to dispatch `@brandontroberts/graft.sync.completed` from local Execution Context runs
+- `./emit-sync-completed` — Kody Cloud workflow export scheduled by `./on-upstream-updated` to dispatch `@brandontroberts/sync-fork.completed` from local Execution Context runs
 
 ## Emitted events
 
-- `@brandontroberts/graft.sync.completed` — subscribe from any email/Discord/notifier package in your org to get alerts on green syncs, `needs-agent` conflicts, approval URLs, or errors. Emitted via `./emit-sync-completed` on Kody Cloud after every Execution Context run.
+- `@brandontroberts/sync-fork.completed` — subscribe from any email/Discord/notifier package in your org to get alerts on green syncs, `needs-agent` conflicts, approval URLs, or errors. Emitted via `./emit-sync-completed` on Kody Cloud after every Execution Context run.
 
 ## Publishing from this repository
 

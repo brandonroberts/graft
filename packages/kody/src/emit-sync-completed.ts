@@ -5,7 +5,7 @@ import { getSyncRun } from './storage.ts';
 /**
  * Cloud-side completion event emitter scheduled via `workflows.create` when `onUpstreamUpdated`
  * runs on an Execution Context (where Kody disables `events.dispatch`). Reads the persisted
- * `SyncRunRecord` from `packageStorage()` and dispatches `@brandontroberts/graft.sync.completed`.
+ * `SyncRunRecord` from `packageStorage()` and dispatches `@brandontroberts/sync-fork.completed`.
  */
 export default async function emitSyncCompleted(params?: Record<string, unknown>): Promise<{ runId: string; topic: string }> {
   const runId = typeof params?.runId === 'string' ? params.runId.trim() : '';

@@ -1,6 +1,6 @@
 import type { SyncRunRecord } from './types.ts';
 
-export const COMPLETION_TOPIC = '@brandontroberts/graft.sync.completed';
+export const COMPLETION_TOPIC = '@brandontroberts/sync-fork.completed';
 
 export interface CompletionEventInput {
   topic: string;
@@ -11,7 +11,7 @@ export interface CompletionEventInput {
 export function buildCompletionEvent(record: SyncRunRecord): CompletionEventInput {
   return {
     topic: COMPLETION_TOPIC,
-    idempotencyKey: `graft-sync:${record.forkKodyId}:${record.toCommit}:${record.id}`,
+    idempotencyKey: `sync-fork:${record.forkKodyId}:${record.toCommit}:${record.id}`,
     payload: {
       runId: record.id,
       fork: record.forkKodyId,
@@ -68,7 +68,7 @@ export async function emitCompletionOrScheduleCloud(
         packageId,
         exportName: './emit-sync-completed',
         execution: { context: 'cloud' },
-        idempotencyKey: `graft-sync-emit:${record.id}`,
+        idempotencyKey: `sync-fork-emit:${record.id}`,
         params: { runId: record.id },
       });
       return 'scheduled';
@@ -82,7 +82,7 @@ export async function emitCompletionOrScheduleCloud(
     packageId,
     exportName: './emit-sync-completed',
     execution: { context: 'cloud' },
-    idempotencyKey: `graft-sync-emit:${record.id}`,
+    idempotencyKey: `sync-fork-emit:${record.id}`,
     params: { runId: record.id },
   });
   return 'scheduled';
