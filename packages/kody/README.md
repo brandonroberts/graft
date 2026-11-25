@@ -92,6 +92,12 @@ changed before publishing.
 
 - `@brandonroberts/graft.sync.completed` — subscribe from any email/Discord/notifier package in your org to get alerts on green syncs, `needs-agent` conflicts, approval URLs, or errors.
 
+## Publishing from this repository
+
+Trigger the manual **Release Kody package** workflow (`.github/workflows/release-kody.yml`) from the Actions tab (or `gh workflow run release-kody.yml`). It runs `packages/kody` tests and `kody dev check`, pushes the `packages/kody` subtree to `https://kody.codes/@brandonroberts/graft-sync.git`, and runs `kody package publish`.
+
+Required repository secret: `KODY_API_TOKEN` (a user-owned `kody_at_…` token with `package:read` and `package:write` scopes).
+
 ## License
 
 MIT

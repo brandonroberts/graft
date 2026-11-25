@@ -1,0 +1,66 @@
+# Publishes packages/kody (@brandonroberts/graft-sync) to Kody.
+# Manual only: run it from the Actions tab (or `gh workflow run release-kody.yml`) on main.
+# Separate from `.github/workflows/release.yml` (packages/kody is private and versioned
+# independently from `@graftsync/*`).
+#
+# Requires: repository secret `KODY_API_TOKEN` — a user-owned Kody API token (`kody_at_…`)
+# with `package:read` and `package:write` scopes.
+name: Release Kody package
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Run tests and `kody dev check` without pushing or publishing'
+        type: boolean
+        default: false
+      force_push:
+        description: 'Force-push the subtree split to main (only needed on first import if the Kody repo has an unrelated starter commit)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency: release-kody
+
+jobs:
+  release-kody:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # `git subtree split` needs full history for deterministic commits.
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Test packages/kody
+        run: npx vitest run packages/kody/test/kody-sync.test.ts
+      - name: Run Kody pre-publish checks
+        working-directory: packages/kody
+        run: npx -y @kodycodes/cli@latest dev check
+      - name: Push packages/kody subtree and publish to Kody
+        if: ${{ !inputs.dry_run }}
+        env:
+          KODY_API_TOKEN: ${{ secrets.KODY_API_TOKEN }}
+          FORCE_PUSH: ${{ inputs.force_push }}
+        run: |
+          if [ -z "$KODY_API_TOKEN" ]; then
+            echo "::error::Missing repository secret KODY_API_TOKEN (user-owned kody_at_... token with package:read and package:write)."
+            exit 1
+          fi
+          PKG_NAME="$(node -p "require('./packages/kody/package.json').name")"
+          REMOTE="https://kody.codes/${PKG_NAME}.git"
+          npx -y @kodycodes/cli@latest auth setup-git
+          SPLIT_SHA="$(git subtree split --prefix=packages/kody HEAD)"
+          if [ "$FORCE_PUSH" = "true" ]; then
+            git push --force "$REMOTE" "${SPLIT_SHA}:refs/heads/main"
+          else
+            git push "$REMOTE" "${SPLIT_SHA}:refs/heads/main"
+          fi
+          npx -y @kodycodes/cli@latest package publish "$PKG_NAME"
