@@ -38,7 +38,7 @@ pnpm format:check                            # oxfmt; `pnpm format` rewrites
 | `packages/cli` | The `graft` CLI, a thin front-end |
 | `packages/skill` | `SKILL.md`, which teaches agents to use Graft |
 | `packages/action` | The GitHub Action: plain ESM `.mjs`, no build step, private, used from `main` |
-| `packages/kody` | The Kody package (`@brandonroberts/graft-sync`): private, keeps forked Kody community packages in sync via repo-mode `fork` on an Execution Context |
+| `packages/kody` | The Kody package (`@brandontroberts/graft-sync`): private, keeps forked Kody community packages in sync via repo-mode `fork` on an Execution Context |
 | `tools/cjs-to-esm` | Generator for the dogfood grafts |
 | `tools/package-readme` | Writes the root README into `@graftsync/cli` on pack, with links pointed at the release tag and images at the packed commit |
 | `.grafts/` | This repo's own grafts: pacote, semver and yaml converted to native ESM; their behavior checks are `check.mjs`, run by `pnpm test:grafts` |

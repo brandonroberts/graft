@@ -2,14 +2,14 @@ import { events, kody, packageStorage } from 'kody:runtime';
 import { syncForkFromUpstreamEvent } from './sync.js';
 import type { CommunityForkUpstreamUpdatedEvent, SyncRunRecord } from './types.js';
 
-const COMPLETION_TOPIC = '@brandonroberts/graft.sync.completed';
+const COMPLETION_TOPIC = '@brandontroberts/graft.sync.completed';
 
 /**
  * Subscription handler for `community.fork.upstream_updated`.
  *
  * Runs on your Kody Execution Context, executes `graft sync --json` against the upstream listing's
  * new `pinned_commit`, persists the result in `packageStorage()`, and emits
- * `@brandonroberts/graft.sync.completed` for downstream notifier packages.
+ * `@brandontroberts/graft.sync.completed` for downstream notifier packages.
  */
 export default async function onUpstreamUpdated(event: CommunityForkUpstreamUpdatedEvent): Promise<SyncRunRecord> {
   return syncForkFromUpstreamEvent(event, {

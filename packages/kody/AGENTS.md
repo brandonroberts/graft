@@ -1,12 +1,12 @@
 # AGENTS.md
 
-Guidance for coding agents working with `@brandonroberts/graft-sync`.
+Guidance for coding agents working with `@brandontroberts/graft-sync`.
 
 ## What this package does
 
 - Subscribes to `community.fork.upstream_updated` and runs Graft's repo-mode `fork` sync on the owner's Kody Execution Context via `kody.command.run({ file, args })`.
 - Stores per-fork policies (`fork_policies`) and sync run history (`sync_runs`) in `packageStorage()`.
-- Emits `@brandonroberts/graft.sync.completed` after every run.
+- Emits `@brandontroberts/graft.sync.completed` after every run.
 
 ## Rules
 

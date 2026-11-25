@@ -35,7 +35,7 @@ export type SyncPushMode = 'branch' | 'push' | 'publish';
 
 /** Per-fork configuration stored in `packageStorage()`. */
 export interface ForkPolicy {
-  /** Fork package identity (e.g. `@brandonroberts/my-fork`). */
+  /** Fork package identity (e.g. `@brandontroberts/my-fork`). */
   forkKodyId: string;
   /**
    * - `branch` (default): push adopted merge to `graft/sync-<short-sha>` without touching the default branch.

@@ -1,6 +1,6 @@
 ---
 name: graft-sync
-description: Set up @brandonroberts/graft-sync in Kody, onboard forked Kody community packages into Graft repo mode, configure sync policies (including agentCommand), and resolve needs-agent sync runs.
+description: Set up @brandontroberts/graft-sync in Kody, onboard forked Kody community packages into Graft repo mode, configure sync policies (including agentCommand), and resolve needs-agent sync runs.
 ---
 
 # Graft Sync for Kody Forks
@@ -14,7 +14,7 @@ Use this skill when:
 
 1. Check Execution Contexts (`executionContextList`). Verify one context is online with host commands enabled (`commands.enabled`) and `kody auth setup-git` configured.
    - If not, give the user the exact one-time commands to run on their machine (`kody login`, `kody auth setup-git`, `kody connect --name <name>`, `kody context commands on`) and wait — only the machine owner can turn host commands on.
-2. Fork `/@brandonroberts/graft-sync` into the user's org (`communityFork`), review, and publish it (becomes `@<you>/graft-sync`).
+2. Fork `/@brandontroberts/graft-sync` into the user's org (`communityFork`), review, and publish it (becomes `@<you>/graft-sync`).
 3. Route `@<you>/graft-sync`'s `community.fork.upstream_updated` subscription to the user's Execution Context with `automationExecutionSet`.
 4. No global `graft` install is required: `@<you>/graft-sync` uses `graft` when on `PATH` and automatically falls back to `npx -y @graftsync/cli@latest`.
 

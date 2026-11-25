@@ -102,7 +102,7 @@ interface Fixture {
 /**
  * Create a realistic Kody fork setup:
  * - `upstream`: public upstream package repo (no tags, optional package.json#version)
- * - `forkBare`: bare remote representing `https://kody.codes/@brandonroberts/my-tool.git`
+ * - `forkBare`: bare remote representing `https://kody.codes/@brandontroberts/my-tool.git`
  *   with an unrelated initial commit (just like `communityFork`), scope rewrite in `package.json`,
  *   a behavioral customization in `src/index.ts`, and `.grafts/upstream-sync/` scaffolded via real `graft add`.
  */
@@ -151,7 +151,7 @@ async function setupKodyFork(opts: { withGraft?: boolean; initialVersion?: strin
   gitIn(forkWork, 'init', '-q');
   gitIn(forkWork, 'remote', 'add', 'origin', `file://${forkBare}`);
 
-  const forkPkg = { ...pkgBase, name: '@brandonroberts/my-tool' };
+  const forkPkg = { ...pkgBase, name: '@brandontroberts/my-tool' };
   await writeFile(path.join(forkWork, 'package.json'), `${JSON.stringify(forkPkg, null, 2)}\n`);
   await writeFile(path.join(forkWork, 'src/index.ts'), 'export function greet(name: string) {\n  return `howdy ${name}!`;\n}\n');
   await writeFile(path.join(forkWork, 'src/util.ts'), 'export const VERSION = 1;\n');
@@ -198,7 +198,7 @@ async function setupKodyFork(opts: { withGraft?: boolean; initialVersion?: strin
     fork: {
       id: 'frk-1',
       package_id: 'pkg-1',
-      kody_id: '@brandonroberts/my-tool',
+      kody_id: '@brandontroberts/my-tool',
       origin_commit: originCommit,
       forked_at: '2026-11-24T00:00:00.000Z',
     },
@@ -210,7 +210,7 @@ async function setupKodyFork(opts: { withGraft?: boolean; initialVersion?: strin
   return { root, upstream, forkBare, workspaceRoot, originCommit, commitUpstream, makeEvent };
 }
 
-describe('packages/kody (@brandonroberts/graft-sync)', () => {
+describe('packages/kody (@brandontroberts/graft-sync)', () => {
   it('skips non-grafted forks cleanly and records skipped-no-graft', async () => {
     const fx = await setupKodyFork({ withGraft: false });
     const next = await fx.commitUpstream({ 'src/util.ts': 'export const VERSION = 2;\n' }, 'bump util');
@@ -221,7 +221,7 @@ describe('packages/kody (@brandonroberts/graft-sync)', () => {
       storage,
       forkGitUrl: `file://${fx.forkBare}`,
       policy: {
-        forkKodyId: '@brandonroberts/my-tool',
+        forkKodyId: '@brandontroberts/my-tool',
         mode: 'branch',
         graftCommand: [process.execPath, GRAFT_BIN],
         workspaceRoot: fx.workspaceRoot,
@@ -242,7 +242,7 @@ describe('packages/kody (@brandonroberts/graft-sync)', () => {
     const emitted: SyncRunRecord[] = [];
 
     await upsertForkPolicy(storage, {
-      forkKodyId: '@brandonroberts/my-tool',
+      forkKodyId: '@brandontroberts/my-tool',
       mode: 'branch',
       graftCommand: [process.execPath, GRAFT_BIN],
       workspaceRoot: fx.workspaceRoot,
@@ -285,7 +285,7 @@ describe('packages/kody (@brandonroberts/graft-sync)', () => {
     const publisher: ExternalPublisher = {
       async publish(input) {
         publishCalls.push(input);
-        return { status: 'locked', approval_url: 'https://kody.codes/@brandonroberts/my-tool/approve?commit=abc' };
+        return { status: 'locked', approval_url: 'https://kody.codes/@brandontroberts/my-tool/approve?commit=abc' };
       },
     };
 
@@ -296,7 +296,7 @@ describe('packages/kody (@brandonroberts/graft-sync)', () => {
       publisher,
       forkGitUrl: `file://${fx.forkBare}`,
       policy: {
-        forkKodyId: '@brandonroberts/my-tool',
+        forkKodyId: '@brandontroberts/my-tool',
         mode: 'publish',
         testCommand: 'exit 1',
         graftCommand: [process.execPath, GRAFT_BIN],
@@ -316,7 +316,7 @@ describe('packages/kody (@brandonroberts/graft-sync)', () => {
       publisher,
       forkGitUrl: `file://${fx.forkBare}`,
       policy: {
-        forkKodyId: '@brandonroberts/my-tool',
+        forkKodyId: '@brandontroberts/my-tool',
         mode: 'publish',
         testCommand: 'node -e "process.exit(0)"',
         graftCommand: [process.execPath, GRAFT_BIN],
@@ -327,8 +327,8 @@ describe('packages/kody (@brandonroberts/graft-sync)', () => {
     expect(ok.outcome, JSON.stringify(ok)).toBe('green');
     expect(ok.branch).toBe('main');
     expect(ok.publishStatus).toBe('locked');
-    expect(ok.approvalUrl).toBe('https://kody.codes/@brandonroberts/my-tool/approve?commit=abc');
-    expect(publishCalls).toEqual([{ kody_id: '@brandonroberts/my-tool', package_id: 'pkg-1' }]);
+    expect(ok.approvalUrl).toBe('https://kody.codes/@brandontroberts/my-tool/approve?commit=abc');
+    expect(publishCalls).toEqual([{ kody_id: '@brandontroberts/my-tool', package_id: 'pkg-1' }]);
     expect(gitIn(fx.forkBare, 'show', 'refs/heads/main:src/util.ts')).toBe('export const VERSION = 2;\n');
   });
 
@@ -345,7 +345,7 @@ describe('packages/kody (@brandonroberts/graft-sync)', () => {
       storage,
       forkGitUrl: `file://${fx.forkBare}`,
       policy: {
-        forkKodyId: '@brandonroberts/my-tool',
+        forkKodyId: '@brandontroberts/my-tool',
         mode: 'branch',
         graftCommand: [process.execPath, GRAFT_BIN],
         workspaceRoot: fx.workspaceRoot,
@@ -359,7 +359,7 @@ describe('packages/kody (@brandonroberts/graft-sync)', () => {
     expect(record.reportMd).toContain('# Graft sync report');
     expect(gitIn(fx.forkBare, 'show', `refs/heads/${record.branch}:src/index.ts`)).toContain('<<<<<<<');
 
-    const runs = await listSyncRuns(storage, { forkKodyId: '@brandonroberts/my-tool' });
+    const runs = await listSyncRuns(storage, { forkKodyId: '@brandontroberts/my-tool' });
     expect(runs).toHaveLength(1);
     expect(runs[0]?.conflicts).toEqual(['src/index.ts']);
   });
@@ -385,7 +385,7 @@ describe('packages/kody (@brandonroberts/graft-sync)', () => {
       storage,
       forkGitUrl: `file://${fx.forkBare}`,
       policy: {
-        forkKodyId: '@brandonroberts/my-tool',
+        forkKodyId: '@brandontroberts/my-tool',
         mode: 'branch',
         pushAgentBranch: false,
         graftCommand: [process.execPath, GRAFT_BIN],
@@ -402,7 +402,7 @@ describe('packages/kody (@brandonroberts/graft-sync)', () => {
       storage,
       forkGitUrl: `file://${fx.forkBare}`,
       policy: {
-        forkKodyId: '@brandonroberts/my-tool',
+        forkKodyId: '@brandontroberts/my-tool',
         mode: 'branch',
         allowZeroConflictPackageJson: true,
         graftCommand: [process.execPath, GRAFT_BIN],
@@ -416,7 +416,7 @@ describe('packages/kody (@brandonroberts/graft-sync)', () => {
       name: string;
       version: string;
     };
-    expect(mergedPkg.name).toBe('@brandonroberts/my-tool');
+    expect(mergedPkg.name).toBe('@brandontroberts/my-tool');
     expect(mergedPkg.version).toBe('1.0.1');
 
     // A genuine git conflict in package.json (adjacent line edited) still stays needs-agent even with the flag on.
@@ -431,7 +431,7 @@ describe('packages/kody (@brandonroberts/graft-sync)', () => {
       storage,
       forkGitUrl: `file://${fx.forkBare}`,
       policy: {
-        forkKodyId: '@brandonroberts/my-tool',
+        forkKodyId: '@brandontroberts/my-tool',
         mode: 'branch',
         allowZeroConflictPackageJson: true,
         pushAgentBranch: false,
@@ -454,7 +454,7 @@ describe('packages/kody (@brandonroberts/graft-sync)', () => {
       storage,
       forkGitUrl: `file://${fx.forkBare}`,
       policy: {
-        forkKodyId: '@brandonroberts/my-tool',
+        forkKodyId: '@brandontroberts/my-tool',
         mode: 'branch',
         graftCommand: [process.execPath, GRAFT_BIN],
         workspaceRoot: fx.workspaceRoot,
@@ -489,7 +489,7 @@ describe('packages/kody (@brandonroberts/graft-sync)', () => {
       command: runner,
       forkGitUrl: `file://${fx.forkBare}`,
       policy: {
-        forkKodyId: '@brandonroberts/my-tool',
+        forkKodyId: '@brandontroberts/my-tool',
         mode: 'branch',
         workspaceRoot: fx.workspaceRoot,
         updatedAt: '2026-11-24T01:00:00.000Z',
@@ -514,7 +514,7 @@ describe('packages/kody (@brandonroberts/graft-sync)', () => {
       storage,
       forkGitUrl: `file://${fx.forkBare}`,
       policy: {
-        forkKodyId: '@brandonroberts/my-tool',
+        forkKodyId: '@brandontroberts/my-tool',
         mode: 'branch',
         agentCommand: 'node -e "process.exit(0)"',
         graftCommand: [process.execPath, GRAFT_BIN],
@@ -546,7 +546,7 @@ describe('packages/kody (@brandonroberts/graft-sync)', () => {
       storage,
       forkGitUrl: `file://${fx.forkBare}`,
       policy: {
-        forkKodyId: '@brandonroberts/my-tool',
+        forkKodyId: '@brandontroberts/my-tool',
         mode: 'branch',
         agentCommand: `"${process.execPath}" "${agentScript}"`,
         graftCommand: [process.execPath, GRAFT_BIN],
@@ -572,7 +572,7 @@ describe('packages/kody (@brandonroberts/graft-sync)', () => {
     expect(await listForkPolicies(storage)).toEqual([]);
 
     const saved = await upsertForkPolicy(storage, {
-      forkKodyId: '@brandonroberts/alpha',
+      forkKodyId: '@brandontroberts/alpha',
       mode: 'publish',
       testCommand: 'npm test',
       agentCommand: 'claude -p "$(cat "$GRAFT_PROMPT_FILE")"',
@@ -581,17 +581,17 @@ describe('packages/kody (@brandonroberts/graft-sync)', () => {
     });
     expect(saved.mode).toBe('publish');
     expect(saved.agentCommand).toBe('claude -p "$(cat "$GRAFT_PROMPT_FILE")"');
-    expect(await getForkPolicy(storage, '@brandonroberts/alpha')).toMatchObject({
+    expect(await getForkPolicy(storage, '@brandontroberts/alpha')).toMatchObject({
       mode: 'publish',
       testCommand: 'npm test',
       agentCommand: 'claude -p "$(cat "$GRAFT_PROMPT_FILE")"',
       graftCommand: ['npx', '-y', '@graftsync/cli@latest'],
       allowZeroConflictPackageJson: true,
     });
-    expect((await listForkPolicies(storage)).map((p) => p.forkKodyId)).toEqual(['@brandonroberts/alpha']);
+    expect((await listForkPolicies(storage)).map((p) => p.forkKodyId)).toEqual(['@brandontroberts/alpha']);
 
-    expect(await deleteForkPolicy(storage, '@brandonroberts/alpha')).toBe(true);
-    expect(await getForkPolicy(storage, '@brandonroberts/alpha')).toBeUndefined();
+    expect(await deleteForkPolicy(storage, '@brandontroberts/alpha')).toBe(true);
+    expect(await getForkPolicy(storage, '@brandontroberts/alpha')).toBeUndefined();
   });
 
   it('contains no cross-scope kody:@ strings that would trip Kody publish checks', async () => {

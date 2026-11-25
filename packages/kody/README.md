@@ -1,4 +1,4 @@
-# @brandonroberts/graft-sync
+# @brandontroberts/graft-sync
 
 Kody package for keeping forked Kody community packages in sync with upstream using [Graft](https://github.com/brandonroberts/graft).
 
@@ -11,13 +11,13 @@ Keep local customizations on forked Kody community packages working across upstr
 Paste this once into Claude Code, Codex, Cursor, or any coding agent connected to Kody MCP:
 
 ````text
-Set up Graft Sync (/@brandonroberts/graft-sync) in my Kody account so my forked
+Set up Graft Sync (/@brandontroberts/graft-sync) in my Kody account so my forked
 Kody community packages stay in sync with upstream automatically.
 
 1. Check my Kody Execution Contexts (`executionContextList`). If I don't have one
    ready with `kody auth setup-git` and host commands enabled, give me the exact
    one-time command(s) to run on my machine and wait for me.
-2. Fork `/@brandonroberts/graft-sync` into my org (`communityFork`), publish it,
+2. Fork `/@brandontroberts/graft-sync` into my org (`communityFork`), publish it,
    and bind its `community.fork.upstream_updated` subscription to my Execution
    Context (`automationExecutionSet`).
 3. List my forked community packages (`packageList`), diff each against its
@@ -43,7 +43,7 @@ No global `graft` install is required — if `graft` is not on `PATH`, the packa
 4. **Green (exit `0`):** adopts Graft's materialized result as a two-parent merge commit (keeping upstream's `pinned_commit` in git history), runs an optional `testCommand`, and pushes according to the fork's policy (`branch` by default, or `push` / `publish`).
 5. **Conflicts (`needs-agent`, exit `1`):**
    - If `agentCommand` is set, adopts the conflict-marked `-agent` branch, runs `agentCommand` with `GRAFT_PROMPT_FILE` and `GRAFT_REPORT_MD`, then **re-runs `graft sync`** (and `testCommand`) before concluding the merge and pushing — never trusting the agent blindly.
-   - Otherwise (or if the agent did not resolve cleanly), pushes `graft/agent-<short-sha>`, saves `.grafts/.report/sync.md` and conflicting paths in `packageStorage()`, and emits `@brandonroberts/graft.sync.completed`.
+   - Otherwise (or if the agent did not resolve cleanly), pushes `graft/agent-<short-sha>`, saves `.grafts/.report/sync.md` and conflicting paths in `packageStorage()`, and emits `@brandontroberts/graft.sync.completed`.
 6. **Tooling errors (exit `2`):** records the failure loudly in `packageStorage()` and never pushes or publishes.
 
 ## Manual Execution Context setup (one-time)
@@ -90,11 +90,11 @@ changed before publishing.
 
 ## Emitted events
 
-- `@brandonroberts/graft.sync.completed` — subscribe from any email/Discord/notifier package in your org to get alerts on green syncs, `needs-agent` conflicts, approval URLs, or errors.
+- `@brandontroberts/graft.sync.completed` — subscribe from any email/Discord/notifier package in your org to get alerts on green syncs, `needs-agent` conflicts, approval URLs, or errors.
 
 ## Publishing from this repository
 
-Trigger the manual **Release Kody package** workflow (`.github/workflows/release-kody.yml`) from the Actions tab (or `gh workflow run release-kody.yml`). It runs `packages/kody` tests and `kody dev check`, pushes the `packages/kody` subtree to `https://kody.codes/@brandonroberts/graft-sync.git`, and runs `kody package publish`.
+Trigger the manual **Release Kody package** workflow (`.github/workflows/release-kody.yml`) from the Actions tab (or `gh workflow run release-kody.yml`). It runs `packages/kody` tests and `kody dev check`, pushes the `packages/kody` subtree to `https://kody.codes/@brandontroberts/graft-sync.git`, and runs `kody package publish`.
 
 Required repository secret: `KODY_API_TOKEN` (a user-owned `kody_at_…` token with `package:read` and `package:write` scopes).
 
