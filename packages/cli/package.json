@@ -1,6 +1,6 @@
 {
   "name": "@graftsync/cli",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "description": "The graft CLI: keep local patches, overrides, and forks of upstream packages (npm, Cargo, Go, PyPI) in sync across releases.",
   "type": "module",
   "license": "MIT",
