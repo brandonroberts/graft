@@ -57,8 +57,14 @@ jobs:
           PKG_NAME="$(node -p "require('./packages/kody/package.json').name")"
           REMOTE="https://kody.codes/${PKG_NAME}.git"
           npx -y @kodycodes/cli@latest auth setup-git
+          CREATED="$(
+            npx -y @kodycodes/cli@latest api packageGetGitRemote \
+              --params "{\"create\":true,\"name\":\"${PKG_NAME}\"}" \
+              --json \
+              | node -e "const d = JSON.parse(require('node:fs').readFileSync(0, 'utf8')); console.log(d.created ? 'true' : 'false');"
+          )"
           SPLIT_SHA="$(git subtree split --prefix=packages/kody HEAD)"
-          if [ "$FORCE_PUSH" = "true" ]; then
+          if [ "$CREATED" = "true" ] || [ "$FORCE_PUSH" = "true" ]; then
             git push --force "$REMOTE" "${SPLIT_SHA}:refs/heads/main"
           else
             git push "$REMOTE" "${SPLIT_SHA}:refs/heads/main"
