@@ -22,6 +22,9 @@
         "handler": "./src/on-upstream-updated.ts",
         "description": "Run graft sync on your Execution Context when an upstream community listing republishes.",
         "execution": {
+          "requires": [
+            "fs"
+          ],
           "whenOffline": "queue",
           "queueMinutes": 1440
         }

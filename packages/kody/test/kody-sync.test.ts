@@ -612,4 +612,21 @@ describe('packages/kody (@brandontroberts/graft-sync)', () => {
       expect(content, `${rel} must not contain cross-scope kody:@ references`).not.toMatch(/kody:@[a-z0-9._-]+\//i);
     }
   });
+
+  it('declares valid Kody subscription execution routing requiring local fs', async () => {
+    const pkg = JSON.parse(await readFile(path.resolve(HERE, '..', 'package.json'), 'utf8')) as {
+      kody?: {
+        subscriptions?: Record<
+          string,
+          { execution?: { context?: string; chain?: string[]; requires?: string[]; whenOffline?: string; queueMinutes?: number } }
+        >;
+      };
+    };
+    const execution = pkg.kody?.subscriptions?.['community.fork.upstream_updated']?.execution;
+    expect(execution).toEqual({
+      requires: ['fs'],
+      whenOffline: 'queue',
+      queueMinutes: 1440,
+    });
+  });
 });
