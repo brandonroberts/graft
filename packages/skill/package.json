@@ -1,6 +1,6 @@
 {
   "name": "@graftsync/skill",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "description": "Agent skill (SKILL.md) teaching coding agents when to use Graft and how to sync local patches, overrides, and forks across upstream releases.",
   "license": "MIT",
   "repository": {
