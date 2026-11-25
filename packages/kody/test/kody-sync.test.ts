@@ -1,13 +1,14 @@
 import { execFile, execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { deleteForkPolicy, getForkPolicy, getSyncRun, listForkPolicies, listSyncRuns, upsertForkPolicy } from '../src/storage.js';
-import { syncForkFromUpstreamEvent } from '../src/sync.js';
-import type { CommandRunner, CommunityForkUpstreamUpdatedEvent, ExternalPublisher, StorageBucket, SyncRunRecord } from '../src/types.js';
+import { deleteForkPolicy, getForkPolicy, getSyncRun, listForkPolicies, listSyncRuns, upsertForkPolicy } from '../src/storage.ts';
+import { syncForkFromUpstreamEvent } from '../src/sync.ts';
+import type { CommandRunner, CommunityForkUpstreamUpdatedEvent, ExternalPublisher, StorageBucket, SyncRunRecord } from '../src/types.ts';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const GRAFT_BIN = path.resolve(HERE, '../../cli/dist/bin.js');
@@ -678,5 +679,19 @@ describe('packages/kody (@brandontroberts/graft-sync)', () => {
     expect(run.publishStatus).toBe('dispatched');
     expect(run.warnings).toEqual([]);
     expect(publishCalls).toEqual([{ package_id: 'pkg-uuid-1' }]);
+  });
+
+  it('uses exact .ts relative import specifiers that Kody module resolution expects', async () => {
+    const srcDir = path.resolve(HERE, '..', 'src');
+    const srcFiles = ['index.ts', 'on-upstream-updated.ts', 'storage.ts', 'sync.ts', 'types.ts'];
+    const importRe = /\bfrom\s+['"](\.\.?\/[^'"]+)['"]/g;
+    for (const file of srcFiles) {
+      const content = await readFile(path.join(srcDir, file), 'utf8');
+      for (const match of content.matchAll(importRe)) {
+        const spec = match[1]!;
+        const target = path.resolve(srcDir, spec);
+        expect(existsSync(target), `${file} imports "${spec}" which does not exist at ${target}`).toBe(true);
+      }
+    }
   });
 });

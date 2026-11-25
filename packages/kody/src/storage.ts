@@ -1,4 +1,4 @@
-import type { ForkPolicy, StorageBucket, SyncPushMode, SyncRunOutcome, SyncRunRecord } from './types.js';
+import type { ForkPolicy, StorageBucket, SyncPushMode, SyncRunOutcome, SyncRunRecord } from './types.ts';
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS fork_policies (

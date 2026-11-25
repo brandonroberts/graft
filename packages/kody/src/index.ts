@@ -1,9 +1,9 @@
 import { kody, packageStorage } from 'kody:runtime';
-import { deleteForkPolicy, getForkPolicy, listForkPolicies, listSyncRuns, getSyncRun, upsertForkPolicy } from './storage.js';
-import { syncForkFromUpstreamEvent } from './sync.js';
-import type { CommunityForkUpstreamUpdatedEvent, ForkPolicy, SyncPushMode, SyncRunRecord } from './types.js';
+import { deleteForkPolicy, getForkPolicy, listForkPolicies, listSyncRuns, getSyncRun, upsertForkPolicy } from './storage.ts';
+import { syncForkFromUpstreamEvent } from './sync.ts';
+import type { CommunityForkUpstreamUpdatedEvent, ForkPolicy, SyncPushMode, SyncRunRecord } from './types.ts';
 
-export type { CommunityForkUpstreamUpdatedEvent, ForkPolicy, SyncPushMode, SyncRunRecord } from './types.js';
+export type { CommunityForkUpstreamUpdatedEvent, ForkPolicy, SyncPushMode, SyncRunRecord } from './types.ts';
 
 /**
  * Configure how Graft syncs a specific forked Kody package.

@@ -1,5 +1,5 @@
 import semver from 'semver';
-import { defaultPolicy, getForkPolicy, saveSyncRun } from './storage.js';
+import { defaultPolicy, getForkPolicy, saveSyncRun } from './storage.ts';
 import type {
   CommandRunner,
   CommunityForkUpstreamUpdatedEvent,
@@ -9,7 +9,7 @@ import type {
   StorageBucket,
   SyncEventEmitter,
   SyncRunRecord,
-} from './types.js';
+} from './types.ts';
 
 const KODY_ID_RE = /^@[a-z0-9._-]+\/[a-z0-9._-]+$/i;
 const COMMIT_SHA_RE = /^[0-9a-f]{7,40}$/i;
