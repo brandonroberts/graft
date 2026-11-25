@@ -1,0 +1,95 @@
+{
+  "name": "@brandontroberts/graft-sync",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Kody package: keep forked Kody community packages in sync with upstream using Graft.",
+  "license": "MIT",
+  "exports": {
+    ".": "./src/index.ts",
+    "./on-upstream-updated": "./src/on-upstream-updated.ts"
+  },
+  "dependencies": {
+    "semver": "^7.7.0"
+  },
+  "kody": {
+    "description": "Automatically sync forked Kody community packages with upstream using Graft's repo-mode fork mechanism on your Execution Context.",
+    "capabilities": [
+      "packagePublishExternalPush"
+    ],
+    "subscriptions": {
+      "community.fork.upstream_updated": {
+        "handler": "./src/on-upstream-updated.ts",
+        "description": "Run graft sync on your Execution Context when an upstream community listing republishes.",
+        "execution": {
+          "whenOffline": "queue",
+          "queueMinutes": 1440
+        }
+      }
+    },
+    "emits": {
+      "@brandontroberts/graft.sync.completed": {
+        "description": "Emitted after Graft finishes checking or syncing a forked Kody package against a new upstream commit.",
+        "payloadSchema": {
+          "type": "object",
+          "properties": {
+            "runId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "fork": {
+              "type": "string",
+              "minLength": 1
+            },
+            "upstream": {
+              "type": "string",
+              "minLength": 1
+            },
+            "fromCommit": {
+              "type": "string"
+            },
+            "toCommit": {
+              "type": "string",
+              "minLength": 1
+            },
+            "outcome": {
+              "type": "string",
+              "enum": [
+                "green",
+                "needs-agent",
+                "skipped-no-graft",
+                "error"
+              ]
+            },
+            "branch": {
+              "type": "string"
+            },
+            "conflicts": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "agentRan": {
+              "type": "boolean"
+            },
+            "publishStatus": {
+              "type": "string"
+            },
+            "approvalUrl": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "runId",
+            "fork",
+            "upstream",
+            "toCommit",
+            "outcome"
+          ],
+          "additionalProperties": false
+        }
+      }
+    }
+  }
+}
