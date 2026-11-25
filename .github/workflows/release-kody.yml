@@ -1,4 +1,4 @@
-# Publishes packages/kody (@brandontroberts/graft-sync) to Kody.
+# Publishes packages/kody (@brandontroberts/sync-fork) to Kody.
 # Manual only: run it from the Actions tab (or `gh workflow run release-kody.yml`) on main.
 # Separate from `.github/workflows/release.yml` (packages/kody is private and versioned
 # independently from `@graftsync/*`).

@@ -212,7 +212,7 @@ async function setupKodyFork(opts: { withGraft?: boolean; initialVersion?: strin
   return { root, upstream, forkBare, workspaceRoot, originCommit, commitUpstream, makeEvent };
 }
 
-describe('packages/kody (@brandontroberts/graft-sync)', () => {
+describe('packages/kody (@brandontroberts/sync-fork)', () => {
   it('skips non-grafted forks cleanly and records skipped-no-graft', async () => {
     const fx = await setupKodyFork({ withGraft: false });
     const next = await fx.commitUpstream({ 'src/util.ts': 'export const VERSION = 2;\n' }, 'bump util');
@@ -603,7 +603,7 @@ describe('packages/kody (@brandontroberts/graft-sync)', () => {
       'package.json',
       'README.md',
       'AGENTS.md',
-      'skills/graft-sync/SKILL.md',
+      'skills/sync-fork/SKILL.md',
       'src/types.ts',
       'src/storage.ts',
       'src/sync.ts',
@@ -727,7 +727,7 @@ describe('packages/kody (@brandontroberts/graft-sync)', () => {
 
     expect(packageIdFromStorageId('package:b92bc7a2-3fad-4acd-8b3a-0f4a1ab82e04')).toBe('b92bc7a2-3fad-4acd-8b3a-0f4a1ab82e04');
     expect(packageIdFromStorageId(undefined)).toBeUndefined();
-    expect(buildCompletionEvent(sample).topic).toBe('@brandontroberts/graft.sync.completed');
+    expect(buildCompletionEvent(sample).topic).toBe('@brandontroberts/sync-fork.completed');
 
     // Cloud path: events.dispatch succeeds directly without scheduling a workflow.
     const dispatched: unknown[] = [];
@@ -739,7 +739,7 @@ describe('packages/kody (@brandontroberts/graft-sync)', () => {
       scheduleWorkflow: async (input) => {
         scheduled.push(input);
       },
-      storageId: 'package:pkg-graft-sync',
+      storageId: 'package:pkg-sync-fork',
     });
     expect(cloudResult).toBe('dispatched');
     expect(dispatched).toHaveLength(1);
@@ -753,15 +753,15 @@ describe('packages/kody (@brandontroberts/graft-sync)', () => {
       scheduleWorkflow: async (input) => {
         scheduled.push(input);
       },
-      storageId: 'package:pkg-graft-sync',
+      storageId: 'package:pkg-sync-fork',
     });
     expect(contextResult).toBe('scheduled');
     expect(scheduled).toEqual([
       {
-        packageId: 'pkg-graft-sync',
+        packageId: 'pkg-sync-fork',
         exportName: './emit-sync-completed',
         execution: { context: 'cloud' },
-        idempotencyKey: 'graft-sync-emit:run-42',
+        idempotencyKey: 'sync-fork-emit:run-42',
         params: { runId: 'run-42' },
       },
     ]);

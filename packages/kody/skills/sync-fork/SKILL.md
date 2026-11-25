@@ -1,30 +1,30 @@
 ---
-name: graft-sync
-description: Set up @brandontroberts/graft-sync in Kody, onboard forked Kody community packages into Graft repo mode, configure sync policies (including agentCommand), and resolve needs-agent sync runs.
+name: sync-fork
+description: Set up @brandontroberts/sync-fork in Kody, onboard forked Kody community packages into Graft repo mode, configure sync policies (including agentCommand), and resolve needs-agent sync runs.
 ---
 
-# Graft Sync for Kody Forks
+# Sync Fork for Kody Packages
 
 Use this skill when:
-1. Setting up Graft Sync in a user's Kody account for the first time.
+1. Setting up Sync Fork in a user's Kody account for the first time.
 2. Onboarding forked Kody community packages into Graft repo mode.
-3. Resolving a `needs-agent` run reported by `graft-sync` (`listRuns` / `getRun`).
+3. Resolving a `needs-agent` run reported by `sync-fork` (`listRuns` / `getRun`).
 
 ## 1. Account setup (first time)
 
 1. Check Execution Contexts (`executionContextList`). Verify one context is online with host commands enabled (`commands.enabled`) and `kody auth setup-git` configured.
    - If not, give the user the exact one-time commands to run on their machine (`kody login`, `kody auth setup-git`, `kody connect --name <name>`, `kody context commands on`) and wait — only the machine owner can turn host commands on.
-2. Fork `/@brandontroberts/graft-sync` into the user's org (`communityFork`), review, and publish it (becomes `@<you>/graft-sync`).
-3. Enable `@<you>/graft-sync`'s `community.fork.upstream_updated` subscription (Kody does not auto-enable subscriptions on publish):
+2. Fork `/@brandontroberts/sync-fork` into the user's org (`communityFork`), review, and publish it (becomes `@<you>/sync-fork`).
+3. Enable `@<you>/sync-fork`'s `community.fork.upstream_updated` subscription (Kody does not auto-enable subscriptions on publish):
    ```ts
    enablementEnable({
-     packageId: '<graft-sync-package-id>',
+     packageId: '<sync-fork-package-id>',
      triggerKind: 'subscription',
      triggerName: 'community.fork.upstream_updated',
    });
    ```
-4. Route `@<you>/graft-sync`'s `community.fork.upstream_updated` subscription to the user's Execution Context with `automationExecutionSet` (`context: '<context-name>'`, `whenOffline: 'queue'`, `queueMinutes: 1440`) — required whenever the context isn't already in the org's default fallback chain.
-5. No global `graft` install is required: `@<you>/graft-sync` probes `graft` and automatically falls back to `npx -y @graftsync/cli@latest` when `graft` is not on `PATH`.
+4. Route `@<you>/sync-fork`'s `community.fork.upstream_updated` subscription to the user's Execution Context with `automationExecutionSet` (`context: '<context-name>'`, `whenOffline: 'queue'`, `queueMinutes: 1440`) — required whenever the context isn't already in the org's default fallback chain.
+5. No global `graft` install is required: `@<you>/sync-fork` probes `graft` and automatically falls back to `npx -y @graftsync/cli@latest` when `graft` is not on `PATH`.
 
 ## 2. Onboarding forked Kody packages
 
@@ -49,7 +49,7 @@ Use this skill when:
    - Save the chosen policy via `setPolicy({ forkKodyId: '@<you>/<leaf>', ... })`.
 3. Smoke-test one onboarded fork end-to-end via `packageSubscriptionDispatch` (with a `community.fork.upstream_updated` payload at the fork's current `origin_commit`), then confirm:
    - `getRun({ id })` shows `outcome: "green"`, `warnings: []`, and a populated `reportMd` (`.grafts/.report/sync.md`),
-   - `workflowRunList` shows the `./emit-sync-completed` cloud workflow completed and dispatched `@<you>/graft.sync.completed`.
+   - `workflowRunList` shows the `./emit-sync-completed` cloud workflow completed and dispatched `@<you>/sync-fork.completed`.
 
 ## 3. Resolving a `needs-agent` run
 

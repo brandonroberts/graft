@@ -8,7 +8,7 @@ import type { CommunityForkUpstreamUpdatedEvent, SyncRunRecord } from './types.t
  *
  * Runs on your Kody Execution Context, executes `graft sync --json` against the upstream listing's
  * new `pinned_commit`, persists the result in `packageStorage()`, and emits
- * `@brandontroberts/graft.sync.completed` (directly on cloud, or via a cloud workflow running
+ * `@brandontroberts/sync-fork.completed` (directly on cloud, or via a cloud workflow running
  * `./emit-sync-completed` when executed on a local Execution Context).
  */
 export default async function onUpstreamUpdated(params?: Record<string, unknown>): Promise<SyncRunRecord> {

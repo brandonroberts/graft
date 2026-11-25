@@ -1,5 +1,5 @@
 {
-  "name": "@brandontroberts/graft-sync",
+  "name": "@brandontroberts/sync-fork",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -33,7 +33,7 @@
       }
     },
     "emits": {
-      "@brandontroberts/graft.sync.completed": {
+      "@brandontroberts/sync-fork.completed": {
         "description": "Emitted after Graft finishes checking or syncing a forked Kody package against a new upstream commit.",
         "payloadSchema": {
           "type": "object",
