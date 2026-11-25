@@ -26,6 +26,8 @@ Kody community packages stay in sync with upstream automatically.
    `push`, or `publish`, plus an optional `testCommand` or `agentCommand` for
    conflicts).
 4. For each fork I pick:
+   - run the fork's tests first and fix any `communityFork` rewrite bugs before
+     baselining it,
    - scaffold `.grafts/upstream-sync/graft.md` via `graft add --mechanism fork --in-place`
      at its `origin_commit` (using `npx -y @graftsync/cli@latest` if `graft` is not installed),
    - fill in Why, Invariants, Where to look, and Anchors (never write `kody:` +
@@ -71,7 +73,7 @@ kody context commands on
 |---|---|---|
 | `mode` | `'branch'` | `'branch'` pushes `graft/sync-<sha>`; `'push'` pushes to the default branch; `'publish'` pushes and calls `packagePublishExternalPush` (respecting `locked_at` approval URLs) |
 | `testCommand` | unset | Optional shell command run in the fork checkout before pushing a green merge (e.g. `node --test test/*.test.ts`); failures abort the push and mark `needs-agent` |
-| `agentCommand` | unset | Optional coding-agent shell command run on `needs-agent` (e.g. `claude -p "$(cat "$GRAFT_PROMPT_FILE")"`). Receives `GRAFT_PROMPT_FILE`, `GRAFT_REPORT_MD`, `GRAFT_REPORT_JSON`, `GRAFT_TARGET_VERSION`, `GRAFT_CONFLICTS`, `GRAFT_FORK_ID`, `GRAFT_UPSTREAM_ID`. Always re-verified with `graft sync` + `testCommand` |
+| `agentCommand` | unset | Optional coding-agent shell command run on `needs-agent` (use full binary path + headless edit flags since the daemon runs a non-login shell with no TTY, e.g. `/path/to/claude -p "$(cat "$GRAFT_PROMPT_FILE")" --permission-mode acceptEdits`, and check your context's `timeoutMs`). Receives `GRAFT_PROMPT_FILE`, `GRAFT_REPORT_MD`, `GRAFT_REPORT_JSON`, `GRAFT_TARGET_VERSION`, `GRAFT_CONFLICTS`, `GRAFT_FORK_ID`, `GRAFT_UPSTREAM_ID`. Always re-verified with `graft sync` + `testCommand` |
 | `graftCommand` | auto (`graft`, else `npx -y @graftsync/cli@latest`) | Override how Graft is invoked on the Execution Context |
 | `workspaceRoot` | `~/.cache/kody-graft` | Directory on the Execution Context where full fork clones are cached |
 | `pushAgentBranch` | `true` | Push `graft/agent-<sha>` with conflict markers on `needs-agent` |

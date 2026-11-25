@@ -31,6 +31,7 @@ Use this skill when:
 1. List forked packages (`packageList`), inspect how each diverges from its upstream listing, and confirm with the user which forks to track and what policy each should use (`branch` default, `push`, or `publish`, plus optional `testCommand`, `agentCommand`, or `allowZeroConflictPackageJson`).
 2. For each selected fork:
    - Clone locally (`git clone https://kody.codes/@<you>/<leaf>.git`).
+   - Run the fork's own tests first and fix any `communityFork` rewrite bugs (such as scope-stripping regexes) in a separate commit before baselining the graft, so broken behavior isn't baked into `graft.md`.
    - Find its `origin_commit` (from `packageGet` or the listing's `pinned_commit` when forked).
    - Scaffold the permanent in-place repo-mode graft:
      ```sh
