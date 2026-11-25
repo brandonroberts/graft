@@ -1,20 +1,24 @@
 import { kody, packageStorage } from 'kody:runtime';
-import { deleteForkPolicy, getForkPolicy, listForkPolicies, listSyncRuns, getSyncRun, upsertForkPolicy } from './storage.ts';
+import { policyRequiresExecutionContext, syncForkInCloud } from './cloud-sync.ts';
+import { defaultPolicy, deleteForkPolicy, getForkPolicy, getSyncRun, listForkPolicies, listSyncRuns, upsertForkPolicy } from './storage.ts';
 import { syncForkFromUpstreamEvent } from './sync.ts';
-import type { CommunityForkUpstreamUpdatedEvent, ForkPolicy, SyncPushMode, SyncRunRecord } from './types.ts';
+import type { CommunityForkUpstreamUpdatedEvent, ForkPolicy, SyncExecutionTarget, SyncPushMode, SyncRunRecord } from './types.ts';
 
-export type { CommunityForkUpstreamUpdatedEvent, ForkPolicy, SyncPushMode, SyncRunRecord } from './types.ts';
+export type { CommunityForkUpstreamUpdatedEvent, ForkPolicy, SyncExecutionTarget, SyncPushMode, SyncRunRecord } from './types.ts';
 
 /**
  * Configure how Graft syncs a specific forked Kody package.
  *
- * Defaults to `mode: "branch"` (pushes green merges to `graft/sync-<sha>` without touching your
- * default branch). Set `mode: "push"` to push to the default branch, or `mode: "publish"` to also
- * call `packagePublishExternalPush` after pushing.
+ * Defaults to `mode: "branch"` running natively in Kody Cloud (`execution: "cloud"`).
+ * Set `mode: "push"` to push to the default branch, or `mode: "publish"` to also call
+ * `packagePublishExternalPush` after pushing. Setting `testCommand`, `agentCommand`, or
+ * `execution: "context"` routes syncs for this fork to an Execution Context via `./sync-on-context`.
  */
 export async function setPolicy(input: {
   forkKodyId: string;
   mode?: SyncPushMode;
+  execution?: SyncExecutionTarget;
+  executionContext?: string;
   testCommand?: string;
   agentCommand?: string;
   graftCommand?: string[];
@@ -26,6 +30,8 @@ export async function setPolicy(input: {
   return upsertForkPolicy(packageStorage(), {
     forkKodyId: input.forkKodyId,
     mode: input.mode ?? 'branch',
+    ...(input.execution !== undefined ? { execution: input.execution } : {}),
+    ...(input.executionContext !== undefined ? { executionContext: input.executionContext } : {}),
     ...(input.testCommand !== undefined ? { testCommand: input.testCommand } : {}),
     ...(input.agentCommand !== undefined ? { agentCommand: input.agentCommand } : {}),
     ...(input.graftCommand !== undefined ? { graftCommand: input.graftCommand } : {}),
@@ -46,7 +52,7 @@ export async function listPolicies(): Promise<ForkPolicy[]> {
   return listForkPolicies(packageStorage());
 }
 
-/** Remove the saved sync policy for one forked package (reverts it to the default `branch` mode). */
+/** Remove the saved sync policy for one forked package (reverts it to the default `branch` cloud mode). */
 export async function deletePolicy(input: { forkKodyId: string }): Promise<{ deleted: boolean }> {
   return { deleted: await deleteForkPolicy(packageStorage(), input.forkKodyId) };
 }
@@ -63,7 +69,10 @@ export async function getRun(input: { id: string }): Promise<SyncRunRecord | und
 
 /**
  * Trigger a manual Graft sync for a forked package against a specific upstream commit SHA.
- * Must be executed on an Execution Context with host commands enabled.
+ *
+ * Runs natively in Kody Cloud (`workerd`) by default. When the fork's saved policy sets
+ * `testCommand`, `agentCommand`, or `execution: "context"` (or when `execution: "context"` is
+ * passed), runs via `kody.command.run` on an Execution Context.
  */
 export async function syncFork(input: {
   forkKodyId: string;
@@ -72,6 +81,7 @@ export async function syncFork(input: {
   fromCommit?: string;
   packageVersion?: string | null;
   packageId?: string;
+  execution?: SyncExecutionTarget;
 }): Promise<SyncRunRecord> {
   const now = new Date().toISOString();
   const syntheticEvent: CommunityForkUpstreamUpdatedEvent = {
@@ -95,9 +105,29 @@ export async function syncFork(input: {
     current: { pinned_commit: input.toCommit, package_version: input.packageVersion ?? null },
     published_at: now,
   };
-  return syncForkFromUpstreamEvent(syntheticEvent, {
-    command: kody.command,
-    storage: packageStorage(),
+  const storage = packageStorage();
+  const policy = (await getForkPolicy(storage, input.forkKodyId)) ?? defaultPolicy(input.forkKodyId);
+  const useContext = input.execution === 'context' || (input.execution !== 'cloud' && policyRequiresExecutionContext(policy));
+  if (useContext) {
+    if (typeof kody.command?.run !== 'function') {
+      throw new Error(
+        `Manual syncFork for "${input.forkKodyId}" requires an Execution Context (policy sets testCommand/agentCommand or execution: "context"), but host commands are not available in Kody Cloud`,
+      );
+    }
+    return syncForkFromUpstreamEvent(syntheticEvent, {
+      command: kody.command,
+      storage,
+      resolvePackageName: async (packageId) => (await kody.packageGet({ package_id: packageId })).name,
+      publisher: {
+        publish: (pubInput) => kody.packagePublishExternalPush(pubInput),
+      },
+    });
+  }
+  return syncForkInCloud(syntheticEvent, {
+    gitRemote: {
+      getGitRemote: (remoteInput) => kody.packageGetGitRemote(remoteInput),
+    },
+    storage,
     resolvePackageName: async (packageId) => (await kody.packageGet({ package_id: packageId })).name,
     publisher: {
       publish: (pubInput) => kody.packagePublishExternalPush(pubInput),

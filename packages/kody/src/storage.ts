@@ -1,9 +1,11 @@
-import type { ForkPolicy, StorageBucket, SyncPushMode, SyncRunOutcome, SyncRunRecord } from './types.ts';
+import type { ForkPolicy, StorageBucket, SyncExecutionTarget, SyncPushMode, SyncRunOutcome, SyncRunRecord } from './types.ts';
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS fork_policies (
   fork_kody_id TEXT PRIMARY KEY,
   mode TEXT NOT NULL,
+  execution TEXT,
+  execution_context TEXT,
   test_command TEXT,
   agent_command TEXT,
   graft_command_json TEXT,
@@ -43,6 +45,8 @@ CREATE INDEX IF NOT EXISTS idx_sync_runs_fork_created
 interface PolicyRow {
   fork_kody_id: string;
   mode: string;
+  execution?: string | null;
+  execution_context?: string | null;
   test_command: string | null;
   agent_command: string | null;
   graft_command_json: string | null;
@@ -87,9 +91,12 @@ function parseJsonArray(raw: string | null): string[] {
 
 function rowToPolicy(row: PolicyRow): ForkPolicy {
   const graftCommand = parseJsonArray(row.graft_command_json);
+  const execution: SyncExecutionTarget | undefined = row.execution === 'cloud' || row.execution === 'context' ? row.execution : undefined;
   return {
     forkKodyId: row.fork_kody_id,
     mode: (row.mode === 'push' || row.mode === 'publish' ? row.mode : 'branch') as SyncPushMode,
+    ...(execution ? { execution } : {}),
+    ...(row.execution_context ? { executionContext: row.execution_context } : {}),
     ...(row.test_command ? { testCommand: row.test_command } : {}),
     ...(row.agent_command ? { agentCommand: row.agent_command } : {}),
     ...(graftCommand.length ? { graftCommand } : {}),
@@ -125,9 +132,17 @@ function rowToRun(row: RunRow): SyncRunRecord {
   };
 }
 
-/** Ensure the package SQLite tables exist before reading or writing. */
+/** Ensure the package SQLite tables exist (and migrate older buckets additively) before reading or writing. */
 export async function ensureSchema(bucket: StorageBucket): Promise<void> {
   await bucket.sql(SCHEMA_SQL);
+  const cols = await bucket.sql<{ name: string }>('PRAGMA table_info(fork_policies)');
+  const names = new Set(cols.rows.map((r) => r.name));
+  if (!names.has('execution')) {
+    await bucket.sql('ALTER TABLE fork_policies ADD COLUMN execution TEXT');
+  }
+  if (!names.has('execution_context')) {
+    await bucket.sql('ALTER TABLE fork_policies ADD COLUMN execution_context TEXT');
+  }
 }
 
 /** Default policy used when a fork has no saved row in `fork_policies`. */
@@ -164,13 +179,18 @@ export async function upsertForkPolicy(
   if (mode !== 'branch' && mode !== 'push' && mode !== 'publish') {
     throw new Error(`Invalid sync mode "${String(mode)}" (expected "branch", "push", or "publish")`);
   }
+  if (input.execution !== undefined && input.execution !== 'cloud' && input.execution !== 'context') {
+    throw new Error(`Invalid execution target "${String(input.execution)}" (expected "cloud" or "context")`);
+  }
   await bucket.sql(
     `INSERT INTO fork_policies (
-      fork_kody_id, mode, test_command, agent_command, graft_command_json, workspace_root, kody_origin,
-      push_agent_branch, allow_zero_conflict_package_json, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      fork_kody_id, mode, execution, execution_context, test_command, agent_command, graft_command_json,
+      workspace_root, kody_origin, push_agent_branch, allow_zero_conflict_package_json, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(fork_kody_id) DO UPDATE SET
       mode = excluded.mode,
+      execution = excluded.execution,
+      execution_context = excluded.execution_context,
       test_command = excluded.test_command,
       agent_command = excluded.agent_command,
       graft_command_json = excluded.graft_command_json,
@@ -182,6 +202,8 @@ export async function upsertForkPolicy(
     [
       input.forkKodyId,
       mode,
+      input.execution ?? null,
+      input.executionContext ?? null,
       input.testCommand ?? null,
       input.agentCommand ?? null,
       input.graftCommand?.length ? JSON.stringify(input.graftCommand) : null,
@@ -195,6 +217,8 @@ export async function upsertForkPolicy(
   return {
     forkKodyId: input.forkKodyId,
     mode,
+    ...(input.execution ? { execution: input.execution } : {}),
+    ...(input.executionContext ? { executionContext: input.executionContext } : {}),
     ...(input.testCommand ? { testCommand: input.testCommand } : {}),
     ...(input.agentCommand ? { agentCommand: input.agentCommand } : {}),
     ...(input.graftCommand?.length ? { graftCommand: input.graftCommand } : {}),

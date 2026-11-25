@@ -1,29 +1,36 @@
 import { events, kody, packageStorage, workflows } from 'kody:runtime';
 import { emitCompletionOrScheduleCloud } from './completion-event.ts';
-import { syncForkFromUpstreamEvent } from './sync.ts';
-import type { CommunityForkUpstreamUpdatedEvent, SyncRunRecord } from './types.ts';
+import { routeUpstreamUpdatedEvent, type RoutedSyncResult } from './route.ts';
+import type { CommunityForkUpstreamUpdatedEvent } from './types.ts';
 
 /**
  * Subscription handler for `community.fork.upstream_updated`.
  *
- * Runs on your Kody Execution Context, executes `graft sync --json` against the upstream listing's
- * new `pinned_commit`, persists the result in `packageStorage()`, and emits
- * `@brandontroberts/sync-fork.completed` (directly on cloud, or via a cloud workflow running
- * `./emit-sync-completed` when executed on a local Execution Context).
+ * Runs natively in Kody Cloud (`workerd`) by default over Git Smart HTTP v1 using
+ * `kody.packageGetGitRemote` — no Execution Context required — and dispatches
+ * `@brandontroberts/sync-fork.completed` directly. When a fork's policy opts into host shell
+ * commands (`testCommand`, `agentCommand`, or `execution: 'context'`), automatically delegates
+ * to `./sync-on-context` on an Execution Context.
  */
-export default async function onUpstreamUpdated(params?: Record<string, unknown>): Promise<SyncRunRecord> {
+export default async function onUpstreamUpdated(params?: Record<string, unknown>): Promise<RoutedSyncResult> {
   if (!params || typeof params !== 'object') {
     throw new Error('community.fork.upstream_updated handler requires an event payload');
   }
   const event = params as unknown as CommunityForkUpstreamUpdatedEvent;
   const storage = packageStorage();
-  return syncForkFromUpstreamEvent(event, {
-    command: kody.command,
+  const hasHostCommand = typeof kody.command?.run === 'function';
+  return routeUpstreamUpdatedEvent(event, {
     storage,
+    storageId: storage.id,
+    gitRemote: {
+      getGitRemote: (input) => kody.packageGetGitRemote(input),
+    },
+    ...(hasHostCommand ? { command: kody.command } : {}),
     resolvePackageName: async (packageId) => (await kody.packageGet({ package_id: packageId })).name,
     publisher: {
       publish: (input) => kody.packagePublishExternalPush(input),
     },
+    scheduleContextWorkflow: workflows?.create ? (input) => workflows.create(input) : undefined,
     emitter: {
       async emit(record) {
         await emitCompletionOrScheduleCloud(record, {
