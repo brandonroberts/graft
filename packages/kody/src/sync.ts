@@ -165,11 +165,31 @@ function parseGraftReport(stdout: string): GraftSyncJsonReport | undefined {
   }
 }
 
+async function writeText(command: CommandRunner, filePath: string, content: string): Promise<void> {
+  await execOrThrow(command, `write ${filePath}`, {
+    file: 'node',
+    args: [
+      '-e',
+      'const fs=require("node:fs"),p=require("node:path"); fs.mkdirSync(p.dirname(process.argv[1]),{recursive:true}); fs.writeFileSync(process.argv[1], process.argv[2]);',
+      filePath,
+      content,
+    ],
+    timeoutMs: 15_000,
+  });
+}
+
+async function resolveGraftCommand(command: CommandRunner, policy: ForkPolicy): Promise<string[]> {
+  if (policy.graftCommand?.length) return policy.graftCommand;
+  const probe = await command.run({ file: 'graft', args: ['--version'], timeoutMs: 10_000 });
+  if (!probe.timedOut && probe.exitCode === 0) return ['graft'];
+  return ['npx', '-y', '@graftsync/cli@latest'];
+}
+
 async function runGraftSync(
   command: CommandRunner,
   repoDir: string,
   targetVersion: string,
-  policy: ForkPolicy,
+  graftCmd: string[],
 ): Promise<{
   exitCode: number | null;
   timedOut: boolean;
@@ -177,7 +197,7 @@ async function runGraftSync(
   stderr: string;
   report?: GraftSyncJsonReport;
 }> {
-  const [file, ...prefixArgs] = policy.graftCommand?.length ? policy.graftCommand : ['graft'];
+  const [file, ...prefixArgs] = graftCmd;
   const res = await command.run({
     file: file!,
     args: [...prefixArgs, 'sync', '--version', targetVersion, '--json'],
@@ -196,6 +216,69 @@ function isZeroConflictPackageJsonOnly(report: GraftSyncJsonReport): boolean {
   if (!missed.length || !missed.every((a) => a.file === 'package.json')) return false;
   const start = g.agentStart;
   return Boolean(start?.repo && start.ref && start.upstream && Array.isArray(start.conflicts) && start.conflicts.length === 0);
+}
+
+async function openAgentMerge(
+  command: CommandRunner,
+  repoDir: string,
+  start: { repo: string; ref: string; upstream: string },
+): Promise<void> {
+  await execOrThrow(command, 'git fetch -agent branch', {
+    file: 'git',
+    args: ['-C', repoDir, 'fetch', '--quiet', start.repo, start.ref],
+    timeoutMs: 60_000,
+  });
+  await execOrThrow(command, 'git merge upstream (-agent branch)', {
+    file: 'git',
+    args: ['-C', repoDir, 'merge', '--no-ff', '--no-commit', '-s', 'ours', '--allow-unrelated-histories', start.upstream],
+    timeoutMs: 60_000,
+  });
+  await execOrThrow(command, 'git read-tree -agent branch', {
+    file: 'git',
+    args: ['-C', repoDir, 'read-tree', '-u', '--reset', 'FETCH_HEAD'],
+    timeoutMs: 60_000,
+  });
+}
+
+async function abortAndReset(command: CommandRunner, repoDir: string, defaultBranch: string): Promise<void> {
+  await command.run({ file: 'git', args: ['-C', repoDir, 'merge', '--abort'], timeoutMs: 15_000 });
+  await execOrThrow(command, 'git reset after aborted merge', {
+    file: 'git',
+    args: ['-C', repoDir, 'reset', '--hard', `origin/${defaultBranch}`],
+    timeoutMs: 30_000,
+  });
+  await execOrThrow(command, 'git clean after aborted merge', {
+    file: 'git',
+    args: ['-C', repoDir, 'clean', '-fd'],
+    timeoutMs: 30_000,
+  });
+}
+
+function buildAgentPrompt(input: {
+  forkKodyId: string;
+  upstreamKodyId: string;
+  targetVersion: string;
+  conflicts: string[];
+  reportPath: string;
+}): string {
+  const conflictList = input.conflicts.length
+    ? input.conflicts.map((f) => `- ${f}`).join('\n')
+    : '- (none; check missed anchors in sync.md)';
+  return [
+    `\`graft sync\` reported \`needs-agent\` while syncing ${input.forkKodyId} to ${input.upstreamKodyId}@${input.targetVersion}.`,
+    '',
+    `Read \`${input.reportPath}\` and \`.grafts/upstream-sync/graft.md\` (especially Why and Invariants).`,
+    'This working tree already has the open merge with conflict markers in place:',
+    conflictList,
+    '',
+    'Instructions:',
+    '1. Resolve the conflict markers (or missed anchors) while preserving every Invariant in `graft.md`.',
+    '2. Keep the permanent `./variants/fork.json` variant — do not write a new variant.',
+    "3. Never write `kody:` followed by another user's `@scope/` inside `graft.md` or docs.",
+    `4. Verify with \`graft sync --version ${input.targetVersion}\` and the package's tests without weakening them.`,
+    '5. Do not commit or push — leave the resolved working tree ready for Graft to re-verify and conclude the merge.',
+    '',
+  ].join('\n');
 }
 
 async function adoptAndCommit(
@@ -304,39 +387,80 @@ export async function syncForkFromUpstreamEvent(event: CommunityForkUpstreamUpda
       return finalize();
     }
 
-    let syncRun = await runGraftSync(deps.command, repoDir, targetVersion, policy);
+    const graftCmd = await resolveGraftCommand(deps.command, policy);
+    let syncRun = await runGraftSync(deps.command, repoDir, targetVersion, graftCmd);
     let alreadyMerging = false;
 
     // Optional Kody-side workaround: zero-conflict package.json adjacency (e.g. version bump next to name rewrite).
     if (syncRun.exitCode === 1 && policy.allowZeroConflictPackageJson && syncRun.report && isZeroConflictPackageJsonOnly(syncRun.report)) {
       const start = syncRun.report.grafts.find((g) => g.outcome === 'needs-agent')!.agentStart!;
-      await execOrThrow(deps.command, 'git fetch -agent branch', {
-        file: 'git',
-        args: ['-C', repoDir, 'fetch', '--quiet', start.repo!, start.ref!],
-        timeoutMs: 60_000,
-      });
-      await execOrThrow(deps.command, 'git merge upstream (zero-conflict package.json check)', {
-        file: 'git',
-        args: ['-C', repoDir, 'merge', '--no-ff', '--no-commit', '-s', 'ours', '--allow-unrelated-histories', start.upstream!],
-        timeoutMs: 60_000,
-      });
-      await execOrThrow(deps.command, 'git read-tree -agent branch', {
-        file: 'git',
-        args: ['-C', repoDir, 'read-tree', '-u', '--reset', 'FETCH_HEAD'],
-        timeoutMs: 60_000,
-      });
-      const recheck = await runGraftSync(deps.command, repoDir, targetVersion, policy);
+      await openAgentMerge(deps.command, repoDir, { repo: start.repo!, ref: start.ref!, upstream: start.upstream! });
+      const recheck = await runGraftSync(deps.command, repoDir, targetVersion, graftCmd);
       if (recheck.exitCode === 0) {
         syncRun = recheck;
         alreadyMerging = true;
         record.warnings.push('adopted zero-conflict package.json merge and re-verified with graft sync');
       } else {
-        await deps.command.run({ file: 'git', args: ['-C', repoDir, 'merge', '--abort'], timeoutMs: 15_000 });
-        await execOrThrow(deps.command, 'git reset after failed recheck', {
-          file: 'git',
-          args: ['-C', repoDir, 'reset', '--hard', `origin/${defaultBranch}`],
-          timeoutMs: 30_000,
+        await abortAndReset(deps.command, repoDir, defaultBranch);
+      }
+    }
+
+    // Optional local coding agent hand-off on `needs-agent`: adopt `-agent` branch, run agentCommand,
+    // then ALWAYS re-verify with `graft sync` (never trust the agent blindly).
+    if (syncRun.exitCode === 1 && policy.agentCommand && syncRun.report) {
+      const needing = syncRun.report.grafts.filter((g) => g.outcome === 'needs-agent');
+      const start = needing.find((g) => g.agentStart?.repo && g.agentStart.ref && g.agentStart.upstream)?.agentStart;
+      if (start?.repo && start.ref && start.upstream) {
+        const reportMdPath = joinPath(repoDir, '.grafts', '.report', 'sync.md');
+        const reportJsonPath = joinPath(repoDir, '.grafts', '.report', 'sync.json');
+        const promptPath = joinPath(repoDir, '.grafts', '.report', 'agent-prompt.md');
+        const conflicts = [...new Set(needing.flatMap((g) => g.agentStart?.conflicts ?? []))];
+        await openAgentMerge(deps.command, repoDir, { repo: start.repo, ref: start.ref, upstream: start.upstream });
+        await writeText(
+          deps.command,
+          promptPath,
+          buildAgentPrompt({ forkKodyId, upstreamKodyId, targetVersion, conflicts, reportPath: reportMdPath }),
+        );
+        const agentRes = await deps.command.run({
+          command: policy.agentCommand,
+          cwd: repoDir,
+          timeoutMs: 600_000,
+          env: {
+            GRAFT_PROMPT_FILE: promptPath,
+            GRAFT_REPORT_MD: reportMdPath,
+            GRAFT_REPORT_JSON: reportJsonPath,
+            GRAFT_TARGET_VERSION: targetVersion,
+            GRAFT_CONFLICTS: conflicts.join(','),
+            GRAFT_FORK_ID: forkKodyId,
+            GRAFT_UPSTREAM_ID: upstreamKodyId,
+          },
         });
+        record.agentRan = true;
+        if (agentRes.timedOut || agentRes.exitCode !== 0) {
+          record.warnings.push(failMessage(`agentCommand \`${policy.agentCommand}\``, agentRes));
+          await abortAndReset(deps.command, repoDir, defaultBranch);
+        } else {
+          // Verify no conflict markers remain in tracked files (`read-tree` staged the markers
+          // into the index, so `git diff --check` alone would miss them) and `graft sync` passes.
+          const markers = await deps.command.run({
+            file: 'git',
+            args: ['-C', repoDir, 'grep', '-n', '-E', '^(<{7} |={7}$|>{7} )'],
+            timeoutMs: 15_000,
+          });
+          const hasMarkers = markers.exitCode === 0 && markers.stdout.trim().length > 0;
+          const recheck = hasMarkers ? undefined : await runGraftSync(deps.command, repoDir, targetVersion, graftCmd);
+          if (!hasMarkers && recheck?.exitCode === 0 && recheck.report) {
+            syncRun = recheck;
+            alreadyMerging = true;
+          } else {
+            record.warnings.push(
+              hasMarkers
+                ? 'agentCommand exited 0 but left conflict markers in the working tree; aborting'
+                : 'agentCommand exited 0 but re-running graft sync was still not green; aborting',
+            );
+            await abortAndReset(deps.command, repoDir, defaultBranch);
+          }
+        }
       }
     }
 

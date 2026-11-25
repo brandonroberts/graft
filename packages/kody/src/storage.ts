@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS fork_policies (
   fork_kody_id TEXT PRIMARY KEY,
   mode TEXT NOT NULL,
   test_command TEXT,
+  agent_command TEXT,
   graft_command_json TEXT,
   workspace_root TEXT,
   kody_origin TEXT,
@@ -28,6 +29,7 @@ CREATE TABLE IF NOT EXISTS sync_runs (
   conflicts_json TEXT NOT NULL,
   reasons_json TEXT NOT NULL,
   report_md TEXT,
+  agent_ran INTEGER NOT NULL DEFAULT 0,
   publish_status TEXT,
   approval_url TEXT,
   warnings_json TEXT NOT NULL,
@@ -42,6 +44,7 @@ interface PolicyRow {
   fork_kody_id: string;
   mode: string;
   test_command: string | null;
+  agent_command: string | null;
   graft_command_json: string | null;
   workspace_root: string | null;
   kody_origin: string | null;
@@ -65,6 +68,7 @@ interface RunRow {
   conflicts_json: string;
   reasons_json: string;
   report_md: string | null;
+  agent_ran: number;
   publish_status: string | null;
   approval_url: string | null;
   warnings_json: string;
@@ -87,6 +91,7 @@ function rowToPolicy(row: PolicyRow): ForkPolicy {
     forkKodyId: row.fork_kody_id,
     mode: (row.mode === 'push' || row.mode === 'publish' ? row.mode : 'branch') as SyncPushMode,
     ...(row.test_command ? { testCommand: row.test_command } : {}),
+    ...(row.agent_command ? { agentCommand: row.agent_command } : {}),
     ...(graftCommand.length ? { graftCommand } : {}),
     ...(row.workspace_root ? { workspaceRoot: row.workspace_root } : {}),
     ...(row.kody_origin ? { kodyOrigin: row.kody_origin } : {}),
@@ -112,6 +117,7 @@ function rowToRun(row: RunRow): SyncRunRecord {
     conflicts: parseJsonArray(row.conflicts_json),
     reasons: parseJsonArray(row.reasons_json),
     ...(row.report_md ? { reportMd: row.report_md } : {}),
+    ...(row.agent_ran === 1 ? { agentRan: true } : {}),
     ...(row.publish_status ? { publishStatus: row.publish_status } : {}),
     ...(row.approval_url ? { approvalUrl: row.approval_url } : {}),
     warnings: parseJsonArray(row.warnings_json),
@@ -160,12 +166,13 @@ export async function upsertForkPolicy(
   }
   await bucket.sql(
     `INSERT INTO fork_policies (
-      fork_kody_id, mode, test_command, graft_command_json, workspace_root, kody_origin,
+      fork_kody_id, mode, test_command, agent_command, graft_command_json, workspace_root, kody_origin,
       push_agent_branch, allow_zero_conflict_package_json, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(fork_kody_id) DO UPDATE SET
       mode = excluded.mode,
       test_command = excluded.test_command,
+      agent_command = excluded.agent_command,
       graft_command_json = excluded.graft_command_json,
       workspace_root = excluded.workspace_root,
       kody_origin = excluded.kody_origin,
@@ -176,6 +183,7 @@ export async function upsertForkPolicy(
       input.forkKodyId,
       mode,
       input.testCommand ?? null,
+      input.agentCommand ?? null,
       input.graftCommand?.length ? JSON.stringify(input.graftCommand) : null,
       input.workspaceRoot ?? null,
       input.kodyOrigin ?? null,
@@ -188,6 +196,7 @@ export async function upsertForkPolicy(
     forkKodyId: input.forkKodyId,
     mode,
     ...(input.testCommand ? { testCommand: input.testCommand } : {}),
+    ...(input.agentCommand ? { agentCommand: input.agentCommand } : {}),
     ...(input.graftCommand?.length ? { graftCommand: input.graftCommand } : {}),
     ...(input.workspaceRoot ? { workspaceRoot: input.workspaceRoot } : {}),
     ...(input.kodyOrigin ? { kodyOrigin: input.kodyOrigin } : {}),
@@ -208,9 +217,9 @@ export async function saveSyncRun(bucket: StorageBucket, run: SyncRunRecord): Pr
   await bucket.sql(
     `INSERT OR REPLACE INTO sync_runs (
       id, event_id, fork_kody_id, upstream_kody_id, from_commit, to_commit, target_version,
-      outcome, mode, branch, commit_sha, conflicts_json, reasons_json, report_md,
+      outcome, mode, branch, commit_sha, conflicts_json, reasons_json, report_md, agent_ran,
       publish_status, approval_url, warnings_json, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       run.id,
       run.eventId,
@@ -226,6 +235,7 @@ export async function saveSyncRun(bucket: StorageBucket, run: SyncRunRecord): Pr
       JSON.stringify(run.conflicts),
       JSON.stringify(run.reasons),
       run.reportMd ?? null,
+      run.agentRan === true ? 1 : 0,
       run.publishStatus ?? null,
       run.approvalUrl ?? null,
       JSON.stringify(run.warnings),

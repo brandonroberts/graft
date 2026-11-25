@@ -467,6 +467,106 @@ describe('packages/kody (@brandonroberts/graft-sync)', () => {
     expect(record.reasons.join('\n')).toMatch(/upstream commit deadbeefcafe/);
   });
 
+  it('falls back to npx -y @graftsync/cli@latest when graft is not on PATH', async () => {
+    const fx = await setupKodyFork();
+    const next = await fx.commitUpstream({ 'src/util.ts': 'export const VERSION = 2;\n' }, 'upstream v2');
+    const real = createHostRunner();
+    const seenNpx: string[][] = [];
+    const runner: CommandRunner = {
+      async run(input) {
+        if (input.file === 'graft' && input.args?.[0] === '--version') {
+          return { exitCode: 127, signal: null, timedOut: false, stdout: '', stderr: 'not found' };
+        }
+        if (input.file === 'npx' && input.args?.[0] === '-y' && input.args[1] === '@graftsync/cli@latest') {
+          seenNpx.push(input.args);
+          return real.run({ ...input, file: process.execPath, args: [GRAFT_BIN, ...input.args.slice(2)] });
+        }
+        return real.run(input);
+      },
+    };
+
+    const record = await syncForkFromUpstreamEvent(fx.makeEvent(next), {
+      command: runner,
+      forkGitUrl: `file://${fx.forkBare}`,
+      policy: {
+        forkKodyId: '@brandonroberts/my-tool',
+        mode: 'branch',
+        workspaceRoot: fx.workspaceRoot,
+        updatedAt: '2026-11-24T01:00:00.000Z',
+      },
+    });
+    expect(record.outcome, JSON.stringify(record)).toBe('green');
+    expect(seenNpx).toHaveLength(1);
+    expect(seenNpx[0]?.slice(0, 3)).toEqual(['-y', '@graftsync/cli@latest', 'sync']);
+  });
+
+  it('runs agentCommand on conflicts, re-verifies with graft sync, and rejects unresolved markers', async () => {
+    const fx = await setupKodyFork();
+    const conflicting = await fx.commitUpstream(
+      { 'src/index.ts': 'export function greet(name: string) {\n  return `hi there ${name}`;\n}\n' },
+      'conflicting greeting edit',
+    );
+    const storage = createSqliteBucket();
+
+    // 1. A liar agent that exits 0 without resolving conflict markers must NOT produce a green push.
+    const liar = await syncForkFromUpstreamEvent(fx.makeEvent(conflicting), {
+      command: createHostRunner(),
+      storage,
+      forkGitUrl: `file://${fx.forkBare}`,
+      policy: {
+        forkKodyId: '@brandonroberts/my-tool',
+        mode: 'branch',
+        agentCommand: 'node -e "process.exit(0)"',
+        graftCommand: [process.execPath, GRAFT_BIN],
+        workspaceRoot: fx.workspaceRoot,
+        updatedAt: '2026-11-24T01:00:00.000Z',
+      },
+    });
+    expect(liar.outcome).toBe('needs-agent');
+    expect(liar.agentRan).toBe(true);
+    expect(liar.warnings.join('\n')).toMatch(/left conflict markers/);
+    expect(liar.branch).toBe(`graft/agent-${conflicting.slice(0, 12)}`);
+
+    // 2. A real agent script that reads GRAFT_PROMPT_FILE / GRAFT_CONFLICTS and resolves src/index.ts.
+    const agentScript = path.join(fx.root, 'resolve-agent.mjs');
+    await writeFile(
+      agentScript,
+      [
+        "import { existsSync, readFileSync, writeFileSync } from 'node:fs';",
+        'if (!existsSync(process.env.GRAFT_PROMPT_FILE)) process.exit(2);',
+        "if (process.env.GRAFT_CONFLICTS !== 'src/index.ts') process.exit(3);",
+        "const prompt = readFileSync(process.env.GRAFT_PROMPT_FILE, 'utf8');",
+        "if (!prompt.includes('src/index.ts')) process.exit(4);",
+        "writeFileSync('src/index.ts', 'export function greet(name: string) {\\n  return `howdy there ${name}!`;\\n}\\n');",
+      ].join('\n'),
+    );
+
+    const resolved = await syncForkFromUpstreamEvent(fx.makeEvent(conflicting), {
+      command: createHostRunner(),
+      storage,
+      forkGitUrl: `file://${fx.forkBare}`,
+      policy: {
+        forkKodyId: '@brandonroberts/my-tool',
+        mode: 'branch',
+        agentCommand: `"${process.execPath}" "${agentScript}"`,
+        graftCommand: [process.execPath, GRAFT_BIN],
+        workspaceRoot: fx.workspaceRoot,
+        updatedAt: '2026-11-24T01:00:00.000Z',
+      },
+    });
+    expect(resolved.outcome, JSON.stringify(resolved)).toBe('green');
+    expect(resolved.agentRan).toBe(true);
+    expect(resolved.branch).toBe(`graft/sync-${conflicting.slice(0, 12)}`);
+    expect(gitIn(fx.forkBare, 'show', `refs/heads/${resolved.branch}:src/index.ts`)).toContain('howdy there ${name}!');
+    expect(gitIn(fx.forkBare, 'show', `refs/heads/${resolved.branch}:.grafts/upstream-sync/graft.md`)).toContain('status: applied');
+    const parents = gitIn(fx.forkBare, 'rev-list', '--parents', '-n1', `refs/heads/${resolved.branch}`).trim().split(' ').slice(1);
+    expect(parents).toHaveLength(2);
+    expect(parents[1]).toBe(conflicting);
+
+    const stored = await getSyncRun(storage, resolved.id);
+    expect(stored?.agentRan).toBe(true);
+  });
+
   it('persists, lists, updates, and deletes fork policies in SQLite storage', async () => {
     const storage = createSqliteBucket();
     expect(await listForkPolicies(storage)).toEqual([]);
@@ -475,13 +575,16 @@ describe('packages/kody (@brandonroberts/graft-sync)', () => {
       forkKodyId: '@brandonroberts/alpha',
       mode: 'publish',
       testCommand: 'npm test',
+      agentCommand: 'claude -p "$(cat "$GRAFT_PROMPT_FILE")"',
       graftCommand: ['npx', '-y', '@graftsync/cli@latest'],
       allowZeroConflictPackageJson: true,
     });
     expect(saved.mode).toBe('publish');
+    expect(saved.agentCommand).toBe('claude -p "$(cat "$GRAFT_PROMPT_FILE")"');
     expect(await getForkPolicy(storage, '@brandonroberts/alpha')).toMatchObject({
       mode: 'publish',
       testCommand: 'npm test',
+      agentCommand: 'claude -p "$(cat "$GRAFT_PROMPT_FILE")"',
       graftCommand: ['npx', '-y', '@graftsync/cli@latest'],
       allowZeroConflictPackageJson: true,
     });

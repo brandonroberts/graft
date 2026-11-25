@@ -16,6 +16,7 @@ export async function setPolicy(input: {
   forkKodyId: string;
   mode?: SyncPushMode;
   testCommand?: string;
+  agentCommand?: string;
   graftCommand?: string[];
   workspaceRoot?: string;
   kodyOrigin?: string;
@@ -26,6 +27,7 @@ export async function setPolicy(input: {
     forkKodyId: input.forkKodyId,
     mode: input.mode ?? 'branch',
     ...(input.testCommand !== undefined ? { testCommand: input.testCommand } : {}),
+    ...(input.agentCommand !== undefined ? { agentCommand: input.agentCommand } : {}),
     ...(input.graftCommand !== undefined ? { graftCommand: input.graftCommand } : {}),
     ...(input.workspaceRoot !== undefined ? { workspaceRoot: input.workspaceRoot } : {}),
     ...(input.kodyOrigin !== undefined ? { kodyOrigin: input.kodyOrigin } : {}),

@@ -32,6 +32,7 @@ export default async function onUpstreamUpdated(event: CommunityForkUpstreamUpda
             outcome: record.outcome,
             ...(record.branch ? { branch: record.branch } : {}),
             conflicts: record.conflicts,
+            ...(record.agentRan ? { agentRan: true } : {}),
             ...(record.publishStatus ? { publishStatus: record.publishStatus } : {}),
             ...(record.approvalUrl ? { approvalUrl: record.approvalUrl } : {}),
           },

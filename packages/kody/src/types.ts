@@ -46,8 +46,15 @@ export interface ForkPolicy {
   /** Optional local command run in the fork checkout before pushing a green merge (e.g. `npm test`). */
   testCommand?: string;
   /**
-   * Command + leading args for invoking Graft on the Execution Context (default: `['graft']`).
-   * Example: `['npx', '-y', '@graftsync/cli@latest']`.
+   * Optional local coding-agent shell command run on the Execution Context when `graft sync`
+   * reports `needs-agent` (e.g. `claude -p "$(cat "$GRAFT_PROMPT_FILE")"`). Graft adopts the
+   * `-agent` branch, runs this command, and re-runs `graft sync` (plus `testCommand`) before
+   * pushing — never trusting the agent blindly.
+   */
+  agentCommand?: string;
+  /**
+   * Command + leading args for invoking Graft on the Execution Context.
+   * Defaults to `['graft']` when on `PATH`, falling back to `['npx', '-y', '@graftsync/cli@latest']`.
    */
   graftCommand?: string[];
   /** Absolute path on the Execution Context where fork clones are cached (default: `<homedir>/.cache/kody-graft`). */
@@ -90,6 +97,8 @@ export interface SyncRunRecord {
   reasons: string[];
   /** Markdown report from `.grafts/.report/sync.md`, when present. */
   reportMd?: string;
+  /** True when `policy.agentCommand` ran during this sync attempt. */
+  agentRan?: boolean;
   /** Result status of `packagePublishExternalPush` in `publish` mode. */
   publishStatus?: string;
   /** Human approval URL when Kody returns `locked` on publish. */
