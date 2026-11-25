@@ -176,6 +176,7 @@ Use [`packages/action`](packages/action) to poll for newer upstream versions, ru
 | [`docs/development.md`](docs/development.md) | Packages, writing a mechanism adapter, local setup, releasing, roadmap |
 | [`docs/handoff.md`](docs/handoff.md) | Current project state, design decisions, and open work |
 | [`packages/action`](packages/action) | GitHub Action inputs, outputs, tokens, and agent hand-off |
+| [`packages/kody`](packages/kody) | Kody package (`@brandonroberts/graft-sync`) for syncing forked Kody community packages |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) · [`SECURITY.md`](SECURITY.md) | Contributing guidelines and security reporting |
 
 ## License

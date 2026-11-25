@@ -137,6 +137,12 @@ importers:
         specifier: ^2.9.1
         version: 2.9.1(patch_hash=48f10651313b364525b85ecf86c3c6106702743517271dea8307f8fb4a437edf)
 
+  packages/kody:
+    dependencies:
+      semver:
+        specifier: ^7.7.0
+        version: 7.8.6(patch_hash=0947e43b5ed23af7999e3f96c9aff3b942a900e128439305229a9b031d0890b4)
+
   packages/skill: {}
 
   packages/spec:
