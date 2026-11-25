@@ -1,6 +1,6 @@
 import { events, kody, packageStorage } from 'kody:runtime';
-import { syncForkFromUpstreamEvent } from './sync.js';
-import type { CommunityForkUpstreamUpdatedEvent, SyncRunRecord } from './types.js';
+import { syncForkFromUpstreamEvent } from './sync.ts';
+import type { CommunityForkUpstreamUpdatedEvent, SyncRunRecord } from './types.ts';
 
 const COMPLETION_TOPIC = '@brandontroberts/graft.sync.completed';
 
