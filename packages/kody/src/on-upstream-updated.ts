@@ -11,7 +11,11 @@ const COMPLETION_TOPIC = '@brandontroberts/graft.sync.completed';
  * new `pinned_commit`, persists the result in `packageStorage()`, and emits
  * `@brandontroberts/graft.sync.completed` for downstream notifier packages.
  */
-export default async function onUpstreamUpdated(event: CommunityForkUpstreamUpdatedEvent): Promise<SyncRunRecord> {
+export default async function onUpstreamUpdated(params?: Record<string, unknown>): Promise<SyncRunRecord> {
+  if (!params || typeof params !== 'object') {
+    throw new Error('community.fork.upstream_updated handler requires an event payload');
+  }
+  const event = params as unknown as CommunityForkUpstreamUpdatedEvent;
   return syncForkFromUpstreamEvent(event, {
     command: kody.command,
     storage: packageStorage(),
