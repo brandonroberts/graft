@@ -22,8 +22,8 @@ Kody community packages stay in sync with upstream automatically in Kody Cloud.
    `push`, or `publish`, plus optional `allowZeroConflictPackageJson`, or
    optional Execution Context `testCommand` / `agentCommand`).
 3. For each fork I pick:
-   - run the fork's tests first and fix any `communityFork` rewrite bugs before
-     baselining it,
+   - check any `leftover_origin_references` from `communityFork`, run the fork's
+     tests first, and fix any remaining origin-scope references before baselining it,
    - scaffold `.grafts/upstream-sync/graft.md` via `graft add --mechanism fork --in-place`
      at its `origin_commit` (using `npx -y @graftsync/cli@latest` if `graft` is not installed),
    - fill in Why, Invariants, Where to look, and Anchors (never write `kody:` +
